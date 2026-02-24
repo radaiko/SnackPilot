@@ -7,6 +7,7 @@ import { MENU_CACHE_VALIDITY_MS } from '../utils/constants';
 import { isSameDay, isOrderingCutoff, localDateKey } from '../utils/dateUtils';
 
 const MENU_CACHE_KEY = 'menus_items';
+export const ORDERING_CUTOFF_MESSAGE = 'Bestellung für heute geschlossen (Bestellschluss 9:00)';
 
 /** Serialize menu items for AsyncStorage (Date -> ISO string). */
 function serializeMenuItems(items: GourmetMenuItem[]): string {
@@ -226,7 +227,7 @@ export const useMenuStore = create<MenuState>((set, get) => ({
     const allowedNewOrders = newOrderItems.filter((i) => !isOrderingCutoff(i.date));
     const hasCutoffBlocked = allowedNewOrders.length < newOrderItems.length;
     if (hasCutoffBlocked && allowedNewOrders.length === 0 && cancellationPositionIds.length === 0) {
-      set({ error: 'Bestellung für heute geschlossen (Bestellschluss 12:30)' });
+      set({ error: ORDERING_CUTOFF_MESSAGE });
       return;
     }
 
@@ -247,7 +248,7 @@ export const useMenuStore = create<MenuState>((set, get) => ({
       items: optimisticItems,
       pendingOrders: new Set(),
       pendingCancellations: new Set(),
-      error: hasCutoffBlocked ? 'Bestellung für heute geschlossen (Bestellschluss 12:30)' : null,
+      error: hasCutoffBlocked ? ORDERING_CUTOFF_MESSAGE : null,
     });
 
     try {
@@ -274,7 +275,7 @@ export const useMenuStore = create<MenuState>((set, get) => ({
       set({
         orderProgress: null,
         // Restore cutoff warning (fetchMenus clears error)
-        error: hasCutoffBlocked ? 'Bestellung für heute geschlossen (Bestellschluss 12:30)' : null,
+        error: hasCutoffBlocked ? ORDERING_CUTOFF_MESSAGE : null,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Bestellung konnte nicht aufgegeben werden';

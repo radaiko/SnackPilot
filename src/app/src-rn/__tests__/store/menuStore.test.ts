@@ -47,7 +47,7 @@ jest.mock('../../store/orderStore', () => ({
   },
 }));
 
-import { useMenuStore } from '../../store/menuStore';
+import { useMenuStore, ORDERING_CUTOFF_MESSAGE } from '../../store/menuStore';
 import { useAuthStore } from '../../store/authStore';
 import { GourmetMenuCategory } from '../../types/menu';
 import { MENU_CACHE_VALIDITY_MS } from '../../utils/constants';
@@ -399,7 +399,7 @@ describe('menuStore', () => {
         // New order should be blocked
         expect(mockApi.addToCart).not.toHaveBeenCalled();
         // Error should be shown for the blocked new order
-        expect(useMenuStore.getState().error).toBe('Bestellung für heute geschlossen (Bestellschluss 12:30)');
+        expect(useMenuStore.getState().error).toBe(ORDERING_CUTOFF_MESSAGE);
       } finally {
         isOrderingCutoff.mockRestore();
       }
