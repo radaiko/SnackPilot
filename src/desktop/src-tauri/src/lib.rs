@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use velopack::*;
 
