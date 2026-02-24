@@ -87,12 +87,12 @@ function viennaToday(): Date {
 
 /**
  * Check if ordering is blocked for a given menu date.
- * Today's menu cannot be ordered after 12:30 Europe/Vienna time.
+ * Today's menu cannot be ordered after 09:00 Europe/Vienna time.
  * Future dates are never blocked.
  */
 export function isOrderingCutoff(menuDate: Date): boolean {
   if (!isSameDay(menuDate, viennaToday())) return false;
-  return viennaMinutes() >= 12 * 60 + 30;
+  return viennaMinutes() >= 9 * 60;
 }
 
 /**
