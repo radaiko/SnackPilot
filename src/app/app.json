@@ -18,7 +18,9 @@
       "bundleIdentifier": "dev.radaiko.gourmetclient",
       "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["location", "processing"],
+        "BGTaskSchedulerPermittedIdentifiers": ["com.expo.modules.backgroundtask.processing"]
       }
     },
     "android": {
@@ -28,7 +30,14 @@
         "backgroundColor": "#F0F0F2"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
     },
     "web": {
       "output": "single",
@@ -72,6 +81,17 @@
           }
         }
       ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "SnackPilot nutzt deinen Standort, um dich an Bestellungen zu erinnern, wenn du im Büro bist.",
+          "locationWhenInUsePermission": "SnackPilot nutzt deinen Standort, um deinen Firmenstandort zu speichern.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-notifications",
       "expo-background-task"
     ],
     "extra": {
