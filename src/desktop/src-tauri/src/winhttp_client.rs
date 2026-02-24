@@ -29,7 +29,7 @@ fn to_wide(s: &str) -> Vec<u16> {
 /// Convert a UTF-16 wide string (with known byte length) to a Rust String.
 /// `byte_len` is the size in bytes (not u16 code units) returned by WinHTTP.
 fn from_wide(buf: &[u16], byte_len: usize) -> String {
-    let char_len = byte_len / 2;
+    let char_len = (byte_len / 2).min(buf.len());
     // Trim trailing null if present
     let slice = if char_len > 0 && buf[char_len - 1] == 0 {
         &buf[..char_len - 1]
@@ -85,7 +85,7 @@ impl WinHttpSession {
     }
 
     fn create_session() -> Result<WinHandle, String> {
-        let agent = to_wide("SnackPilot/1.0");
+        let agent = to_wide(&format!("SnackPilot/{}", env!("CARGO_PKG_VERSION")));
         let handle = unsafe {
             WinHttpOpen(
                 agent.as_ptr(),
@@ -164,6 +164,10 @@ fn parse_url(url: &str) -> Result<(bool, String, u16, String), String> {
 ///
 /// This is called from the `http_request` Tauri command on Windows.
 /// Returns the same `HttpResponse` struct as the reqwest path.
+///
+/// Note: All requests are serialized through the session Mutex, which means
+/// only one request can be in-flight at a time. This matches the app's
+/// sequential scraping pattern and ensures cookie consistency.
 pub fn execute_request(
     session: &WinHttpSession,
     request: &HttpRequest,
