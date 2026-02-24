@@ -5,6 +5,9 @@ use std::sync::mpsc::Sender;
 use tokio::sync::RwLock;
 use velopack::*;
 
+#[cfg(target_os = "windows")]
+mod winhttp_client;
+
 /// Shared HTTP client with cookie persistence for scraping external sites.
 /// Bypasses webview CORS/CSP restrictions by making requests from Rust.
 struct HttpProxy {
