@@ -107,6 +107,7 @@ export default function MenusScreen() {
 
           if (detectNewMenus(currentFingerprints, knownMenus) && !notificationSent) {
             setShowToast(true);
+            await setNotificationSent(true);
           }
 
           // Acknowledge: update known menus and reset notification flag

@@ -27,6 +27,7 @@ const backgroundMenuCheck = isNative()
 function AppContent() {
   const gourmetLoginWithSaved = useAuthStore((s) => s.loginWithSaved);
   const ventopayLoginWithSaved = useVentopayAuthStore((s) => s.loginWithSaved);
+  const gourmetAuthStatus = useAuthStore((s) => s.status);
   const { colorScheme } = useTheme();
 
   useEffect(() => {
@@ -35,10 +36,10 @@ function AppContent() {
   }, [gourmetLoginWithSaved, ventopayLoginWithSaved]);
 
   useEffect(() => {
-    if (!backgroundMenuCheck) return;
+    if (!backgroundMenuCheck || gourmetAuthStatus !== 'authenticated') return;
     backgroundMenuCheck.registerBackgroundMenuCheck();
     backgroundMenuCheck.requestNotificationPermissions();
-  }, []);
+  }, [gourmetAuthStatus]);
 
   useEffect(() => {
     if (Platform.OS === 'web') {

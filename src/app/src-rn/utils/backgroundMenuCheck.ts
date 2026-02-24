@@ -4,17 +4,16 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { GourmetApi } from '../api/gourmetApi';
 import * as secureStorage from './secureStorage';
+import { CREDENTIALS_KEY_USER, CREDENTIALS_KEY_PASS } from './constants';
 import { computeFingerprints, detectNewMenus } from './menuFingerprint';
 import {
   getKnownMenus,
+  setKnownMenus,
   getNotificationSent,
   setNotificationSent,
 } from './menuChangeStorage';
 
 const TASK_NAME = 'BACKGROUND_MENU_CHECK';
-
-const CREDENTIALS_KEY_USER = 'gourmet_username';
-const CREDENTIALS_KEY_PASS = 'gourmet_password';
 
 // Android notification channel
 if (Platform.OS === 'android') {
@@ -64,6 +63,7 @@ async function backgroundMenuCheckTask(): Promise<BackgroundFetch.BackgroundFetc
         trigger: null, // Fire immediately
       });
       await setNotificationSent(true);
+      await setKnownMenus(currentFingerprints);
       return BackgroundFetch.BackgroundFetchResult.NewData;
     }
 

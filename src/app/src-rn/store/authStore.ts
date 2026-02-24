@@ -3,11 +3,8 @@ import * as secureStorage from '../utils/secureStorage';
 import { GourmetApi } from '../api/gourmetApi';
 import { DemoGourmetApi } from '../api/demoGourmetApi';
 import { GourmetUserInfo } from '../types/menu';
-import { isDemoCredentials } from '../utils/constants';
+import { isDemoCredentials, CREDENTIALS_KEY_USER, CREDENTIALS_KEY_PASS } from '../utils/constants';
 import { useMenuStore } from './menuStore';
-
-const CREDENTIALS_KEY_USER = 'gourmet_username';
-const CREDENTIALS_KEY_PASS = 'gourmet_password';
 
 type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'error' | 'no_credentials';
 
