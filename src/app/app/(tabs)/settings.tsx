@@ -10,11 +10,19 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFlatStyle, isCompactDesktop } from '../../src-rn/utils/platform';
+import { useFlatStyle, isCompactDesktop, isNative } from '../../src-rn/utils/platform';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../src-rn/store/authStore';
 import { useVentopayAuthStore } from '../../src-rn/store/ventopayAuthStore';
 import { isDesktop } from '../../src-rn/utils/platform';
+import { useLocationStore } from '../../src-rn/store/locationStore';
+import {
+  requestLocationPermissions,
+  requestNotificationPermissions,
+  getCurrentPosition,
+  enableNotifications,
+  disableNotifications,
+} from '../../src-rn/utils/notificationService';
 import { useUpdateStore, applyUpdate } from '../../src-rn/utils/desktopUpdater';
 import { useTheme } from '../../src-rn/theme/useTheme';
 import { useDesktopLayout } from '../../src-rn/hooks/useDesktopLayout';
@@ -82,6 +90,42 @@ export default function SettingsScreen() {
 
   // Desktop update state
   const pendingVersion = useUpdateStore((s) => s.pendingVersion);
+
+  // Location notifications (mobile only)
+  const companyLocation = useLocationStore((s) => s.companyLocation);
+  const setCompanyLocation = useLocationStore((s) => s.setCompanyLocation);
+  const clearCompanyLocation = useLocationStore((s) => s.clearCompanyLocation);
+  const [locationSaving, setLocationSaving] = useState(false);
+
+  const handleSetLocation = async () => {
+    setLocationSaving(true);
+    try {
+      const locGranted = await requestLocationPermissions();
+      if (!locGranted) {
+        alert('Berechtigung fehlt', 'Standortzugriff (immer) wird für diese Funktion benötigt. Bitte in den Einstellungen aktivieren.');
+        setLocationSaving(false);
+        return;
+      }
+      const notifGranted = await requestNotificationPermissions();
+      if (!notifGranted) {
+        alert('Berechtigung fehlt', 'Benachrichtigungen werden für diese Funktion benötigt. Bitte in den Einstellungen aktivieren.');
+        setLocationSaving(false);
+        return;
+      }
+      const position = await getCurrentPosition();
+      setCompanyLocation(position.latitude, position.longitude);
+      await enableNotifications();
+      alert('Gespeichert', 'Firmenstandort gesetzt. Du wirst um 8:45 benachrichtigt, wenn du im Büro bist und nicht bestellt hast.');
+    } catch {
+      alert('Fehler', 'Standort konnte nicht ermittelt werden.');
+    }
+    setLocationSaving(false);
+  };
+
+  const handleRemoveLocation = async () => {
+    clearCompanyLocation();
+    await disableNotifications();
+  };
 
   // Load saved credentials on mount
   useEffect(() => {
@@ -356,6 +400,37 @@ export default function SettingsScreen() {
     </View>
   ) : null;
 
+  const locationCard = isNative() ? (
+    <View style={isWideLayout ? styles.desktopCard : undefined}>
+      {!isWideLayout && <View style={styles.divider} />}
+      <Text style={styles.sectionTitle}>Standort-Benachrichtigungen</Text>
+      <Text style={styles.sectionSubtitle}>
+        Erinnerung um 8:45 basierend auf deinem Standort
+      </Text>
+
+      {companyLocation ? (
+        <View>
+          <Text style={styles.sessionInfo}>
+            Firmenstandort gesetzt
+          </Text>
+          <Pressable style={styles.buttonDanger} onPress={handleRemoveLocation}>
+            <Text style={styles.buttonDangerText}>Standort entfernen</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable
+          style={[styles.button, styles.buttonPrimary]}
+          onPress={handleSetLocation}
+          disabled={locationSaving}
+        >
+          <Text style={styles.buttonPrimaryText}>
+            {locationSaving ? 'Standort wird ermittelt...' : 'Aktuellen Standort als Firmenstandort setzen'}
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  ) : null;
+
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView style={[styles.container, { paddingTop: insets.top }]} contentContainerStyle={isWideLayout ? styles.contentDesktop : styles.content} keyboardShouldPersistTaps="handled">
@@ -369,6 +444,7 @@ export default function SettingsScreen() {
             {appearanceCard}
             {updatesCard}
           </View>
+          {locationCard}
           {privacyCard}
         </>
       ) : (
@@ -376,6 +452,7 @@ export default function SettingsScreen() {
           {gourmetCard}
           {ventopayCard}
           {appearanceCard}
+          {locationCard}
           {updatesCard}
           {privacyCard}
         </>
