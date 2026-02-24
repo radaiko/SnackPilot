@@ -20,5 +20,5 @@ reqwest = { version = "0.12", features = ["cookies", "multipart", "rustls-tls-na
 tokio = { version = "1", features = ["sync"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Networking_WinHttp"] }
+windows-sys = { version = "0.59", features = ["Win32_Networking_WinHttp", "Win32_Foundation"] }
 url = "2"

@@ -16,13 +16,13 @@
 
 ### Current Flow (all platforms)
 
-```
+```text
 Axios → tauriAdapter → Tauri IPC → reqwest client → External sites
 ```
 
 ### New Flow
 
-```
+```text
 [Windows]
   Axios → tauriAdapter → Tauri IPC → WinHTTP native client → External sites
                                       (PAC + NTLM handled by OS)
@@ -98,7 +98,7 @@ Response `Set-Cookie` headers are still extracted and returned to TypeScript for
 
 WinHTTP has no built-in multipart support. A helper function constructs the `multipart/form-data` body:
 
-```
+```text
 --{boundary}\r\n
 Content-Disposition: form-data; name="{key}"\r\n
 \r\n

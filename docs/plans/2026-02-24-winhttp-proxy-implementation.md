@@ -1,7 +1,5 @@
 # WinHTTP Native Proxy Support — Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** On Windows, replace reqwest with native WinHTTP for scraping HTTP requests so PAC-file proxy resolution and NTLM/Kerberos authentication work automatically via the OS.
 
 **Architecture:** Add a `winhttp_client.rs` module behind `#[cfg(target_os = "windows")]` that wraps WinHTTP API calls via the `windows-sys` crate. The Tauri `http_request` and `http_reset` commands dispatch to WinHTTP on Windows and reqwest on macOS/Linux. The TypeScript side is unchanged — same IPC interface.

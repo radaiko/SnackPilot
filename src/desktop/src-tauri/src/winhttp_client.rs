@@ -18,6 +18,10 @@ use windows_sys::Win32::Networking::WinHttp::*;
 
 use crate::{HttpRequest, HttpResponse};
 
+/// Maximum response body size (32 MB). Prevents OOM from rogue servers or
+/// WPAD-redirected proxies serving arbitrarily large responses.
+const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
+
 /// Convert a Rust string to a null-terminated UTF-16 wide string for Win32 APIs.
 fn to_wide(s: &str) -> Vec<u16> {
     OsStr::new(s)
@@ -61,8 +65,12 @@ impl Drop for WinHandle {
     }
 }
 
-// WinHandle must not be shared across threads — WinHTTP handles are
-// single-threaded. We protect access via Mutex in WinHttpSession.
+// SAFETY: WinHandle wraps a raw WinHTTP HINTERNET pointer which is not
+// inherently thread-safe. We implement Send (but NOT Sync) so that WinHandle
+// can be moved into a Mutex. All access is serialized through the Mutex in
+// WinHttpSession, ensuring no concurrent use. Per-request handles (connection,
+// req_handle) live as stack locals within a single `spawn_blocking` closure
+// and are never shared across threads.
 unsafe impl Send for WinHandle {}
 
 /// Persistent WinHTTP session with automatic proxy and cookie support.
@@ -101,6 +109,14 @@ impl WinHttpSession {
                 unsafe { windows_sys::Win32::Foundation::GetLastError() }
             ));
         }
+
+        // Set explicit timeouts: resolve=5s, connect=10s, send=30s, receive=30s.
+        // WinHTTP defaults resolve timeout to 0 (infinite), which can hang
+        // the blocking thread pool thread on unresponsive DNS.
+        unsafe {
+            WinHttpSetTimeouts(handle, 5_000, 10_000, 30_000, 30_000);
+        }
+
         Ok(WinHandle(handle))
     }
 
@@ -128,9 +144,15 @@ fn build_multipart_body(fields: &HashMap<String, String>) -> (Vec<u8>, String) {
 
     let mut body = Vec::new();
     for (key, value) in fields {
+        // Sanitize field name: strip CRLF, null bytes, and quotes to prevent
+        // MIME header injection in the Content-Disposition line.
+        let safe_key = key.replace(['\r', '\n', '\0', '"'], "");
+        if safe_key.is_empty() {
+            continue;
+        }
         body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
         body.extend_from_slice(
-            format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", key).as_bytes(),
+            format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", safe_key).as_bytes(),
         );
         body.extend_from_slice(value.as_bytes());
         body.extend_from_slice(b"\r\n");
@@ -144,7 +166,11 @@ fn build_multipart_body(fields: &HashMap<String, String>) -> (Vec<u8>, String) {
 fn parse_url(url: &str) -> Result<(bool, String, u16, String), String> {
     let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
 
-    let is_https = parsed.scheme() == "https";
+    let is_https = match parsed.scheme() {
+        "https" => true,
+        "http" => false,
+        other => return Err(format!("Unsupported URL scheme: {}", other)),
+    };
     let host = parsed.host_str()
         .ok_or_else(|| format!("No host in URL: {}", url))?
         .to_string();
@@ -197,9 +223,16 @@ pub fn execute_request(
         ));
     }
 
-    // 2. Create request
-    let method_wide = to_wide(&request.method.to_uppercase());
+    // 2. Create request — validate method matches the reqwest path (GET/POST only)
+    let method = request.method.to_uppercase();
+    match method.as_str() {
+        "GET" | "POST" => {}
+        _ => return Err(format!("Unsupported method: {}", request.method)),
+    }
+    let method_wide = to_wide(&method);
     let path_wide = to_wide(&path_and_query);
+    // WINHTTP_FLAG_SECURE enables TLS. Do NOT add WINHTTP_SECURITY_FLAG_IGNORE_*
+    // options — certificate validation must remain enabled.
     let flags = if is_https { WINHTTP_FLAG_SECURE } else { 0 };
 
     let req_handle = WinHandle(unsafe {
@@ -226,9 +259,10 @@ pub fn execute_request(
     // 4. Add custom headers from request + any generated headers (e.g. Content-Type for multipart)
     let mut all_headers = String::new();
     for (key, value) in &request.headers {
-        // Sanitize CRLF to prevent header injection
-        let safe_key = key.replace(['\r', '\n'], "");
-        let safe_value = value.replace(['\r', '\n'], "");
+        // Sanitize CRLF and null bytes to prevent header injection.
+        // Null bytes would truncate the wide string at the Win32 API level.
+        let safe_key = key.replace(['\r', '\n', '\0'], "");
+        let safe_value = value.replace(['\r', '\n', '\0'], "");
         if safe_key.is_empty() {
             continue;
         }
@@ -254,13 +288,14 @@ pub fn execute_request(
         }
     }
 
-    // 5. Send request
+    // 5. Send request — guard against body size exceeding u32::MAX
     let body_ptr = if body_bytes.is_empty() {
         ptr::null()
     } else {
         body_bytes.as_ptr() as *const std::ffi::c_void
     };
-    let body_len = body_bytes.len() as u32;
+    let body_len: u32 = body_bytes.len().try_into()
+        .map_err(|_| "Request body too large (exceeds 4 GB)".to_string())?;
 
     let ok = unsafe {
         WinHttpSendRequest(
@@ -300,9 +335,8 @@ pub fn execute_request(
     // 9. Read response body
     let body = read_response_body(&req_handle)?;
 
-    // 10. Determine final URL (WinHTTP follows redirects automatically;
-    //     we return the original URL since we don't have easy access to the final one)
-    let resp_url = request.url.clone();
+    // 10. Get the effective URL after redirects (parity with reqwest's resp.url())
+    let resp_url = query_final_url(&req_handle).unwrap_or_else(|| request.url.clone());
 
     Ok(HttpResponse {
         status,
@@ -358,7 +392,7 @@ fn query_response_headers(
 ) -> Result<(HashMap<String, String>, Vec<String>), String> {
     // First call: get required buffer size
     let mut buf_size: u32 = 0;
-    unsafe {
+    let ok = unsafe {
         WinHttpQueryHeaders(
             req.as_ptr(),
             WINHTTP_QUERY_RAW_HEADERS_CRLF,
@@ -366,12 +400,15 @@ fn query_response_headers(
             ptr::null_mut(),
             &mut buf_size,
             ptr::null_mut(),
-        );
-    }
-    // Expected: returns FALSE with ERROR_INSUFFICIENT_BUFFER, buf_size now set
-
-    if buf_size == 0 {
-        return Ok((HashMap::new(), Vec::new()));
+        )
+    };
+    // Expected: returns FALSE (0) with ERROR_INSUFFICIENT_BUFFER, buf_size now set.
+    // If it failed for another reason, buf_size stays 0 — surface the error.
+    if ok == 0 && buf_size == 0 {
+        return Err(format!(
+            "WinHttpQueryHeaders (size query) failed (error {})",
+            unsafe { windows_sys::Win32::Foundation::GetLastError() }
+        ));
     }
 
     // Second call: read headers into buffer
@@ -418,7 +455,44 @@ fn query_response_headers(
     Ok((headers, set_cookies))
 }
 
-/// Read the entire response body as a UTF-8 string.
+/// Query the effective (post-redirect) URL from a completed WinHTTP request.
+/// Returns `None` if the query fails (falls back to original URL in caller).
+fn query_final_url(req: &WinHandle) -> Option<String> {
+    // First call: get required buffer size
+    let mut buf_size: u32 = 0;
+    unsafe {
+        WinHttpQueryOption(
+            req.as_ptr(),
+            WINHTTP_OPTION_URL,
+            ptr::null_mut(),
+            &mut buf_size,
+        );
+    }
+    if buf_size == 0 {
+        return None;
+    }
+
+    // Second call: read URL into buffer
+    let char_count = (buf_size as usize) / 2;
+    let mut buf: Vec<u16> = vec![0u16; char_count];
+    let ok = unsafe {
+        WinHttpQueryOption(
+            req.as_ptr(),
+            WINHTTP_OPTION_URL,
+            buf.as_mut_ptr() as *mut std::ffi::c_void,
+            &mut buf_size,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+
+    Some(from_wide(&buf, buf_size as usize))
+}
+
+/// Read the entire response body as a string.
+/// Uses lossy UTF-8 conversion for resilience against encoding issues.
+/// Enforces a maximum body size to prevent OOM from malicious servers.
 fn read_response_body(req: &WinHandle) -> Result<String, String> {
     let mut all_bytes = Vec::new();
     let mut buf = [0u8; 8192];
@@ -443,8 +517,13 @@ fn read_response_body(req: &WinHandle) -> Result<String, String> {
             break; // End of response
         }
         all_bytes.extend_from_slice(&buf[..bytes_read as usize]);
+        if all_bytes.len() > MAX_BODY_BYTES {
+            return Err(format!(
+                "Response body exceeds {} byte limit",
+                MAX_BODY_BYTES
+            ));
+        }
     }
 
-    String::from_utf8(all_bytes)
-        .map_err(|e| format!("Response body is not valid UTF-8: {}", e))
+    Ok(String::from_utf8_lossy(&all_bytes).into_owned())
 }
