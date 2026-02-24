@@ -20,6 +20,10 @@ import {
   enableNotifications,
 } from '../src-rn/utils/notificationService';
 
+const backgroundMenuCheck = isNative()
+  ? require('../src-rn/utils/backgroundMenuCheck')
+  : null;
+
 function AppContent() {
   const gourmetLoginWithSaved = useAuthStore((s) => s.loginWithSaved);
   const ventopayLoginWithSaved = useVentopayAuthStore((s) => s.loginWithSaved);
@@ -29,6 +33,12 @@ function AppContent() {
     gourmetLoginWithSaved();
     ventopayLoginWithSaved();
   }, [gourmetLoginWithSaved, ventopayLoginWithSaved]);
+
+  useEffect(() => {
+    if (!backgroundMenuCheck) return;
+    backgroundMenuCheck.registerBackgroundMenuCheck();
+    backgroundMenuCheck.requestNotificationPermissions();
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
