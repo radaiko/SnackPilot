@@ -226,7 +226,13 @@ pub fn execute_request(
     // 4. Add custom headers from request + any generated headers (e.g. Content-Type for multipart)
     let mut all_headers = String::new();
     for (key, value) in &request.headers {
-        all_headers.push_str(&format!("{}: {}\r\n", key, value));
+        // Sanitize CRLF to prevent header injection
+        let safe_key = key.replace(['\r', '\n'], "");
+        let safe_value = value.replace(['\r', '\n'], "");
+        if safe_key.is_empty() {
+            continue;
+        }
+        all_headers.push_str(&format!("{}: {}\r\n", safe_key, safe_value));
     }
     all_headers.push_str(&extra_headers);
 
