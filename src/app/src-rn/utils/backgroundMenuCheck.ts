@@ -1,4 +1,4 @@
-import * as BackgroundFetch from 'expo-background-fetch';
+import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
@@ -27,25 +27,25 @@ if (Platform.OS === 'android') {
  * The background task. Runs headlessly — no React, no hooks.
  * Logs in, fetches menus, compares fingerprints, fires notification if new.
  */
-async function backgroundMenuCheckTask(): Promise<BackgroundFetch.BackgroundFetchResult> {
+async function backgroundMenuCheckTask(): Promise<BackgroundTask.BackgroundTaskResult> {
   try {
     // Read credentials
     const username = await secureStorage.getItem(CREDENTIALS_KEY_USER);
     const password = await secureStorage.getItem(CREDENTIALS_KEY_PASS);
     if (!username || !password) {
-      return BackgroundFetch.BackgroundFetchResult.NoData;
+      return BackgroundTask.BackgroundTaskResult.Success;
     }
 
     // Skip background check for demo credentials — they are fake and
     // must never be sent to the live Gourmet server.
     if (isDemoCredentials(username, password)) {
-      return BackgroundFetch.BackgroundFetchResult.NoData;
+      return BackgroundTask.BackgroundTaskResult.Success;
     }
 
     // Check if we already sent a notification for the current batch
     const alreadySent = await getNotificationSent();
     if (alreadySent) {
-      return BackgroundFetch.BackgroundFetchResult.NoData;
+      return BackgroundTask.BackgroundTaskResult.Success;
     }
 
     // Login and fetch menus
@@ -70,12 +70,12 @@ async function backgroundMenuCheckTask(): Promise<BackgroundFetch.BackgroundFetc
       });
       await setNotificationSent(true);
       await setKnownMenus(currentFingerprints);
-      return BackgroundFetch.BackgroundFetchResult.NewData;
+      return BackgroundTask.BackgroundTaskResult.Success;
     }
 
-    return BackgroundFetch.BackgroundFetchResult.NoData;
+    return BackgroundTask.BackgroundTaskResult.Success;
   } catch {
-    return BackgroundFetch.BackgroundFetchResult.Failed;
+    return BackgroundTask.BackgroundTaskResult.Failed;
   }
 }
 
@@ -95,10 +95,8 @@ export async function registerBackgroundMenuCheck(): Promise<void> {
   const isRegistered = await TaskManager.isTaskRegisteredAsync(TASK_NAME);
   if (isRegistered) return;
 
-  await BackgroundFetch.registerTaskAsync(TASK_NAME, {
+  await BackgroundTask.registerTaskAsync(TASK_NAME, {
     minimumInterval: 15 * 60, // 15 minutes (OS may choose longer)
-    stopOnTerminate: false,
-    startOnBoot: true,
   });
 }
 
