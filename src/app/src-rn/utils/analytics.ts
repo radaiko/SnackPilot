@@ -1,7 +1,7 @@
 import './cryptoPolyfill';
 import { createTelemetryDeck } from '@typedigital/telemetrydeck-react';
 
-const TELEMETRYDECK_APP_ID = '75C7346F-3BBB-4BE8-8791-7ADF25EC3DBA';
+const TELEMETRYDECK_APP_ID = 'BA25F62D-0154-4A92-BF85-29FC5FDDA3EC';
 
 export const td = createTelemetryDeck({
   appID: TELEMETRYDECK_APP_ID,
