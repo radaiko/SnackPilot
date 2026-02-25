@@ -19,8 +19,13 @@
       "buildNumber": "1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["location", "processing"],
-        "BGTaskSchedulerPermittedIdentifiers": ["com.expo.modules.backgroundtask.processing"]
+        "UIBackgroundModes": [
+          "location",
+          "processing"
+        ],
+        "BGTaskSchedulerPermittedIdentifiers": [
+          "com.expo.modules.backgroundtask.processing"
+        ]
       }
     },
     "android": {
@@ -98,7 +103,8 @@
           "isAndroidForegroundServiceEnabled": true
         }
       ],
-      "expo-background-task"
+      "expo-background-task",
+      "expo-localization"
     ],
     "extra": {
       "router": {},
