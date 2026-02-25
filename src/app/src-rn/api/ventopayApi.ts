@@ -31,17 +31,11 @@ export class VentopayApi {
    */
   async login(username: string, password: string): Promise<void> {
     // Step 1: GET login page to extract ASP.NET state
-    console.log('[Ventopay] Step 1: GET login page...');
     const loginPageHtml = await this.client.get(VENTOPAY_LOGIN_URL);
-    console.log('[Ventopay] GET response length:', loginPageHtml.length);
-    console.log('[Ventopay] Cookies after GET:', this.client.getCookieDebug());
 
     const state = extractAspNetState(loginPageHtml);
-    console.log('[Ventopay] Extracted VIEWSTATE length:', state.viewState.length);
-    console.log('[Ventopay] Extracted VIEWSTATEGENERATOR:', state.viewStateGenerator);
 
     // Step 2: POST login form with ALL required fields in exact browser order
-    console.log('[Ventopay] Step 2: POST login form...');
     const responseHtml = await this.client.postForm(VENTOPAY_LOGIN_URL, {
       __LASTFOCUS: state.lastFocus,
       __EVENTTARGET: state.eventTarget,
@@ -56,23 +50,15 @@ export class VentopayApi {
       languageRadio: 'DE',
     });
 
-    console.log('[Ventopay] POST response length:', responseHtml.length);
-    console.log('[Ventopay] Cookies after POST:', this.client.getCookieDebug());
-
     // Step 3: Verify login success
     const loggedIn = isVentopayLoggedIn(responseHtml);
-    console.log('[Ventopay] Login check (Ausloggen.aspx found):', loggedIn);
 
     if (!loggedIn) {
-      // Log a snippet of the response to help debug
-      const snippet = responseHtml.substring(0, 500);
-      console.log('[Ventopay] Response snippet:', snippet);
       throw new Error('Ventopay login failed: invalid credentials or account blocked');
     }
 
     this.credentials = { username, password };
     this.loggedIn = true;
-    console.log('[Ventopay] Login successful');
   }
 
   /**

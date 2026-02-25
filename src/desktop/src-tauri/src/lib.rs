@@ -114,6 +114,31 @@ pub struct HttpResponse {
     pub url: String,
 }
 
+const ALLOWED_HTTP_HOSTS: [&str; 2] = [
+    "alaclickneu.gourmet.at",
+    "my.ventopay.com",
+];
+
+const KEYRING_SERVICE: &str = "SnackPilot";
+
+fn validate_http_request(request: &HttpRequest) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(&request.url)
+        .map_err(|e| format!("Invalid request URL: {}", e))?;
+    if parsed.scheme() != "https" {
+        return Err("Only https URLs are allowed".to_string());
+    }
+    let host = parsed.host_str()
+        .ok_or_else(|| "Request URL must include a host".to_string())?;
+    if !ALLOWED_HTTP_HOSTS.iter().any(|allowed| allowed.eq_ignore_ascii_case(host)) {
+        return Err(format!("Host not allowed: {}", host));
+    }
+    Ok(())
+}
+
+fn keyring_entry(key: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYRING_SERVICE, key).map_err(|e| e.to_string())
+}
+
 // --- Tauri commands ---
 
 #[cfg(not(target_os = "windows"))]
@@ -122,6 +147,7 @@ async fn http_request(
     state: tauri::State<'_, reqwest_http::HttpProxy>,
     request: HttpRequest,
 ) -> Result<HttpResponse, String> {
+    validate_http_request(&request)?;
     reqwest_http::execute_request(&state, &request).await
 }
 
@@ -131,6 +157,7 @@ async fn http_request(
     state: tauri::State<'_, winhttp_client::WinHttpSession>,
     request: HttpRequest,
 ) -> Result<HttpResponse, String> {
+    validate_http_request(&request)?;
     // WinHTTP is synchronous — run on a blocking thread to avoid blocking the async runtime
     let session = state.inner().clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -155,6 +182,31 @@ async fn http_reset(
     state: tauri::State<'_, winhttp_client::WinHttpSession>,
 ) -> Result<(), String> {
     state.reset()
+}
+
+#[tauri::command]
+async fn secure_set_item(key: String, value: String) -> Result<(), String> {
+    let entry = keyring_entry(&key)?;
+    entry.set_password(&value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn secure_get_item(key: String) -> Result<Option<String>, String> {
+    let entry = keyring_entry(&key)?;
+    match entry.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+#[tauri::command]
+async fn secure_delete_item(key: String) -> Result<(), String> {
+    let entry = keyring_entry(&key)?;
+    match entry.delete_credential() {
+        Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(err) => Err(err.to_string()),
+    }
 }
 
 // --- Velopack update commands (always use reqwest, all platforms) ---
@@ -311,7 +363,43 @@ pub fn run() {
             install_update,
             http_request,
             http_reset,
+            secure_set_item,
+            secure_get_item,
+            secure_delete_item,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_request(url: &str) -> HttpRequest {
+        HttpRequest {
+            url: url.to_string(),
+            method: "GET".to_string(),
+            headers: HashMap::new(),
+            body: None,
+            form_data: None,
+        }
+    }
+
+    #[test]
+    fn allows_known_https_hosts() {
+        assert!(validate_http_request(&build_request("https://alaclickneu.gourmet.at/start/")).is_ok());
+        assert!(validate_http_request(&build_request("https://my.ventopay.com/mocca.website/Login.aspx")).is_ok());
+    }
+
+    #[test]
+    fn rejects_non_https_urls() {
+        let result = validate_http_request(&build_request("http://alaclickneu.gourmet.at/start/"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_hosts() {
+        let result = validate_http_request(&build_request("https://example.com/path"));
+        assert!(result.is_err());
+    }
 }

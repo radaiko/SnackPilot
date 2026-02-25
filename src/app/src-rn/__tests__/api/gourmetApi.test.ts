@@ -293,6 +293,29 @@ describe('GourmetApi', () => {
     });
   });
 
+  describe('cancelOrders', () => {
+    it('always includes __ncforminfo in cancel form payload', async () => {
+      const api = new GourmetApi();
+      await loginApi(api);
+
+      mockGet.mockResolvedValueOnce(ordersPageEditMode);
+      mockPostForm.mockResolvedValueOnce('');
+      mockGet.mockResolvedValueOnce(ordersPageEditMode);
+      mockPostForm.mockResolvedValueOnce('');
+
+      await api.cancelOrders(['POS-001']);
+
+      expect(mockPostForm).toHaveBeenNthCalledWith(
+        1,
+        '/bestellungen/',
+        expect.objectContaining({
+          cp_PositionId: 'POS-001',
+          __ncforminfo: 'NCFORM-TOKEN-CANCEL-POS001-BBB',
+        })
+      );
+    });
+  });
+
   describe('getBillings', () => {
     it('returns mapped billing data with correct structure', async () => {
       const api = new GourmetApi();

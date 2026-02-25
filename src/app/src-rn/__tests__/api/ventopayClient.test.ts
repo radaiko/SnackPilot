@@ -136,8 +136,10 @@ describe('VentopayHttpClient', () => {
       const result = responseInterceptor(response);
 
       const debug = client.getCookieDebug();
-      expect(debug).toContain('ASP.NET_SessionId=abc123');
-      expect(debug).toContain('OtherCookie=xyz789');
+      expect(debug).toContain('ASP.NET_SessionId');
+      expect(debug).toContain('OtherCookie');
+      expect(debug).not.toContain('abc123');
+      expect(debug).not.toContain('xyz789');
       expect(result).toBe(response);
     });
 
@@ -154,7 +156,8 @@ describe('VentopayHttpClient', () => {
 
       responseInterceptor(response);
 
-      expect(client.getCookieDebug()).toContain('SessionId=single123');
+      expect(client.getCookieDebug()).toContain('SessionId');
+      expect(client.getCookieDebug()).not.toContain('single123');
     });
   });
 
