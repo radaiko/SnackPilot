@@ -211,6 +211,28 @@ describe('checkDailyReminder', () => {
     expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
   });
 
+  it('omits subtitle separator when subtitle is empty', async () => {
+    await setReminderEnabled(true);
+    await setReminderTime(11, 0);
+    mockViennaMinutes.mockReturnValue(11 * 60);
+
+    (useOrderStore as any).__setOrders([
+      { positionId: '1', eatingCycleId: 'e1', date: new Date(2026, 1, 25), title: 'MENÜ I', subtitle: '', approved: true },
+    ]);
+
+    await checkDailyReminder();
+
+    expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith({
+      content: {
+        title: 'Deine Bestellung heute',
+        body: 'MENÜ I',
+        sound: 'default',
+        data: { screen: '/(tabs)/orders' },
+      },
+      trigger: null,
+    });
+  });
+
   it('does not fire just outside ±15 min window', async () => {
     await setReminderEnabled(true);
     await setReminderTime(11, 0);
