@@ -38,16 +38,12 @@ export class GourmetHttpClient {
     this.lastPageUrl = typeof url === 'string' && url.startsWith('http')
       ? url
       : `${GOURMET_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
-
-    console.log('[Gourmet GET]', url, 'status:', response.status, 'length:', response.data?.length);
     return response.data;
   }
 
   /** POST form data (multipart/form-data) returning HTML string.
    *  All Gourmet forms use enctype="multipart/form-data". */
   async postForm(url: string, data: Record<string, string>): Promise<string> {
-    console.log('[Gourmet POST]', url, 'keys:', Object.keys(data));
-
     const response: AxiosResponse<string> = await this.client.postForm(
       url,
       data,
@@ -59,8 +55,6 @@ export class GourmetHttpClient {
         responseType: 'text',
       }
     );
-
-    console.log('[Gourmet POST] response status:', response.status, 'length:', response.data?.length);
     return response.data;
   }
 

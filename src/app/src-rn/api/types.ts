@@ -56,7 +56,7 @@ export interface CancelOrderFormData {
   eatingCycleId: string;
   date: string;
   ufprt: string;
-  ncforminfo?: string;
+  ncforminfo: string;
 }
 
 /** Thrown when the server session has expired and re-login is needed */

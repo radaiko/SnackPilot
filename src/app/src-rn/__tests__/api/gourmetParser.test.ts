@@ -267,6 +267,24 @@ describe('extractCancelOrderFormData', () => {
     expect(data.ufprt).toBeTruthy();
     expect(data.ncforminfo).toBeTruthy();
   });
+
+  it('throws when __ncforminfo is missing on cancel form', () => {
+    const htmlMissingNcforminfo = `
+      <html>
+        <body>
+          <form id="form_POS-001_cp">
+            <input name="cp_PositionId" value="POS-001" />
+            <input name="cp_EatingCycleId_POS-001" value="EC-001" />
+            <input name="cp_Date_POS-001" value="10.02.2026 00:00:00" />
+            <input name="ufprt" value="CSRF-CANCEL-1" />
+          </form>
+        </body>
+      </html>
+    `;
+    expect(() => extractCancelOrderFormData(htmlMissingNcforminfo, 'POS-001')).toThrow(
+      /Could not extract cancel form data/
+    );
+  });
 });
 
 describe('extractLogoutFormTokens', () => {

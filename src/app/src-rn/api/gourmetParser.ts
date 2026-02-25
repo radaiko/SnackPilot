@@ -236,7 +236,7 @@ export function extractCancelOrderFormData(
   const ufprt = form.find('input[name="ufprt"]').attr('value');
   const ncforminfo = form.find('input[name="__ncforminfo"]').attr('value');
 
-  if (!ufprt) {
+  if (!ufprt || !ncforminfo) {
     throw new Error(`Could not extract cancel form data for position: ${positionId}`);
   }
 
@@ -245,7 +245,7 @@ export function extractCancelOrderFormData(
     eatingCycleId: eatingCycleInput.attr('value') || '',
     date: dateInput.attr('value') || '',
     ufprt,
-    ncforminfo: ncforminfo || undefined,
+    ncforminfo,
   };
 }
 

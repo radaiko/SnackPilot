@@ -281,10 +281,8 @@ export class GourmetApi {
         [eatingCycleKey]: cancelData.eatingCycleId,
         [dateKey]: cancelData.date,
         ufprt: cancelData.ufprt,
+        __ncforminfo: cancelData.ncforminfo,
       };
-      if (cancelData.ncforminfo) {
-        formData.__ncforminfo = cancelData.ncforminfo;
-      }
 
       await this.client.postForm('/bestellungen/', formData);
       // Re-fetch to get fresh tokens for the next cancellation

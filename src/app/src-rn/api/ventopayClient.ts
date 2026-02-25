@@ -88,11 +88,9 @@ export class VentopayHttpClient {
     return response.data;
   }
 
-  /** Debug: get cookie names and value lengths */
+  /** Debug helper: get cookie names only */
   getCookieDebug(): string {
-    return Array.from(this.cookies.entries())
-      .map(([name, value]) => `${name}=${value.substring(0, 20)}...`)
-      .join('; ');
+    return Array.from(this.cookies.keys()).join('; ');
   }
 
   /** Reset client (for logout - clears all stored cookies) */
