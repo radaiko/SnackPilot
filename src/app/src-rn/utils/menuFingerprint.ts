@@ -1,14 +1,17 @@
 import type { GourmetMenuItem } from '../types/menu';
+import { localDateKey } from './dateUtils';
 
 /**
  * Compute a fingerprint map from menu items.
- * Key: menu ID, Value: "title|subtitle|allergens" string.
- * If multiple items share the same ID (same category, different days), last wins.
+ * Key: "menuId|dateKey" composite, Value: "title|subtitle|allergens" string.
+ * Uses composite key because menu IDs are per-category, not per-item —
+ * the same ID appears on different days with different content.
  */
 export function computeFingerprints(items: GourmetMenuItem[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const item of items) {
-    map.set(item.id, `${item.title}|${item.subtitle}|${item.allergens.join(',')}`);
+    const key = `${item.id}|${localDateKey(item.day)}`;
+    map.set(key, `${item.title}|${item.subtitle}|${item.allergens.join(',')}`);
   }
   return map;
 }

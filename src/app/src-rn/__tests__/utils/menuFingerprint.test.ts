@@ -28,28 +28,39 @@ describe('menuFingerprint', () => {
       const items = [makeItem()];
       const fp = computeFingerprints(items);
       expect(fp.size).toBe(1);
-      expect(fp.get('menu-001')).toBe('MENU I|Schnitzel mit Reis|A,G');
+      expect(fp.get('menu-001|2026-02-10')).toBe('MENU I|Schnitzel mit Reis|A,G');
     });
 
-    it('uses unique menu IDs as keys', () => {
+    it('uses composite id|date as keys', () => {
       const items = [
         makeItem({ id: 'a' }),
         makeItem({ id: 'b', title: 'MENU II' }),
       ];
       const fp = computeFingerprints(items);
       expect(fp.size).toBe(2);
-      expect(fp.has('a')).toBe(true);
-      expect(fp.has('b')).toBe(true);
+      expect(fp.has('a|2026-02-10')).toBe(true);
+      expect(fp.has('b|2026-02-10')).toBe(true);
     });
 
-    it('deduplicates same ID (last wins)', () => {
+    it('same ID on different days produces separate entries', () => {
       const items = [
-        makeItem({ id: 'a', subtitle: 'Mon' }),
-        makeItem({ id: 'a', subtitle: 'Tue' }),
+        makeItem({ id: 'a', day: new Date(2026, 1, 10), subtitle: 'Mon' }),
+        makeItem({ id: 'a', day: new Date(2026, 1, 11), subtitle: 'Tue' }),
+      ];
+      const fp = computeFingerprints(items);
+      expect(fp.size).toBe(2);
+      expect(fp.get('a|2026-02-10')).toBe('MENU I|Mon|A,G');
+      expect(fp.get('a|2026-02-11')).toBe('MENU I|Tue|A,G');
+    });
+
+    it('deduplicates same ID and same day (last wins)', () => {
+      const items = [
+        makeItem({ id: 'a', subtitle: 'first' }),
+        makeItem({ id: 'a', subtitle: 'second' }),
       ];
       const fp = computeFingerprints(items);
       expect(fp.size).toBe(1);
-      expect(fp.get('a')).toBe('MENU I|Tue|A,G');
+      expect(fp.get('a|2026-02-10')).toBe('MENU I|second|A,G');
     });
   });
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
 import { tintedBanner } from '../theme/platformStyles';
 import type { Colors } from '../theme/colors';
@@ -14,6 +15,7 @@ const ANIMATION_DURATION = 300;
 
 export function NewMenuToast({ visible, onDismiss }: NewMenuToastProps) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(-100)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -56,7 +58,7 @@ export function NewMenuToast({ visible, onDismiss }: NewMenuToastProps) {
   const styles = createStyles(colors);
 
   return (
-    <Animated.View style={[styles.container, { transform: [{ translateY }], opacity }]}>
+    <Animated.View style={[styles.container, { top: insets.top + 8, transform: [{ translateY }], opacity }]}>
       <Text style={styles.text}>Neue Menüs verfügbar!</Text>
     </Animated.View>
   );
@@ -66,7 +68,7 @@ const createStyles = (c: Colors) =>
   StyleSheet.create({
     container: {
       position: 'absolute',
-      top: 0,
+      top: 0, // Overridden by inline style with safe area inset
       left: 16,
       right: 16,
       zIndex: 100,

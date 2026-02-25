@@ -37,8 +37,14 @@ function AppContent() {
 
   useEffect(() => {
     if (!backgroundMenuCheck || gourmetAuthStatus !== 'authenticated') return;
-    backgroundMenuCheck.registerBackgroundMenuCheck();
-    backgroundMenuCheck.requestNotificationPermissions();
+    void (async () => {
+      try {
+        await backgroundMenuCheck.registerBackgroundMenuCheck();
+        await backgroundMenuCheck.requestNotificationPermissions();
+      } catch {
+        // Silent — background registration is best-effort
+      }
+    })();
   }, [gourmetAuthStatus]);
 
   useEffect(() => {
