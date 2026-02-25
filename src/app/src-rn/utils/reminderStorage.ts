@@ -17,7 +17,16 @@ export async function getReminderTime(): Promise<{ hour: number; minute: number 
   const raw = await AsyncStorage.getItem(REMINDER_TIME_KEY);
   if (raw === null) return null;
   try {
-    return JSON.parse(raw) as { hour: number; minute: number };
+    const parsed = JSON.parse(raw);
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      typeof parsed.hour === 'number' &&
+      typeof parsed.minute === 'number'
+    ) {
+      return parsed as { hour: number; minute: number };
+    }
+    return null;
   } catch {
     return null;
   }

@@ -44,11 +44,19 @@ if (Platform.OS !== 'web') {
 
       // Location-based notification check (only if company location configured)
       if (useLocationStore.getState().hasCompanyLocation()) {
-        await checkAndNotify();
+        try {
+          await checkAndNotify();
+        } catch {
+          // Silent — don't block other checks
+        }
       }
 
       // Daily order reminder check
-      await checkDailyReminder();
+      try {
+        await checkDailyReminder();
+      } catch {
+        // Silent — don't block other checks
+      }
 
       return BackgroundTask.BackgroundTaskResult.Success;
     } catch {

@@ -165,8 +165,7 @@ export default function SettingsScreen() {
     })();
   }, []);
 
-  const handleReminderToggle = async () => {
-    const newValue = !reminderEnabled;
+  const handleReminderToggle = async (newValue: boolean) => {
     if (newValue) {
       const granted = await requestNotificationPermissions();
       if (!granted) {

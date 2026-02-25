@@ -56,6 +56,7 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   (useOrderStore as any).__setOrders([]);
   mockViennaToday.mockReturnValue(new Date(2026, 1, 25)); // Feb 25, 2026
+  mockViennaMinutes.mockReturnValue(0); // default: midnight, outside any reminder window
 });
 
 describe('checkDailyReminder', () => {
