@@ -8,6 +8,10 @@ export const GOURMET_SETTINGS_URL = `${GOURMET_BASE_URL}/einstellungen/`;
 
 export const MENU_CACHE_VALIDITY_MS = 4 * 60 * 60 * 1000; // 4 hours
 
+// Secure storage keys for Gourmet credentials
+export const CREDENTIALS_KEY_USER = 'gourmet_username';
+export const CREDENTIALS_KEY_PASS = 'gourmet_password';
+
 // Ventopay (vending machines / POS billing)
 export const VENTOPAY_BASE_URL = 'https://my.ventopay.com/mocca.website';
 export const VENTOPAY_LOGIN_URL = `${VENTOPAY_BASE_URL}/Login.aspx`;

@@ -20,15 +20,32 @@ import {
   enableNotifications,
 } from '../src-rn/utils/notificationService';
 
+const backgroundMenuCheck = isNative()
+  ? require('../src-rn/utils/backgroundMenuCheck')
+  : null;
+
 function AppContent() {
   const gourmetLoginWithSaved = useAuthStore((s) => s.loginWithSaved);
   const ventopayLoginWithSaved = useVentopayAuthStore((s) => s.loginWithSaved);
+  const gourmetAuthStatus = useAuthStore((s) => s.status);
   const { colorScheme } = useTheme();
 
   useEffect(() => {
     gourmetLoginWithSaved();
     ventopayLoginWithSaved();
   }, [gourmetLoginWithSaved, ventopayLoginWithSaved]);
+
+  useEffect(() => {
+    if (!backgroundMenuCheck || gourmetAuthStatus !== 'authenticated') return;
+    void (async () => {
+      try {
+        await backgroundMenuCheck.registerBackgroundMenuCheck();
+        await backgroundMenuCheck.requestNotificationPermissions();
+      } catch {
+        // Silent — background registration is best-effort
+      }
+    })();
+  }, [gourmetAuthStatus]);
 
   useEffect(() => {
     if (Platform.OS === 'web') {

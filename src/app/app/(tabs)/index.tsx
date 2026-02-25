@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -27,6 +27,14 @@ import { useTheme } from '../../src-rn/theme/useTheme';
 import { useDesktopLayout } from '../../src-rn/hooks/useDesktopLayout';
 import { Colors } from '../../src-rn/theme/colors';
 import { tintedBanner, buttonPrimary, fab as fabStyle } from '../../src-rn/theme/platformStyles';
+import { computeFingerprints, detectNewMenus } from '../../src-rn/utils/menuFingerprint';
+import {
+  getKnownMenus,
+  setKnownMenus,
+  getNotificationSent,
+  setNotificationSent,
+} from '../../src-rn/utils/menuChangeStorage';
+import { NewMenuToast } from '../../src-rn/components/NewMenuToast';
 
 const ORDER_PROGRESS_LABELS: Record<NonNullable<OrderProgress>, string> = {
   adding: 'Wird in den Warenkorb gelegt...',
@@ -73,6 +81,8 @@ export default function MenusScreen() {
 
   const { orders, fetchOrders } = useOrderStore();
 
+  const [showToast, setShowToast] = useState(false);
+
   const triggerRefresh = useCallback(() => {
     const auth = useAuthStore.getState().status;
     if (auth !== 'authenticated') return;
@@ -83,11 +93,31 @@ export default function MenusScreen() {
     // Load cache first for instant display
     Promise.all([loadCachedMenus(), loadCachedOrders()]).catch(() => {}).finally(() => {
       const cached = useMenuStore.getState().items.length > 0;
-      if (cached) {
-        refreshAvailability();
-      } else {
-        fetchMenus();
-      }
+      const refreshPromise = cached ? refreshAvailability() : fetchMenus();
+
+      // After menu fetch completes, check for new menus
+      refreshPromise?.then(async () => {
+        try {
+          const currentItems = useMenuStore.getState().items;
+          if (currentItems.length === 0) return;
+
+          const currentFingerprints = computeFingerprints(currentItems);
+          const knownMenus = await getKnownMenus();
+          const notificationSent = await getNotificationSent();
+
+          if (detectNewMenus(currentFingerprints, knownMenus) && !notificationSent) {
+            setShowToast(true);
+            await setNotificationSent(true);
+          }
+
+          // Acknowledge: update known menus and reset notification flag
+          await setKnownMenus(currentFingerprints);
+          await setNotificationSent(false);
+        } catch {
+          // Silent — don't break menu loading for fingerprint errors
+        }
+      });
+
       fetchOrders();
     });
   }, [fetchMenus, refreshAvailability, fetchOrders]);
@@ -312,6 +342,7 @@ export default function MenusScreen() {
   if (isWideLayout) {
     return (
       <View style={styles.container}>
+        <NewMenuToast visible={showToast} onDismiss={() => setShowToast(false)} />
         <View style={styles.desktopRow}>
           {dates.length > 0 && (
             <DateListPanel
@@ -337,6 +368,7 @@ export default function MenusScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <NewMenuToast visible={showToast} onDismiss={() => setShowToast(false)} />
       {dates.length > 0 && (
         <DayNavigator
           dates={dates}

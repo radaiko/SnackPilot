@@ -49,6 +49,13 @@
       "expo-secure-store",
       "expo-font",
       [
+        "expo-notifications",
+        {
+          "icon": "./assets/icons/icon-orange.png",
+          "color": "#FF6B35"
+        }
+      ],
+      [
         "@g9k/expo-dynamic-app-icon",
         {
           "emerald": {
@@ -91,7 +98,6 @@
           "isAndroidForegroundServiceEnabled": true
         }
       ],
-      "expo-notifications",
       "expo-background-task"
     ],
     "extra": {
