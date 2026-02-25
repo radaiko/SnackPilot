@@ -18,7 +18,9 @@ import {
   setupNotificationHandler,
   setupAndroidChannel,
   enableNotifications,
+  registerBackgroundSync,
 } from '../src-rn/utils/notificationService';
+import { getReminderEnabled } from '../src-rn/utils/reminderStorage';
 
 const backgroundMenuCheck = isNative()
   ? require('../src-rn/utils/backgroundMenuCheck')
@@ -65,6 +67,17 @@ function AppContent() {
     if (!isNative() || !hasCompanyLocation) return;
     enableNotifications();
   }, [hasCompanyLocation]);
+
+  // Register background sync when daily reminder is enabled (even without company location)
+  useEffect(() => {
+    if (!isNative()) return;
+    (async () => {
+      const reminderEnabled = await getReminderEnabled();
+      if (reminderEnabled) {
+        await registerBackgroundSync();
+      }
+    })();
+  }, []);
 
   return (
     <DialogProvider>
