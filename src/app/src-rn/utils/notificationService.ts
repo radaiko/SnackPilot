@@ -17,6 +17,17 @@ export async function requestLocationPermissions(): Promise<boolean> {
   const fg = await Location.requestForegroundPermissionsAsync();
   if (fg.status !== 'granted') return false;
   const bg = await Location.requestBackgroundPermissionsAsync();
+  if (bg.status === 'granted') return true;
+  // iOS may not show the "Always Allow" prompt — return 'needs-settings'
+  return false;
+}
+
+/**
+ * Check if background location is already granted (without prompting).
+ * Use this to detect if the user needs to go to Settings.
+ */
+export async function hasBackgroundLocationPermission(): Promise<boolean> {
+  const bg = await Location.getBackgroundPermissionsAsync();
   return bg.status === 'granted';
 }
 
