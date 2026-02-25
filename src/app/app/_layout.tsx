@@ -71,10 +71,14 @@ function AppContent() {
   // Register background sync when daily reminder is enabled (even without company location)
   useEffect(() => {
     if (!isNative()) return;
-    (async () => {
-      const reminderEnabled = await getReminderEnabled();
-      if (reminderEnabled) {
-        await registerBackgroundSync();
+    void (async () => {
+      try {
+        const reminderEnabled = await getReminderEnabled();
+        if (reminderEnabled) {
+          await registerBackgroundSync();
+        }
+      } catch {
+        // Silent — background registration is best-effort
       }
     })();
   }, []);
