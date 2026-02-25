@@ -63,7 +63,7 @@ export function isSameDay(a: Date, b: Date): boolean {
 /**
  * Get current Vienna time as total minutes since midnight.
  */
-function viennaMinutes(): number {
+export function viennaMinutes(): number {
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Europe/Vienna',
     hour: 'numeric',
@@ -77,7 +77,7 @@ function viennaMinutes(): number {
 }
 
 /** Get today's date in Vienna timezone. */
-function viennaToday(): Date {
+export function viennaToday(): Date {
   const viennaDateStr = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Vienna',
   }).format(new Date()); // yields "YYYY-MM-DD"

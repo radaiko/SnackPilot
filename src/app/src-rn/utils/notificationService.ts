@@ -131,7 +131,6 @@ export async function getCurrentPosition(): Promise<{ latitude: number; longitud
 export async function enableNotifications(): Promise<void> {
   await startGeofencing();
   await registerBackgroundSync();
-  await scheduleDailyNotification();
 }
 
 export async function disableNotifications(): Promise<void> {

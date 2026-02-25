@@ -4,11 +4,12 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { useLocationStore } from '../store/locationStore';
 import { useOrderStore } from '../store/orderStore';
-import { useAuthStore } from '../store/authStore';
-import { isSameDay } from './dateUtils';
+import { isSameDay, viennaMinutes, viennaToday } from './dateUtils';
 import {
   GEOFENCE_TASK_NAME,
   BACKGROUND_ORDER_SYNC_TASK,
+  NOTIFICATION_HOUR,
+  NOTIFICATION_MINUTE,
 } from './constants';
 
 // Only define tasks on native platforms
@@ -37,21 +38,13 @@ if (Platform.OS !== 'web') {
 
   TaskManager.defineTask(BACKGROUND_ORDER_SYNC_TASK, async () => {
     try {
-      // Only sync if we have a company location configured
+      // Only check if we have a company location configured
       if (!useLocationStore.getState().hasCompanyLocation()) {
         return BackgroundTask.BackgroundTaskResult.Success;
       }
 
-      // Try to login if not authenticated
-      const authState = useAuthStore.getState();
-      if (authState.status !== 'authenticated') {
-        await authState.loginWithSaved();
-      }
-
-      // Refresh orders
-      if (useAuthStore.getState().status === 'authenticated') {
-        await useOrderStore.getState().fetchOrders();
-      }
+      // Load cached orders (no network calls to avoid concurrent scraping)
+      await useOrderStore.getState().loadCachedOrders();
 
       // Check if we should fire a notification
       await checkAndNotify();
@@ -65,12 +58,18 @@ if (Platform.OS !== 'web') {
 
 /**
  * Check order/location state and send notification if needed.
- * Called from the background sync task.
+ * Only fires within a 30-minute window around the configured
+ * notification time (NOTIFICATION_HOUR:NOTIFICATION_MINUTE) in Vienna timezone.
  */
 async function checkAndNotify(): Promise<void> {
+  const targetMinutes = NOTIFICATION_HOUR * 60 + NOTIFICATION_MINUTE;
+  const currentMinutes = viennaMinutes();
+  // Only fire within ±15 minutes of the target time
+  if (Math.abs(currentMinutes - targetMinutes) > 15) return;
+
   const { isAtCompany } = useLocationStore.getState();
   const orders = useOrderStore.getState().orders;
-  const today = new Date();
+  const today = viennaToday();
   const hasOrderToday = orders.some((o) => isSameDay(o.date, today));
 
   if (isAtCompany && !hasOrderToday) {

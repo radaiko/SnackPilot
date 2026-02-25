@@ -256,7 +256,7 @@ describe('notificationService', () => {
   });
 
   describe('enableNotifications', () => {
-    it('starts geofencing, registers background sync, and schedules notification', async () => {
+    it('starts geofencing and registers background sync', async () => {
       (useLocationStore as any).setState({ companyLocation: { latitude: 48.2, longitude: 16.3 } });
       (Location.hasStartedGeofencingAsync as jest.Mock).mockResolvedValue(false);
       (BackgroundTask.getStatusAsync as jest.Mock).mockResolvedValue(2);
@@ -266,7 +266,6 @@ describe('notificationService', () => {
 
       expect(Location.startGeofencingAsync).toHaveBeenCalled();
       expect(BackgroundTask.registerTaskAsync).toHaveBeenCalled();
-      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalled();
     });
   });
 
