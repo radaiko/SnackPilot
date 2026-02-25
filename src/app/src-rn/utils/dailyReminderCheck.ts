@@ -44,8 +44,6 @@ export async function checkDailyReminder(): Promise<void> {
     .map((o) => (o.subtitle ? `${o.title} \u2014 ${o.subtitle}` : o.title))
     .join('\n');
 
-  await setReminderSentDate(todayKey);
-
   await Notifications.scheduleNotificationAsync({
     content: {
       title: 'Deine Bestellung heute',
@@ -55,4 +53,6 @@ export async function checkDailyReminder(): Promise<void> {
     },
     trigger: null,
   });
+
+  await setReminderSentDate(todayKey);
 }

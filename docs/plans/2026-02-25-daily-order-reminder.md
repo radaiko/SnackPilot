@@ -12,7 +12,7 @@
 
 ---
 
-### Task 1: Reminder Storage Module
+## Task 1: Reminder Storage Module
 
 **Files:**
 - Create: `src/app/src-rn/utils/reminderStorage.ts`
@@ -112,8 +112,7 @@ Create `src/app/src-rn/utils/reminderStorage.ts`:
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const REMINDER_ENABLED_KEY = 'daily_reminder_enabled';
-const REMINDER_HOUR_KEY = 'daily_reminder_hour';
-const REMINDER_MINUTE_KEY = 'daily_reminder_minute';
+const REMINDER_TIME_KEY = 'daily_reminder_time';
 const REMINDER_SENT_DATE_KEY = 'daily_reminder_sent_date';
 
 export async function getReminderEnabled(): Promise<boolean> {
@@ -126,23 +125,34 @@ export async function setReminderEnabled(enabled: boolean): Promise<void> {
 }
 
 export async function getReminderTime(): Promise<{ hour: number; minute: number } | null> {
-  const hour = await AsyncStorage.getItem(REMINDER_HOUR_KEY);
-  const minute = await AsyncStorage.getItem(REMINDER_MINUTE_KEY);
-  if (hour === null || minute === null) return null;
-  return { hour: Number(hour), minute: Number(minute) };
+  const raw = await AsyncStorage.getItem(REMINDER_TIME_KEY);
+  if (raw === null) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      typeof parsed.hour === 'number' &&
+      typeof parsed.minute === 'number'
+    ) {
+      return parsed as { hour: number; minute: number };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function setReminderTime(hour: number, minute: number): Promise<void> {
-  await AsyncStorage.setItem(REMINDER_HOUR_KEY, String(hour));
-  await AsyncStorage.setItem(REMINDER_MINUTE_KEY, String(minute));
+  await AsyncStorage.setItem(REMINDER_TIME_KEY, JSON.stringify({ hour, minute }));
 }
 
 export async function getReminderSentDate(): Promise<string | null> {
   return AsyncStorage.getItem(REMINDER_SENT_DATE_KEY);
 }
 
-export async function setReminderSentDate(dateKey: string): Promise<void> {
-  await AsyncStorage.setItem(REMINDER_SENT_DATE_KEY, dateKey);
+export async function setReminderSentDate(dateString: string): Promise<void> {
+  await AsyncStorage.setItem(REMINDER_SENT_DATE_KEY, dateString);
 }
 ```
 
@@ -160,7 +170,7 @@ git commit -m "feat(#31): add reminder storage module for daily order notificati
 
 ---
 
-### Task 2: Daily Reminder Check Logic
+## Task 2: Daily Reminder Check Logic
 
 **Files:**
 - Create: `src/app/src-rn/utils/dailyReminderCheck.ts`
@@ -486,7 +496,7 @@ git commit -m "feat(#31): add daily reminder check logic with time window and de
 
 ---
 
-### Task 3: Integrate into Background Task
+## Task 3: Integrate into Background Task
 
 **Files:**
 - Modify: `src/app/src-rn/utils/notificationTasks.ts` (the `BACKGROUND_ORDER_SYNC_TASK` handler)
@@ -546,7 +556,7 @@ git commit -m "feat(#31): integrate daily reminder check into background sync ta
 
 ---
 
-### Task 4: Register Background Sync for Reminder
+## Task 4: Register Background Sync for Reminder
 
 **Files:**
 - Modify: `src/app/app/_layout.tsx`
@@ -592,7 +602,7 @@ git commit -m "feat(#31): register background sync when daily reminder is enable
 
 ---
 
-### Task 5: Settings UI — Benachrichtigungen Section
+## Task 5: Settings UI — Benachrichtigungen Section
 
 **Files:**
 - Modify: `src/app/app/(tabs)/settings.tsx`
@@ -835,7 +845,7 @@ git commit -m "feat(#31): add daily reminder settings with time picker to Benach
 
 ---
 
-### Task 6: Run Full Test Suite and Verify
+## Task 6: Run Full Test Suite and Verify
 
 **Step 1: Run all tests**
 

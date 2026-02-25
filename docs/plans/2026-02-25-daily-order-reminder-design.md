@@ -7,7 +7,7 @@
 
 A scheduled local notification that fires once daily at a user-configured time, showing what the user has ordered today. Piggybacks on the existing `BACKGROUND_ORDER_SYNC_TASK` infrastructure. Native-only (iOS + Android), web stubs for desktop.
 
-## Decisions
+### Decisions
 
 - **MVP scope**: One-time local notification (not Live Activities / persistent widgets). Live Activities deferred to future iteration.
 - **No default time**: User must explicitly enable and configure the reminder time in settings.
@@ -18,7 +18,7 @@ A scheduled local notification that fires once daily at a user-configured time, 
 - **Tap action**: Opens the Orders tab.
 - **Settings grouping**: Location notifications and this reminder share a unified "Benachrichtigungen" section.
 
-## Data Flow
+### Data Flow
 
 ```
 BACKGROUND_ORDER_SYNC_TASK runs (~15 min interval)
@@ -35,7 +35,7 @@ BACKGROUND_ORDER_SYNC_TASK runs (~15 min interval)
 
 The `dailyReminderSentDate` resets naturally — when the date changes, today no longer matches the stored date.
 
-## Storage
+### Storage
 
 New AsyncStorage keys (in new `reminderStorage.ts`, following `menuChangeStorage.ts` pattern):
 
@@ -46,7 +46,7 @@ New AsyncStorage keys (in new `reminderStorage.ts`, following `menuChangeStorage
 | `daily_reminder_minute` | `"0"` - `"45"` | User-configured minute (15-min increments) |
 | `daily_reminder_sent_date` | `"YYYY-MM-DD"` | Last date notification was sent (prevents duplicates) |
 
-## Notification Content
+### Notification Content
 
 - **Title**: "Deine Bestellung heute"
 - **Body**: All orders joined with newlines, e.g.:
@@ -57,7 +57,7 @@ New AsyncStorage keys (in new `reminderStorage.ts`, following `menuChangeStorage
 - **Channel**: `order-reminders` (existing Android channel from location notifications)
 - **Tap action**: Deep link to `/(tabs)/orders`
 
-## Settings UI
+### Settings UI
 
 The existing "Standort-Benachrichtigungen" section becomes "Benachrichtigungen" with two sub-features:
 
@@ -79,7 +79,7 @@ The existing "Standort-Benachrichtigungen" section becomes "Benachrichtigungen" 
 
 Enabling the toggle requests notification permissions if not already granted. Section is only shown on native (`isNative()`).
 
-## Files to Create/Modify
+### Files to Create/Modify
 
 | File | Action |
 |------|--------|
@@ -90,7 +90,7 @@ Enabling the toggle requests notification permissions if not already granted. Se
 | `__tests__/utils/reminderStorage.test.ts` | **New** — tests for storage helpers |
 | `__tests__/utils/notificationTasks.test.ts` | **Modify** — add test cases for reminder logic |
 
-## Out of Scope
+### Out of Scope
 
 - No new background task registration (reuses existing)
 - No new permissions beyond what's already requested

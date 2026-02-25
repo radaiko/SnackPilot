@@ -42,12 +42,6 @@ async function backgroundMenuCheckTask(): Promise<BackgroundTask.BackgroundTaskR
       return BackgroundTask.BackgroundTaskResult.Success;
     }
 
-    // Check if we already sent a notification for the current batch
-    const alreadySent = await getNotificationSent();
-    if (alreadySent) {
-      return BackgroundTask.BackgroundTaskResult.Success;
-    }
-
     // Login and fetch menus
     const api = new GourmetApi();
     await api.login(username, password);
@@ -58,7 +52,9 @@ async function backgroundMenuCheckTask(): Promise<BackgroundTask.BackgroundTaskR
     const knownMenus = await getKnownMenus();
     const hasNew = detectNewMenus(currentFingerprints, knownMenus);
 
-    if (hasNew) {
+    // Only notify if menus changed AND we haven't already sent for this batch
+    const alreadySent = await getNotificationSent();
+    if (hasNew && !alreadySent) {
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'Neue Menüs verfügbar',

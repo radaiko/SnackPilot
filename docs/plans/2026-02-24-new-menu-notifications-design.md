@@ -52,7 +52,7 @@ On each menu fetch (background or foreground):
 
 ## Data Flow
 
-```
+```text
 BACKGROUND:
   OS wakes app → backgroundMenuCheck task
     → read credentials (secure storage)
