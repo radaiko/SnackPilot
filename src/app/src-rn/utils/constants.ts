@@ -22,3 +22,11 @@ export const DEMO_PASSWORD = 'demo1234!';
 export function isDemoCredentials(username: string, password: string): boolean {
   return username.toLowerCase() === DEMO_USERNAME && password === DEMO_PASSWORD;
 }
+
+// Location-based notifications
+export const GEOFENCE_TASK_NAME = 'COMPANY_GEOFENCE_TASK';
+export const BACKGROUND_ORDER_SYNC_TASK = 'BACKGROUND_ORDER_SYNC_TASK';
+export const COMPANY_GEOFENCE_RADIUS_M = 500;
+export const NOTIFICATION_HOUR = 8;
+export const NOTIFICATION_MINUTE = 45;
+export const NOTIFICATION_CHANNEL_ID = 'order-reminders';
