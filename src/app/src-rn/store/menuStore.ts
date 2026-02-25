@@ -5,6 +5,7 @@ import { useAuthStore } from './authStore';
 import { useOrderStore } from './orderStore';
 import { MENU_CACHE_VALIDITY_MS } from '../utils/constants';
 import { isSameDay, isOrderingCutoff, localDateKey } from '../utils/dateUtils';
+import { trackSignal } from '../utils/analytics';
 
 const MENU_CACHE_KEY = 'menus_items';
 export const ORDERING_CUTOFF_MESSAGE = 'Bestellung für heute geschlossen (Bestellschluss 9:00)';
@@ -271,6 +272,11 @@ export const useMenuStore = create<MenuState>((set, get) => ({
       set({ orderProgress: 'refreshing' });
       await useOrderStore.getState().fetchOrders();
       await get().fetchMenus(true);
+
+      trackSignal('order.submitted', {
+        orderedCount: String(allowedNewOrders.length),
+        cancelledCount: String(cancellationPositionIds.length),
+      });
 
       set({
         orderProgress: null,

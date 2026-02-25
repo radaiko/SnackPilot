@@ -22,6 +22,7 @@ import { useDesktopLayout } from '../../src-rn/hooks/useDesktopLayout';
 import { Colors } from '../../src-rn/theme/colors';
 import { tintedBanner, buttonPrimary } from '../../src-rn/theme/platformStyles';
 import { useDialog } from '../../src-rn/components/DialogProvider';
+import { trackSignal } from '../../src-rn/utils/analytics';
 
 type Tab = 'upcoming' | 'past';
 
@@ -50,6 +51,7 @@ export default function OrdersScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      trackSignal('screen.viewed', { screen: 'orders' });
       if (authStatus === 'authenticated') {
         const { loadCachedOrders } = useOrderStore.getState();
         loadCachedOrders().catch(() => {}).finally(() => {

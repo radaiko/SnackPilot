@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GourmetOrderedMenu } from '../types/order';
 import { useAuthStore } from './authStore';
+import { trackSignal } from '../utils/analytics';
 
 const ORDER_CACHE_KEY = 'orders_list';
 
@@ -73,6 +74,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     try {
       const api = useAuthStore.getState().api;
       await api.confirmOrders();
+      trackSignal('order.confirmed');
       set({ loading: false });
       // Refresh orders to reflect confirmed state
       await get().fetchOrders();
@@ -88,6 +90,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     try {
       const api = useAuthStore.getState().api;
       await api.cancelOrders([positionId]);
+      trackSignal('order.cancelled');
       set({ cancellingId: null });
       // Refresh orders after cancellation
       await get().fetchOrders();

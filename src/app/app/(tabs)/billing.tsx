@@ -19,6 +19,7 @@ import { useTheme } from '../../src-rn/theme/useTheme';
 import { useDesktopLayout } from '../../src-rn/hooks/useDesktopLayout';
 import { Colors } from '../../src-rn/theme/colors';
 import { bannerSurface, tintedBanner } from '../../src-rn/theme/platformStyles';
+import { trackSignal } from '../../src-rn/utils/analytics';
 
 const SOURCE_FILTERS: { value: BillingSource; label: string }[] = [
   { value: 'all', label: 'Alle' },
@@ -108,6 +109,7 @@ export default function BillingScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      trackSignal('screen.viewed', { screen: 'billing' });
       if (hasAnyAuth) {
         loadCachedMonths().catch(() => {}).finally(() => {
           if (gourmetAuthStatus === 'authenticated') fetchBilling();

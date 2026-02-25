@@ -1,76 +1,59 @@
-import { ReactNode, useEffect } from 'react';
-import { Appearance, Platform } from 'react-native';
-import { PostHogProvider, usePostHog } from 'posthog-react-native';
+import { ReactNode, useEffect, useRef } from 'react';
+import { AppState, Appearance, Platform } from 'react-native';
+import { TelemetryDeckProvider } from '@typedigital/telemetrydeck-react';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
-import * as Network from 'expo-network';
+import { td, trackSignal } from '../utils/analytics';
 
-const POSTHOG_KEY = 'phc_F2Bzuz5BQGxVxsj73fl0REhelkw6DP99YbrDsrVnIHo';
-const POSTHOG_HOST = 'https://eu.i.posthog.com';
-
-/** Registers device & app super properties on every event. */
-function RegisterSuperProperties() {
-  const posthog = usePostHog();
+function LifecycleSignals() {
+  const hasLaunched = useRef(false);
+  const appState = useRef(AppState.currentState);
 
   useEffect(() => {
-    const osName = Platform.OS === 'ios' ? 'iOS' : 'Android';
-    const osVersion =
-      Platform.OS === 'ios'
-        ? String(Platform.Version)
-        : String(
-            (Platform.constants as Record<string, unknown>).Release ??
-              Platform.Version,
-          );
-    const appBuild =
-      Platform.OS === 'ios'
-        ? Constants.expoConfig?.ios?.buildNumber
-        : Constants.expoConfig?.android?.versionCode?.toString();
+    if (!hasLaunched.current) {
+      hasLaunched.current = true;
 
-    posthog.register({
-      $os: osName,
-      $os_version: osVersion,
-      $app_version: Constants.expoConfig?.version,
-      $app_build: appBuild,
-      $device_model: Device.modelName,
-      $appearance: Appearance.getColorScheme() ?? 'unknown',
-    });
+      const osName = Platform.OS === 'ios' ? 'iOS' : 'Android';
+      const osVersion =
+        Platform.OS === 'ios'
+          ? String(Platform.Version)
+          : String(
+              (Platform.constants as Record<string, unknown>).Release ??
+                Platform.Version,
+            );
 
-    Network.getNetworkStateAsync().then((state) => {
-      posthog.register({
-        $network_type: state.type?.toLowerCase() ?? 'unknown',
+      trackSignal('app.launched', {
+        startType: 'cold',
+        appVersion: Constants.expoConfig?.version ?? 'unknown',
+        os: osName,
+        osVersion,
+        deviceModel: Device.modelName ?? 'unknown',
+        appearance: Appearance.getColorScheme() ?? 'unknown',
       });
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (appState.current.match(/inactive|background/) && nextState === 'active') {
+        trackSignal('app.foregrounded', {
+          appVersion: Constants.expoConfig?.version ?? 'unknown',
+        });
+      } else if (appState.current === 'active' && nextState.match(/inactive|background/)) {
+        trackSignal('app.backgrounded');
+      }
+      appState.current = nextState;
     });
-  }, [posthog]);
+
+    return () => subscription.remove();
+  }, []);
 
   return null;
 }
 
 export function AnalyticsProvider({ children }: { children: ReactNode }) {
   return (
-    <PostHogProvider
-      apiKey={POSTHOG_KEY}
-      options={{
-        host: POSTHOG_HOST,
-        captureAppLifecycleEvents: true,
-        enableSessionReplay: true,
-        sessionReplayConfig: {
-          maskAllTextInputs: true,
-          maskAllImages: false,
-        },
-        errorTracking: {
-          autocapture: {
-            uncaughtExceptions: true,
-            unhandledRejections: true,
-          },
-        },
-      }}
-      autocapture={{
-        captureTouches: true,
-        captureScreens: true,
-      }}
-    >
-      <RegisterSuperProperties />
+    <TelemetryDeckProvider telemetryDeck={td}>
+      <LifecycleSignals />
       {children}
-    </PostHogProvider>
+    </TelemetryDeckProvider>
   );
 }

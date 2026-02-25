@@ -3,6 +3,7 @@ import * as secureStorage from '../utils/secureStorage';
 import { VentopayApi } from '../api/ventopayApi';
 import { DemoVentopayApi } from '../api/demoVentopayApi';
 import { isDemoCredentials } from '../utils/constants';
+import { trackSignal } from '../utils/analytics';
 
 const CREDENTIALS_KEY_USER = 'ventopay_username';
 const CREDENTIALS_KEY_PASS = 'ventopay_password';
@@ -34,14 +35,17 @@ export const useVentopayAuthStore = create<VentopayAuthState>((set, get) => ({
         const demoApi = new DemoVentopayApi();
         await demoApi.login(username, password);
         set({ status: 'authenticated', error: null, api: demoApi as unknown as VentopayApi });
+        trackSignal('auth.loginSuccess', { service: 'ventopay' });
         return true;
       }
       await get().api.login(username, password);
       set({ status: 'authenticated', error: null });
+      trackSignal('auth.loginSuccess', { service: 'ventopay' });
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Ventopay login failed';
       set({ status: 'error', error: message });
+      trackSignal('auth.loginFailed', { service: 'ventopay' });
       return false;
     }
   },
@@ -56,6 +60,7 @@ export const useVentopayAuthStore = create<VentopayAuthState>((set, get) => ({
   },
 
   logout: async () => {
+    trackSignal('auth.logout', { service: 'ventopay' });
     try {
       await get().api.logout();
     } finally {

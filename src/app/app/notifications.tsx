@@ -31,6 +31,7 @@ import {
 import { useTheme } from '../src-rn/theme/useTheme';
 import { useDialog } from '../src-rn/components/DialogProvider';
 import { Colors } from '../src-rn/theme/colors';
+import { trackSignal } from '../src-rn/utils/analytics';
 import {
   buttonPrimary,
   buttonDanger,
@@ -90,6 +91,11 @@ export default function NotificationsScreen() {
     }
     await setReminderEnabled(newValue);
     setReminderEnabledState(newValue);
+    trackSignal('notification.reminderToggled', {
+      enabled: String(newValue),
+      hour: String(reminderHour),
+      minute: String(reminderMinute),
+    });
   };
 
   const handleReminderTimeChange = async (hour: number, minute: number) => {
@@ -129,6 +135,7 @@ export default function NotificationsScreen() {
       setCompanyLocation(position.latitude, position.longitude);
       await enableNotifications();
       alert('Gespeichert', 'Firmenstandort gesetzt. Du wirst um 8:45 benachrichtigt, wenn du im Büro bist und nicht bestellt hast.');
+      trackSignal('notification.locationSet');
     } catch {
       alert('Fehler', 'Standort konnte nicht ermittelt werden.');
     }

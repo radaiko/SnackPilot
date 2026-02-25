@@ -6,6 +6,7 @@ import { GourmetApi } from '../api/gourmetApi';
 import * as secureStorage from './secureStorage';
 import { CREDENTIALS_KEY_USER, CREDENTIALS_KEY_PASS, isDemoCredentials } from './constants';
 import { computeFingerprints, detectNewMenus } from './menuFingerprint';
+import { trackSignal } from './analytics';
 import {
   getKnownMenus,
   setKnownMenus,
@@ -66,6 +67,7 @@ async function backgroundMenuCheckTask(): Promise<BackgroundTask.BackgroundTaskR
       });
       await setNotificationSent(true);
       await setKnownMenus(currentFingerprints);
+      trackSignal('menu.newDetected');
       return BackgroundTask.BackgroundTaskResult.Success;
     }
 

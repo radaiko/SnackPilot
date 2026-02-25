@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useFlatStyle, isCompactDesktop, isNative } from '../../src-rn/utils/platform';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../src-rn/store/authStore';
@@ -18,13 +18,13 @@ import { useTheme } from '../../src-rn/theme/useTheme';
 import { useDesktopLayout } from '../../src-rn/hooks/useDesktopLayout';
 import { useDialog } from '../../src-rn/components/DialogProvider';
 import { useThemeStore } from '../../src-rn/store/themeStore';
-import { useAnalyticsId } from '../../src-rn/hooks/useAnalyticsId';
 import { Colors } from '../../src-rn/theme/colors';
 import {
   buttonPrimary,
   bannerSurface,
   cardSurface,
 } from '../../src-rn/theme/platformStyles';
+import { trackSignal } from '../../src-rn/utils/analytics';
 
 const THEME_LABELS: Record<string, string> = {
   system: 'System',
@@ -45,8 +45,13 @@ export default function SettingsScreen() {
   const gourmetUsername = useAuthStore((s) => s.userInfo?.username);
   const ventopayStatus = useVentopayAuthStore((s) => s.status);
 
-  const analyticsId = useAnalyticsId();
   const pendingVersion = useUpdateStore((s) => s.pendingVersion);
+
+  useFocusEffect(
+    useCallback(() => {
+      trackSignal('screen.viewed', { screen: 'settings' });
+    }, [])
+  );
 
   const gourmetCard = (
     <View style={isWideLayout ? styles.desktopCard : undefined}>
@@ -135,21 +140,11 @@ export default function SettingsScreen() {
       <Pressable
         onPress={() => alert(
           'Datenschutz',
-          'Diese App erfasst anonyme Nutzungsanalysen, Fehlerberichte und Sitzungsaufzeichnungen zur Verbesserung der Benutzererfahrung. Alle Daten werden in der EU über PostHog verarbeitet und gespeichert. Es werden keine persönlichen Inhalte (Passwörter, Menüauswahl oder Abrechnungsdaten) erfasst. Texteingaben werden in Sitzungsaufzeichnungen automatisch maskiert.'
+          'Diese App erfasst anonyme Nutzungsstatistiken zur Verbesserung der Benutzererfahrung. Die Analyse erfolgt über TelemetryDeck — einen datenschutzfreundlichen, cookielosen Dienst. Es werden keine persönlichen Daten, Passwörter, Menüauswahl oder Abrechnungsdaten erfasst.'
         )}
       >
         <Text style={styles.privacyLink}>Datenschutz</Text>
       </Pressable>
-      {analyticsId && (
-        <Pressable
-          onPress={() => alert(
-            'Analytics-ID',
-            `Deine anonyme Analytics-ID:\n\n${analyticsId}\n\nGib diese ID an, wenn du die Löschung deiner Analysedaten beantragen möchtest.`
-          )}
-        >
-          <Text style={styles.privacyLink}>Analytics-ID</Text>
-        </Pressable>
-      )}
     </View>
   );
 

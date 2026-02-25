@@ -7,5 +7,8 @@ module.exports = {
       tsconfig: 'tsconfig.json',
     }],
   },
+  moduleNameMapper: {
+    '.*/utils/analytics$': '<rootDir>/src-rn/utils/__mocks__/analytics.ts',
+  },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
 };

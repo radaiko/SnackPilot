@@ -5,6 +5,7 @@ import { DemoGourmetApi } from '../api/demoGourmetApi';
 import { GourmetUserInfo } from '../types/menu';
 import { isDemoCredentials, CREDENTIALS_KEY_USER, CREDENTIALS_KEY_PASS } from '../utils/constants';
 import { useMenuStore } from './menuStore';
+import { trackSignal } from '../utils/analytics';
 
 type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'error' | 'no_credentials';
 
@@ -36,14 +37,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const userInfo = await demoApi.login(username, password);
         useMenuStore.setState({ items: [], lastFetched: null });
         set({ status: 'authenticated', userInfo, error: null, api: demoApi as unknown as GourmetApi });
+        trackSignal('auth.loginSuccess', { service: 'gourmet' });
         return true;
       }
       const userInfo = await get().api.login(username, password);
       set({ status: 'authenticated', userInfo, error: null });
+      trackSignal('auth.loginSuccess', { service: 'gourmet' });
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
       set({ status: 'error', error: message, userInfo: null });
+      trackSignal('auth.loginFailed', { service: 'gourmet' });
       return false;
     }
   },
@@ -58,6 +62,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    trackSignal('auth.logout', { service: 'gourmet' });
     try {
       await get().api.logout();
     } finally {

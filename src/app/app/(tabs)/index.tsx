@@ -28,6 +28,7 @@ import { useDesktopLayout } from '../../src-rn/hooks/useDesktopLayout';
 import { Colors } from '../../src-rn/theme/colors';
 import { tintedBanner, buttonPrimary, fab as fabStyle } from '../../src-rn/theme/platformStyles';
 import { computeFingerprints, detectNewMenus } from '../../src-rn/utils/menuFingerprint';
+import { trackSignal } from '../../src-rn/utils/analytics';
 import {
   getKnownMenus,
   setKnownMenus,
@@ -123,7 +124,10 @@ export default function MenusScreen() {
   }, [fetchMenus, refreshAvailability, fetchOrders]);
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', triggerRefresh);
+    const unsubscribe = navigation.addListener('focus', () => {
+      trackSignal('screen.viewed', { screen: 'menus' });
+      triggerRefresh();
+    });
     return unsubscribe;
   }, [navigation, triggerRefresh]);
 
