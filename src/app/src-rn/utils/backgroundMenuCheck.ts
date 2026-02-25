@@ -4,7 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { GourmetApi } from '../api/gourmetApi';
 import * as secureStorage from './secureStorage';
-import { CREDENTIALS_KEY_USER, CREDENTIALS_KEY_PASS } from './constants';
+import { CREDENTIALS_KEY_USER, CREDENTIALS_KEY_PASS, isDemoCredentials } from './constants';
 import { computeFingerprints, detectNewMenus } from './menuFingerprint';
 import {
   getKnownMenus,
@@ -33,6 +33,12 @@ async function backgroundMenuCheckTask(): Promise<BackgroundFetch.BackgroundFetc
     const username = await secureStorage.getItem(CREDENTIALS_KEY_USER);
     const password = await secureStorage.getItem(CREDENTIALS_KEY_PASS);
     if (!username || !password) {
+      return BackgroundFetch.BackgroundFetchResult.NoData;
+    }
+
+    // Skip background check for demo credentials — they are fake and
+    // must never be sent to the live Gourmet server.
+    if (isDemoCredentials(username, password)) {
       return BackgroundFetch.BackgroundFetchResult.NoData;
     }
 
