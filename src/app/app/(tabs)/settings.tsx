@@ -5,6 +5,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -22,7 +23,14 @@ import {
   getCurrentPosition,
   enableNotifications,
   disableNotifications,
+  registerBackgroundSync,
 } from '../../src-rn/utils/notificationService';
+import {
+  getReminderEnabled,
+  setReminderEnabled,
+  getReminderTime,
+  setReminderTime,
+} from '../../src-rn/utils/reminderStorage';
 import { useUpdateStore, applyUpdate } from '../../src-rn/utils/desktopUpdater';
 import { useTheme } from '../../src-rn/theme/useTheme';
 import { useDesktopLayout } from '../../src-rn/hooks/useDesktopLayout';
@@ -43,6 +51,17 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: 'light', label: 'Hell' },
   { value: 'dark', label: 'Dunkel' },
 ];
+
+const TIME_OPTIONS: { hour: number; minute: number; label: string }[] = [];
+for (let h = 0; h < 24; h++) {
+  for (let m = 0; m < 60; m += 15) {
+    TIME_OPTIONS.push({
+      hour: h,
+      minute: m,
+      label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+    });
+  }
+}
 
 export default function SettingsScreen() {
   const { colors } = useTheme();
@@ -97,6 +116,11 @@ export default function SettingsScreen() {
   const clearCompanyLocation = useLocationStore((s) => s.clearCompanyLocation);
   const [locationSaving, setLocationSaving] = useState(false);
 
+  // Daily reminder state (mobile only)
+  const [reminderEnabled, setReminderEnabledState] = useState(false);
+  const [reminderHour, setReminderHour] = useState(11);
+  const [reminderMinute, setReminderMinute] = useState(0);
+
   const handleSetLocation = async () => {
     setLocationSaving(true);
     try {
@@ -125,6 +149,41 @@ export default function SettingsScreen() {
   const handleRemoveLocation = async () => {
     clearCompanyLocation();
     await disableNotifications();
+  };
+
+  // Load saved reminder state (mobile only)
+  useEffect(() => {
+    if (!isNative()) return;
+    (async () => {
+      const enabled = await getReminderEnabled();
+      setReminderEnabledState(enabled);
+      const time = await getReminderTime();
+      if (time) {
+        setReminderHour(time.hour);
+        setReminderMinute(time.minute);
+      }
+    })();
+  }, []);
+
+  const handleReminderToggle = async () => {
+    const newValue = !reminderEnabled;
+    if (newValue) {
+      const granted = await requestNotificationPermissions();
+      if (!granted) {
+        alert('Berechtigung fehlt', 'Benachrichtigungen werden für diese Funktion benötigt. Bitte in den Einstellungen aktivieren.');
+        return;
+      }
+      await setReminderTime(reminderHour, reminderMinute);
+      await registerBackgroundSync();
+    }
+    await setReminderEnabled(newValue);
+    setReminderEnabledState(newValue);
+  };
+
+  const handleReminderTimeChange = async (hour: number, minute: number) => {
+    setReminderHour(hour);
+    setReminderMinute(minute);
+    await setReminderTime(hour, minute);
   };
 
   // Load saved credentials on mount
@@ -400,11 +459,58 @@ export default function SettingsScreen() {
     </View>
   ) : null;
 
-  const locationCard = isNative() ? (
+  const notificationCard = isNative() ? (
     <View style={isWideLayout ? styles.desktopCard : undefined}>
       {!isWideLayout && <View style={styles.divider} />}
-      <Text style={styles.sectionTitle}>Standort-Benachrichtigungen</Text>
-      <Text style={styles.sectionSubtitle}>
+      <Text style={styles.sectionTitle}>Benachrichtigungen</Text>
+
+      {/* Daily Reminder */}
+      <View style={styles.reminderRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.label}>Bestell-Erinnerung</Text>
+          <Text style={styles.reminderHint}>
+            Tägliche Erinnerung an deine Bestellung
+          </Text>
+        </View>
+        <Switch
+          value={reminderEnabled}
+          onValueChange={handleReminderToggle}
+          trackColor={{ false: colors.border, true: colors.primary }}
+        />
+      </View>
+
+      {reminderEnabled && (
+        <View style={styles.timePickerSection}>
+          <Text style={styles.label}>Uhrzeit</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.timeScroll}
+            contentContainerStyle={styles.timeScrollContent}
+          >
+            {TIME_OPTIONS.map((opt) => {
+              const isSelected = opt.hour === reminderHour && opt.minute === reminderMinute;
+              return (
+                <Pressable
+                  key={opt.label}
+                  style={[styles.timeChip, isSelected && styles.timeChipActive]}
+                  onPress={() => handleReminderTimeChange(opt.hour, opt.minute)}
+                >
+                  <Text style={[styles.timeChipText, isSelected && styles.timeChipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
+      <View style={styles.divider} />
+
+      {/* Location Notifications (existing) */}
+      <Text style={styles.label}>Standort-Benachrichtigungen</Text>
+      <Text style={styles.reminderHint}>
         Erinnerung um 8:45 basierend auf deinem Standort
       </Text>
 
@@ -444,7 +550,7 @@ export default function SettingsScreen() {
             {appearanceCard}
             {updatesCard}
           </View>
-          {locationCard}
+          {notificationCard}
           {privacyCard}
         </>
       ) : (
@@ -452,7 +558,7 @@ export default function SettingsScreen() {
           {gourmetCard}
           {ventopayCard}
           {appearanceCard}
-          {locationCard}
+          {notificationCard}
           {updatesCard}
           {privacyCard}
         </>
@@ -594,6 +700,43 @@ const createStyles = (c: Colors) =>
       fontSize: isCompactDesktop ? 11 : 12,
       color: c.textTertiary,
       marginTop: isCompactDesktop ? 6 : 8,
+    },
+    reminderRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      marginBottom: isCompactDesktop ? 8 : 12,
+    },
+    reminderHint: {
+      fontSize: isCompactDesktop ? 11 : 12,
+      color: c.textTertiary,
+      marginTop: 2,
+    },
+    timePickerSection: {
+      marginBottom: isCompactDesktop ? 10 : 16,
+    },
+    timeScroll: {
+      marginTop: isCompactDesktop ? 4 : 8,
+    },
+    timeScrollContent: {
+      gap: isCompactDesktop ? 6 : 8,
+    },
+    timeChip: {
+      paddingHorizontal: isCompactDesktop ? 10 : 14,
+      paddingVertical: isCompactDesktop ? 6 : 10,
+      ...bannerSurface(c),
+    },
+    timeChipActive: {
+      backgroundColor: useFlatStyle ? c.primarySurface : c.glassPrimary,
+      borderColor: useFlatStyle ? c.primary : undefined,
+      borderBottomColor: c.primary,
+    },
+    timeChipText: {
+      fontSize: isCompactDesktop ? 12 : 14,
+      fontWeight: '600' as const,
+      color: c.textSecondary,
+    },
+    timeChipTextActive: {
+      color: c.primary,
     },
     privacyRow: {
       flexDirection: 'row' as const,
