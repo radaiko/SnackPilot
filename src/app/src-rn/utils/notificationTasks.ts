@@ -5,6 +5,7 @@ import * as Notifications from 'expo-notifications';
 import { useLocationStore } from '../store/locationStore';
 import { useOrderStore } from '../store/orderStore';
 import { isSameDay, viennaMinutes, viennaToday } from './dateUtils';
+import { checkDailyReminder } from './dailyReminderCheck';
 import {
   GEOFENCE_TASK_NAME,
   BACKGROUND_ORDER_SYNC_TASK,
@@ -38,16 +39,16 @@ if (Platform.OS !== 'web') {
 
   TaskManager.defineTask(BACKGROUND_ORDER_SYNC_TASK, async () => {
     try {
-      // Only check if we have a company location configured
-      if (!useLocationStore.getState().hasCompanyLocation()) {
-        return BackgroundTask.BackgroundTaskResult.Success;
-      }
-
       // Load cached orders (no network calls to avoid concurrent scraping)
       await useOrderStore.getState().loadCachedOrders();
 
-      // Check if we should fire a notification
-      await checkAndNotify();
+      // Location-based notification check (only if company location configured)
+      if (useLocationStore.getState().hasCompanyLocation()) {
+        await checkAndNotify();
+      }
+
+      // Daily order reminder check
+      await checkDailyReminder();
 
       return BackgroundTask.BackgroundTaskResult.Success;
     } catch {
