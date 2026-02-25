@@ -143,6 +143,20 @@ describe('dateUtils', () => {
       expect(isOrderingCutoff(futureDate)).toBe(false);
     });
 
+    it('returns true for a past date', () => {
+      // Current time: Feb 10 2026, 08:00 Vienna (before cutoff) -> UTC 07:00
+      jest.setSystemTime(new Date('2026-02-10T07:00:00Z'));
+      const pastDate = new Date(2026, 1, 9); // Feb 9
+      expect(isOrderingCutoff(pastDate)).toBe(true);
+    });
+
+    it('returns true for a past date even well before cutoff time', () => {
+      // Current time: Feb 10 2026, 06:00 Vienna -> UTC 05:00
+      jest.setSystemTime(new Date('2026-02-10T05:00:00Z'));
+      const pastDate = new Date(2026, 1, 8); // Feb 8
+      expect(isOrderingCutoff(pastDate)).toBe(true);
+    });
+
     it('returns true for today at 09:00 Vienna time (CEST / summer)', () => {
       // Aug 10 2026, 09:00 Vienna CEST (UTC+2) -> UTC 07:00
       jest.setSystemTime(new Date('2026-08-10T07:00:00Z'));
@@ -241,6 +255,20 @@ describe('dateUtils', () => {
       jest.setSystemTime(new Date('2026-02-10T13:00:00Z'));
       const futureDate = new Date(2026, 1, 11); // Feb 11
       expect(isCancellationCutoff(futureDate)).toBe(false);
+    });
+
+    it('returns true for a past date', () => {
+      // Current time: Feb 10 2026, 08:00 Vienna (before cutoff) -> UTC 07:00
+      jest.setSystemTime(new Date('2026-02-10T07:00:00Z'));
+      const pastDate = new Date(2026, 1, 9); // Feb 9
+      expect(isCancellationCutoff(pastDate)).toBe(true);
+    });
+
+    it('returns true for a past date even well before cutoff time', () => {
+      // Current time: Feb 10 2026, 06:00 Vienna -> UTC 05:00
+      jest.setSystemTime(new Date('2026-02-10T05:00:00Z'));
+      const pastDate = new Date(2026, 1, 8); // Feb 8
+      expect(isCancellationCutoff(pastDate)).toBe(true);
     });
 
     it('returns true for today at 09:00 Vienna time (CEST / summer)', () => {

@@ -87,21 +87,27 @@ function viennaToday(): Date {
 
 /**
  * Check if ordering is blocked for a given menu date.
+ * Past dates are always blocked.
  * Today's menu cannot be ordered after 09:00 Europe/Vienna time.
  * Future dates are never blocked.
  */
 export function isOrderingCutoff(menuDate: Date): boolean {
-  if (!isSameDay(menuDate, viennaToday())) return false;
+  const today = viennaToday();
+  if (menuDate < today) return true;
+  if (!isSameDay(menuDate, today)) return false;
   return viennaMinutes() >= 9 * 60;
 }
 
 /**
  * Check if cancellation is blocked for a given order date.
+ * Past dates are always blocked.
  * Today's order cannot be cancelled after 09:00 Europe/Vienna time.
  * Future dates are never blocked.
  */
 export function isCancellationCutoff(orderDate: Date): boolean {
-  if (!isSameDay(orderDate, viennaToday())) return false;
+  const today = viennaToday();
+  if (orderDate < today) return true;
+  if (!isSameDay(orderDate, today)) return false;
   return viennaMinutes() >= 9 * 60;
 }
 
