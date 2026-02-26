@@ -13,6 +13,7 @@ import {
   getNotificationSent,
   setNotificationSent,
 } from './menuChangeStorage';
+import { appendLogEntry } from './notificationLogStorage';
 
 const TASK_NAME = 'BACKGROUND_MENU_CHECK';
 
@@ -30,23 +31,32 @@ if (Platform.OS === 'android') {
  */
 async function backgroundMenuCheckTask(): Promise<BackgroundTask.BackgroundTaskResult> {
   try {
+    await appendLogEntry('menu-check', 'info', 'task_start');
+
     // Read credentials
     const username = await secureStorage.getItem(CREDENTIALS_KEY_USER);
     const password = await secureStorage.getItem(CREDENTIALS_KEY_PASS);
     if (!username || !password) {
+      await appendLogEntry('menu-check', 'guard', 'no_credentials');
       return BackgroundTask.BackgroundTaskResult.Success;
     }
 
     // Skip background check for demo credentials — they are fake and
     // must never be sent to the live Gourmet server.
     if (isDemoCredentials(username, password)) {
+      await appendLogEntry('menu-check', 'guard', 'demo_credentials_skip');
       return BackgroundTask.BackgroundTaskResult.Success;
     }
 
     // Login and fetch menus
+    await appendLogEntry('menu-check', 'info', 'login_start');
     const api = new GourmetApi();
     await api.login(username, password);
+    await appendLogEntry('menu-check', 'info', 'login_success');
+
     const items = await api.getMenus();
+    await appendLogEntry('menu-check', 'info', 'menus_fetched',
+      `count=${items.length}`);
 
     // Compare fingerprints
     const currentFingerprints = computeFingerprints(items);
@@ -55,6 +65,10 @@ async function backgroundMenuCheckTask(): Promise<BackgroundTask.BackgroundTaskR
 
     // Only notify if menus changed AND we haven't already sent for this batch
     const alreadySent = await getNotificationSent();
+
+    await appendLogEntry('menu-check', 'info', 'comparison_result',
+      `hasNew=${hasNew} alreadySent=${alreadySent} currentCount=${currentFingerprints.size} knownCount=${knownMenus.size}`);
+
     if (hasNew && !alreadySent) {
       await Notifications.scheduleNotificationAsync({
         content: {
@@ -68,11 +82,17 @@ async function backgroundMenuCheckTask(): Promise<BackgroundTask.BackgroundTaskR
       await setNotificationSent(true);
       await setKnownMenus(currentFingerprints);
       trackSignal('menu.newDetected');
+      await appendLogEntry('menu-check', 'notification', 'fired',
+        'new menus detected');
       return BackgroundTask.BackgroundTaskResult.Success;
     }
 
+    await appendLogEntry('menu-check', 'guard', 'no_notification',
+      `hasNew=${hasNew} alreadySent=${alreadySent}`);
     return BackgroundTask.BackgroundTaskResult.Success;
-  } catch {
+  } catch (e) {
+    await appendLogEntry('menu-check', 'error', 'task_error',
+      e instanceof Error ? e.message : String(e));
     return BackgroundTask.BackgroundTaskResult.Failed;
   }
 }

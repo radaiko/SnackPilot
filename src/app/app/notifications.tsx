@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Linking,
   Pressable,
@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFlatStyle, isCompactDesktop, isNative } from '../src-rn/utils/platform';
 import { useLocationStore } from '../src-rn/store/locationStore';
@@ -28,6 +28,14 @@ import {
   getReminderTime,
   setReminderTime,
 } from '../src-rn/utils/reminderStorage';
+import {
+  activateLog,
+  clearLog,
+  getLogActivatedUntil,
+  getLogEntries,
+  formatLogForEmail,
+  NotificationLogEntry,
+} from '../src-rn/utils/notificationLogStorage';
 import { useTheme } from '../src-rn/theme/useTheme';
 import { useDialog } from '../src-rn/components/DialogProvider';
 import { Colors } from '../src-rn/theme/colors';
@@ -66,6 +74,22 @@ export default function NotificationsScreen() {
   const [reminderHour, setReminderHour] = useState(11);
   const [reminderMinute, setReminderMinute] = useState(0);
 
+  // Debug log state
+  const [logActivatedUntil, setLogActivatedUntil] = useState<number | null>(null);
+  const [logEntries, setLogEntries] = useState<NotificationLogEntry[]>([]);
+
+  const logIsActive = logActivatedUntil !== null && Date.now() < logActivatedUntil;
+  const logIsExpired = logActivatedUntil !== null && Date.now() >= logActivatedUntil;
+
+  const loadLogState = useCallback(async () => {
+    const until = await getLogActivatedUntil();
+    setLogActivatedUntil(until);
+    if (until !== null) {
+      const entries = await getLogEntries();
+      setLogEntries(entries);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isNative()) return;
     (async () => {
@@ -77,7 +101,15 @@ export default function NotificationsScreen() {
         setReminderMinute(time.minute);
       }
     })();
-  }, []);
+    loadLogState();
+  }, [loadLogState]);
+
+  // Refresh log state when screen is focused (user may come back after 24h)
+  useFocusEffect(
+    useCallback(() => {
+      loadLogState();
+    }, [loadLogState])
+  );
 
   const handleReminderToggle = async (newValue: boolean) => {
     if (newValue) {
@@ -145,6 +177,37 @@ export default function NotificationsScreen() {
   const handleRemoveLocation = async () => {
     clearCompanyLocation();
     await disableNotifications();
+  };
+
+  const handleActivateLog = async () => {
+    await activateLog();
+    await loadLogState();
+  };
+
+  const handleSendLog = async () => {
+    const body = formatLogForEmail(logEntries);
+    // mailto: URLs are limited to ~1600-2000 chars depending on platform
+    const MAX_BODY_LENGTH = 1500;
+    const truncatedBody = body.length > MAX_BODY_LENGTH
+      ? body.slice(0, MAX_BODY_LENGTH) + '\n\n[Log gekürzt — zu viele Einträge]'
+      : body;
+    const expiryStr = logActivatedUntil
+      ? new Date(logActivatedUntil).toLocaleString('de-AT')
+      : '';
+    const subject = encodeURIComponent(`SnackPilot Notification Log (bis ${expiryStr})`);
+    const encodedBody = encodeURIComponent(truncatedBody);
+    const url = `mailto:aiko@spitzbub.app?subject=${subject}&body=${encodedBody}`;
+    try {
+      await Linking.openURL(url);
+    } catch {
+      alert('Fehler', 'E-Mail-App konnte nicht geöffnet werden.');
+    }
+  };
+
+  const handleClearLog = async () => {
+    await clearLog();
+    setLogActivatedUntil(null);
+    setLogEntries([]);
   };
 
   return (
@@ -227,6 +290,52 @@ export default function NotificationsScreen() {
           <Text style={styles.buttonPrimaryText}>
             {locationSaving ? 'Standort wird ermittelt...' : 'Aktuellen Standort als Firmenstandort setzen'}
           </Text>
+        </Pressable>
+      )}
+
+      <View style={styles.divider} />
+
+      {/* Debug Log */}
+      <Text style={styles.sectionTitle}>Benachrichtigungs-Log</Text>
+      <Text style={styles.sectionHint}>
+        Zeichnet 24 Stunden lang Diagnose-Daten auf, um Probleme mit Benachrichtigungen zu analysieren.
+      </Text>
+
+      {logIsActive ? (
+        <View>
+          <Text style={styles.statusText}>
+            Aufzeichnung läuft bis{' '}
+            {new Date(logActivatedUntil!).toLocaleString('de-AT', {
+              day: '2-digit',
+              month: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+            {logEntries.length > 0 ? ` (${logEntries.length} Einträge)` : ''}
+          </Text>
+        </View>
+      ) : logIsExpired ? (
+        <View>
+          <Text style={styles.statusText}>
+            Aufzeichnung abgeschlossen ({logEntries.length} Einträge).
+          </Text>
+          <Pressable
+            style={[styles.button, styles.buttonPrimary, styles.logSendButton]}
+            onPress={handleSendLog}
+          >
+            <Ionicons name="mail-outline" size={isCompactDesktop ? 14 : 16} color="#fff" />
+            <Text style={styles.buttonPrimaryText}>Log per E-Mail senden</Text>
+          </Pressable>
+          <Pressable style={styles.logDiscardButton} onPress={handleClearLog}>
+            <Text style={styles.logDiscardText}>Log verwerfen</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable
+          style={[styles.button, styles.buttonPrimary]}
+          onPress={handleActivateLog}
+        >
+          <Text style={styles.buttonPrimaryText}>Log aktivieren (24 Stunden)</Text>
         </Pressable>
       )}
     </ScrollView>
@@ -342,5 +451,19 @@ const createStyles = (c: Colors) =>
       color: '#fff',
       fontWeight: '700',
       fontSize: isCompactDesktop ? 13 : 15,
+    },
+    logSendButton: {
+      flexDirection: 'row',
+      gap: isCompactDesktop ? 6 : 8,
+      justifyContent: 'center',
+    },
+    logDiscardButton: {
+      alignItems: 'center' as const,
+      paddingVertical: isCompactDesktop ? 8 : 12,
+      marginTop: isCompactDesktop ? 4 : 8,
+    },
+    logDiscardText: {
+      fontSize: isCompactDesktop ? 12 : 14,
+      color: c.textTertiary,
     },
   });

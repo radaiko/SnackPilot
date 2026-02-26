@@ -9,6 +9,7 @@ module.exports = {
   },
   moduleNameMapper: {
     '.*/utils/analytics$': '<rootDir>/src-rn/utils/__mocks__/analytics.ts',
+    '.*/utils/notificationLogStorage$': '<rootDir>/src-rn/utils/__mocks__/notificationLogStorage.ts',
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
 };
