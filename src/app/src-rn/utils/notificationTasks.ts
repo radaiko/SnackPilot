@@ -24,18 +24,18 @@ if (Platform.OS !== 'web') {
 
   TaskManager.defineTask<GeofencingTaskData>(
     GEOFENCE_TASK_NAME,
-    ({ data, error }) => {
+    async ({ data, error }) => {
       if (error) {
-        appendLogEntry('geofence', 'error', 'task_error', error.message);
+        await appendLogEntry('geofence', 'error', 'task_error', error.message);
         return;
       }
       const { eventType } = data;
       if (eventType === Location.GeofencingEventType.Enter) {
         useLocationStore.getState().setIsAtCompany(true);
-        appendLogEntry('geofence', 'info', 'region_enter', 'isAtCompany=true');
+        await appendLogEntry('geofence', 'info', 'region_enter', 'isAtCompany=true');
       } else if (eventType === Location.GeofencingEventType.Exit) {
         useLocationStore.getState().setIsAtCompany(false);
-        appendLogEntry('geofence', 'info', 'region_exit', 'isAtCompany=false');
+        await appendLogEntry('geofence', 'info', 'region_exit', 'isAtCompany=false');
       }
     }
   );

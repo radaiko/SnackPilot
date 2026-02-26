@@ -186,11 +186,16 @@ export default function NotificationsScreen() {
 
   const handleSendLog = async () => {
     const body = formatLogForEmail(logEntries);
+    // mailto: URLs are limited to ~1600-2000 chars depending on platform
+    const MAX_BODY_LENGTH = 1500;
+    const truncatedBody = body.length > MAX_BODY_LENGTH
+      ? body.slice(0, MAX_BODY_LENGTH) + '\n\n[Log gekürzt — zu viele Einträge]'
+      : body;
     const expiryStr = logActivatedUntil
       ? new Date(logActivatedUntil).toLocaleString('de-AT')
       : '';
     const subject = encodeURIComponent(`SnackPilot Notification Log (bis ${expiryStr})`);
-    const encodedBody = encodeURIComponent(body);
+    const encodedBody = encodeURIComponent(truncatedBody);
     const url = `mailto:aiko@spitzbub.app?subject=${subject}&body=${encodedBody}`;
     try {
       await Linking.openURL(url);

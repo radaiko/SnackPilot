@@ -66,7 +66,8 @@ export async function getLogEntries(): Promise<NotificationLogEntry[]> {
  * Fire-and-forget safe: errors are swallowed so callers never throw.
  *
  * Uses multiGet to batch both reads into a single AsyncStorage call,
- * avoiding a TOCTOU race between reading the activation window and entries.
+ * reducing (but not eliminating) race conditions between concurrent appends.
+ * Concurrent writes may cause entry loss, which is acceptable for diagnostic logs.
  */
 export async function appendLogEntry(
   subsystem: LogSubsystem,
