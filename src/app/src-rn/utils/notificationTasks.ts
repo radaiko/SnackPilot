@@ -6,6 +6,7 @@ import { useLocationStore } from '../store/locationStore';
 import { useOrderStore } from '../store/orderStore';
 import { isSameDay, viennaMinutes, viennaToday } from './dateUtils';
 import { checkDailyReminder } from './dailyReminderCheck';
+import { appendLogEntry } from './notificationLogStorage';
 import {
   GEOFENCE_TASK_NAME,
   BACKGROUND_ORDER_SYNC_TASK,
@@ -24,12 +25,17 @@ if (Platform.OS !== 'web') {
   TaskManager.defineTask<GeofencingTaskData>(
     GEOFENCE_TASK_NAME,
     ({ data, error }) => {
-      if (error) return;
+      if (error) {
+        appendLogEntry('geofence', 'error', 'task_error', error.message);
+        return;
+      }
       const { eventType } = data;
       if (eventType === Location.GeofencingEventType.Enter) {
         useLocationStore.getState().setIsAtCompany(true);
+        appendLogEntry('geofence', 'info', 'region_enter', 'isAtCompany=true');
       } else if (eventType === Location.GeofencingEventType.Exit) {
         useLocationStore.getState().setIsAtCompany(false);
+        appendLogEntry('geofence', 'info', 'region_exit', 'isAtCompany=false');
       }
     }
   );
@@ -39,6 +45,8 @@ if (Platform.OS !== 'web') {
 
   TaskManager.defineTask(BACKGROUND_ORDER_SYNC_TASK, async () => {
     try {
+      await appendLogEntry('order-sync', 'info', 'task_start');
+
       // Load cached orders (no network calls to avoid concurrent scraping)
       await useOrderStore.getState().loadCachedOrders();
 
@@ -46,20 +54,28 @@ if (Platform.OS !== 'web') {
       if (useLocationStore.getState().hasCompanyLocation()) {
         try {
           await checkAndNotify();
-        } catch {
-          // Silent — don't block other checks
+        } catch (e) {
+          await appendLogEntry('order-sync', 'error', 'location_check_error',
+            e instanceof Error ? e.message : String(e));
         }
+      } else {
+        await appendLogEntry('order-sync', 'guard', 'location_check_skip',
+          'no company location configured');
       }
 
       // Daily order reminder check
       try {
         await checkDailyReminder();
-      } catch {
-        // Silent — don't block other checks
+      } catch (e) {
+        await appendLogEntry('order-sync', 'error', 'reminder_check_error',
+          e instanceof Error ? e.message : String(e));
       }
 
+      await appendLogEntry('order-sync', 'info', 'task_complete');
       return BackgroundTask.BackgroundTaskResult.Success;
-    } catch {
+    } catch (e) {
+      await appendLogEntry('order-sync', 'error', 'task_fatal',
+        e instanceof Error ? e.message : String(e));
       return BackgroundTask.BackgroundTaskResult.Failed;
     }
   });
@@ -73,13 +89,23 @@ if (Platform.OS !== 'web') {
 async function checkAndNotify(): Promise<void> {
   const targetMinutes = NOTIFICATION_HOUR * 60 + NOTIFICATION_MINUTE;
   const currentMinutes = viennaMinutes();
+  const delta = Math.abs(currentMinutes - targetMinutes);
   // Only fire within ±15 minutes of the target time
-  if (Math.abs(currentMinutes - targetMinutes) > 15) return;
+  if (delta > 15) {
+    await appendLogEntry('geofence', 'guard', 'time_guard_fail',
+      `currentMin=${currentMinutes} targetMin=${targetMinutes} delta=${delta}`);
+    return;
+  }
+  await appendLogEntry('geofence', 'guard', 'time_guard_pass',
+    `currentMin=${currentMinutes} targetMin=${targetMinutes}`);
 
   const { isAtCompany } = useLocationStore.getState();
   const orders = useOrderStore.getState().orders;
   const today = viennaToday();
   const hasOrderToday = orders.some((o) => isSameDay(o.date, today));
+
+  await appendLogEntry('geofence', 'info', 'state_snapshot',
+    `isAtCompany=${isAtCompany} hasOrderToday=${hasOrderToday} ordersLoaded=${orders.length}`);
 
   if (isAtCompany && !hasOrderToday) {
     await Notifications.scheduleNotificationAsync({
@@ -90,6 +116,7 @@ async function checkAndNotify(): Promise<void> {
       },
       trigger: null,
     });
+    await appendLogEntry('geofence', 'notification', 'fired_at_company_no_order');
   } else if (!isAtCompany && hasOrderToday) {
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -99,6 +126,10 @@ async function checkAndNotify(): Promise<void> {
       },
       trigger: null,
     });
+    await appendLogEntry('geofence', 'notification', 'fired_has_order_not_at_company');
+  } else {
+    await appendLogEntry('geofence', 'guard', 'no_notification_needed',
+      `isAtCompany=${isAtCompany} hasOrderToday=${hasOrderToday}`);
   }
 }
 
