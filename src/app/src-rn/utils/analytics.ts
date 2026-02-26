@@ -6,6 +6,7 @@ const TELEMETRYDECK_APP_ID = 'BA25F62D-0154-4A92-BF85-29FC5FDDA3EC';
 export const td = createTelemetryDeck({
   appID: TELEMETRYDECK_APP_ID,
   clientUser: 'anonymous',
+  testMode: false,
 });
 
 /** Default payload merged into every signal. Set once at app launch by AnalyticsProvider. */
