@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as MailComposer from 'expo-mail-composer';
 import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFlatStyle, isCompactDesktop, isNative } from '../src-rn/utils/platform';
@@ -186,19 +187,15 @@ export default function NotificationsScreen() {
 
   const handleSendLog = async () => {
     const body = formatLogForEmail(logEntries);
-    // mailto: URLs are limited to ~1600-2000 chars depending on platform
-    const MAX_BODY_LENGTH = 1500;
-    const truncatedBody = body.length > MAX_BODY_LENGTH
-      ? body.slice(0, MAX_BODY_LENGTH) + '\n\n[Log gekürzt — zu viele Einträge]'
-      : body;
     const expiryStr = logActivatedUntil
       ? new Date(logActivatedUntil).toLocaleString('de-AT')
       : '';
-    const subject = encodeURIComponent(`SnackPilot Notification Log (bis ${expiryStr})`);
-    const encodedBody = encodeURIComponent(truncatedBody);
-    const url = `mailto:aiko@spitzbub.app?subject=${subject}&body=${encodedBody}`;
     try {
-      await Linking.openURL(url);
+      await MailComposer.composeAsync({
+        recipients: ['aiko@spitzbub.app'],
+        subject: `SnackPilot Notification Log (bis ${expiryStr})`,
+        body,
+      });
     } catch {
       alert('Fehler', 'E-Mail-App konnte nicht geöffnet werden.');
     }

@@ -104,7 +104,8 @@
         }
       ],
       "expo-background-task",
-      "expo-localization"
+      "expo-localization",
+      "expo-mail-composer"
     ],
     "extra": {
       "router": {},
