@@ -56,9 +56,9 @@ describe('isVentopayLoggedIn', () => {
 });
 
 describe('parseTransactions', () => {
-  it('filters out Gourmet transactions (3 returned from 4 in fixture)', () => {
+  it('filters out Gourmet transactions (5 returned from 6 in fixture)', () => {
     const transactions = parseTransactions(transactionsPageHtml);
-    expect(transactions).toHaveLength(3);
+    expect(transactions).toHaveLength(5);
   });
 
   it('first transaction has correct id, amount, restaurant', () => {
@@ -74,6 +74,8 @@ describe('parseTransactions', () => {
     expect(transactions[0].amount).toBe(1.8);
     expect(transactions[1].amount).toBe(3.2);
     expect(transactions[2].amount).toBe(0.5);
+    expect(transactions[3].amount).toBe(2.4);
+    expect(transactions[4].amount).toBe(1.5);
   });
 
   it('parses timestamp correctly', () => {
@@ -84,6 +86,22 @@ describe('parseTransactions', () => {
     expect(date.getDate()).toBe(9);
     expect(date.getHours()).toBe(11);
     expect(date.getMinutes()).toBe(49);
+  });
+
+  it('parses "Mrz" month abbreviation correctly (March)', () => {
+    const transactions = parseTransactions(transactionsPageHtml);
+    const mrzTransaction = transactions[3]; // "03. Mrz 2026"
+    expect(mrzTransaction.date.getFullYear()).toBe(2026);
+    expect(mrzTransaction.date.getMonth()).toBe(2); // March (0-indexed)
+    expect(mrzTransaction.date.getDate()).toBe(3);
+  });
+
+  it('parses "Jän" month abbreviation with umlaut correctly (January)', () => {
+    const transactions = parseTransactions(transactionsPageHtml);
+    const jänTransaction = transactions[4]; // "15. Jän 2026"
+    expect(jänTransaction.date.getFullYear()).toBe(2026);
+    expect(jänTransaction.date.getMonth()).toBe(0); // January (0-indexed)
+    expect(jänTransaction.date.getDate()).toBe(15);
   });
 
   it('returns empty array for empty transactions page', () => {

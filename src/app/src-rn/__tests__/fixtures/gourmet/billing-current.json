@@ -1,48 +1,50 @@
-[
-  {
-    "BillNr": 10001,
-    "BillDate": "2026-02-10T12:00:00",
-    "Location": "Betriebsrestaurant Wien",
-    "BillingItemInfo": [
-      {
-        "Id": "ITEM-001",
-        "ArticleId": "ART-001",
-        "Count": 1,
-        "Description": "Menü I - Wiener Schnitzel",
-        "Total": 5.50,
-        "Subsidy": 2.50,
-        "DiscountValue": 0.00,
-        "IsCustomMenu": false
-      },
-      {
-        "Id": "ITEM-002",
-        "ArticleId": "ART-002",
-        "Count": 1,
-        "Description": "Suppe & Salat",
-        "Total": 3.00,
-        "Subsidy": 1.00,
-        "DiscountValue": 0.50,
-        "IsCustomMenu": false
-      }
-    ],
-    "Billing": 4.50
-  },
-  {
-    "BillNr": 10002,
-    "BillDate": "2026-02-11T12:00:00",
-    "Location": "Betriebsrestaurant Wien",
-    "BillingItemInfo": [
-      {
-        "Id": "ITEM-003",
-        "ArticleId": "ART-001",
-        "Count": 1,
-        "Description": "Menü I - Schweinsbraten",
-        "Total": 5.50,
-        "Subsidy": 2.50,
-        "DiscountValue": 0.00,
-        "IsCustomMenu": false
-      }
-    ],
-    "Billing": 3.00
-  }
-]
+{
+  "Billings": [
+    {
+      "BillNr": 10001,
+      "BillDate": "2026-02-10T12:00:00",
+      "Location": "Betriebsrestaurant Wien",
+      "BillingItemInfo": [
+        {
+          "Id": "ITEM-001",
+          "ArticleId": "ART-001",
+          "Count": 1,
+          "Description": "Menü I - Wiener Schnitzel",
+          "Total": 5.50,
+          "Subsidy": 2.50,
+          "DiscountValue": 0.00,
+          "IsCustomMenu": false
+        },
+        {
+          "Id": "ITEM-002",
+          "ArticleId": "ART-002",
+          "Count": 1,
+          "Description": "Suppe & Salat",
+          "Total": 3.00,
+          "Subsidy": 1.00,
+          "DiscountValue": 0.50,
+          "IsCustomMenu": false
+        }
+      ],
+      "Billing": 4.50
+    },
+    {
+      "BillNr": 10002,
+      "BillDate": "2026-02-11T12:00:00",
+      "Location": "Betriebsrestaurant Wien",
+      "BillingItemInfo": [
+        {
+          "Id": "ITEM-003",
+          "ArticleId": "ART-001",
+          "Count": 1,
+          "Description": "Menü I - Schweinsbraten",
+          "Total": 5.50,
+          "Subsidy": 2.50,
+          "DiscountValue": 0.00,
+          "IsCustomMenu": false
+        }
+      ],
+      "Billing": 3.00
+    }
+  ]
+}

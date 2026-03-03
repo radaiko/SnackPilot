@@ -10,7 +10,7 @@ import {
   extractCancelOrderFormData,
   extractLogoutFormTokens,
 } from './gourmetParser';
-import { AddToCartRequest, GetBillingsRequest, BillingApiBill, SessionExpiredError } from './types';
+import { AddToCartRequest, GetBillingsRequest, BillingApiBill, BillingApiResponse, SessionExpiredError } from './types';
 import { GourmetMenuItem, GourmetUserInfo } from '../types/menu';
 import { GourmetOrderedMenu } from '../types/order';
 import { GourmetBill, GourmetBillingItem } from '../types/billing';
@@ -320,12 +320,17 @@ export class GourmetApi {
       checkLastMonthNumber,
     };
 
-    const response = await this.client.postJson<BillingApiBill[]>(
+    const response = await this.client.postJson<BillingApiResponse | BillingApiBill[]>(
       GOURMET_BILLING_URL,
       request
     );
 
-    return (response || []).map((bill) => ({
+    // Server wraps the array in {"Billings": [...]}; handle both formats
+    const bills = Array.isArray(response)
+      ? response
+      : (response as BillingApiResponse)?.Billings ?? [];
+
+    return bills.map((bill) => ({
       billNr: bill.BillNr,
       billDate: new Date(bill.BillDate),
       location: bill.Location,

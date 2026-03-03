@@ -39,6 +39,11 @@ export interface BillingApiBill {
   Billing: number;
 }
 
+/** Wrapper returned by GetMyBillings API (server wraps array in object) */
+export interface BillingApiResponse {
+  Billings: BillingApiBill[];
+}
+
 /** Form data extracted from a page (CSRF tokens) */
 export interface FormTokens {
   ufprt: string;

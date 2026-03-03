@@ -1,20 +1,22 @@
-[
-  {
-    "BillNr": 9501,
-    "BillDate": "2026-01-15T12:00:00",
-    "Location": "Betriebsrestaurant Wien",
-    "BillingItemInfo": [
-      {
-        "Id": "ITEM-101",
-        "ArticleId": "ART-001",
-        "Count": 1,
-        "Description": "Menü II - Pasta Primavera",
-        "Total": 5.50,
-        "Subsidy": 2.50,
-        "DiscountValue": 0.00,
-        "IsCustomMenu": false
-      }
-    ],
-    "Billing": 3.00
-  }
-]
+{
+  "Billings": [
+    {
+      "BillNr": 9501,
+      "BillDate": "2026-01-15T12:00:00",
+      "Location": "Betriebsrestaurant Wien",
+      "BillingItemInfo": [
+        {
+          "Id": "ITEM-101",
+          "ArticleId": "ART-001",
+          "Count": 1,
+          "Description": "Menü II - Pasta Primavera",
+          "Total": 5.50,
+          "Subsidy": 2.50,
+          "DiscountValue": 0.00,
+          "IsCustomMenu": false
+        }
+      ],
+      "Billing": 3.00
+    }
+  ]
+}

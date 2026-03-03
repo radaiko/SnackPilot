@@ -48,7 +48,7 @@ export function isVentopayLoggedIn(html: string): boolean {
 
 /** German month name to 0-based index */
 const GERMAN_MONTHS: Record<string, number> = {
-  'jan': 0, 'jän': 0, 'feb': 1, 'mär': 2, 'mar': 2, 'apr': 3,
+  'jan': 0, 'jän': 0, 'feb': 1, 'mär': 2, 'mar': 2, 'mrz': 2, 'apr': 3,
   'mai': 4, 'jun': 5, 'jul': 6, 'aug': 7, 'sep': 8, 'okt': 9,
   'nov': 10, 'dez': 11,
 };
@@ -60,8 +60,9 @@ const GERMAN_MONTHS: Record<string, number> = {
 function parseVentopayTimestamp(text: string): Date {
   const trimmed = text.trim();
 
-  // "09. Feb 2026 - 11:49 Uhr"
-  const match = trimmed.match(/(\d{1,2})\.\s*(\w{3})\w*\s+(\d{4})\s*-\s*(\d{1,2}):(\d{2})/);
+  // "09. Feb 2026 - 11:49 Uhr" or "03. Mrz 2026 - 11:40 Uhr"
+  // Use \p{L} (Unicode letter) instead of \w to match German umlauts (ä, ö, ü)
+  const match = trimmed.match(/(\d{1,2})\.\s*(\p{L}{3})\p{L}*\s+(\d{4})\s*-\s*(\d{1,2}):(\d{2})/u);
   if (match) {
     const day = parseInt(match[1], 10);
     const monthStr = match[2].toLowerCase();

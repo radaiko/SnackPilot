@@ -108,8 +108,8 @@ describe('VentopayApi', () => {
       const toDate = new Date(2026, 1, 11);
       const transactions = await api.getTransactions(fromDate, toDate);
 
-      // 4 total transactions in fixture, 1 Gourmet filtered out = 3
-      expect(transactions).toHaveLength(3);
+      // 6 total transactions in fixture, 1 Gourmet filtered out = 5
+      expect(transactions).toHaveLength(5);
       expect(transactions[0].id).toBe('dHhuLTAwMQ==');
       expect(transactions[0].amount).toBe(1.80);
       expect(transactions[0].restaurant).toBe('Café + Co. Automaten');
@@ -150,7 +150,7 @@ describe('VentopayApi', () => {
 
       const transactions = await api.getTransactions(new Date(2026, 1, 9), new Date(2026, 1, 11));
 
-      expect(transactions).toHaveLength(3);
+      expect(transactions).toHaveLength(5);
       // 3 GET calls: expired page, login page, retry transactions
       expect(mockGet).toHaveBeenCalledTimes(3);
     });
