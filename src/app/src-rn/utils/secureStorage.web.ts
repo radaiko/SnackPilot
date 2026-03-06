@@ -44,3 +44,6 @@ export async function deleteItem(key: string): Promise<void> {
   }
   localStorage.removeItem(key);
 }
+
+// No-op on web — keychain migration is iOS/Android only.
+export async function migrateKeychainAccessibility(_keys: string[]): Promise<void> {}

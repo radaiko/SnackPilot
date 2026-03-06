@@ -20,8 +20,6 @@ export interface NotificationLogEntry {
 }
 
 const MAX_ENTRIES = 200;
-const LOG_WINDOW_MS = 24 * 60 * 60 * 1000;
-
 // ─── Activation window ───────────────────────────────────────────────────────
 
 export async function getLogActivatedUntil(): Promise<number | null> {
@@ -31,8 +29,8 @@ export async function getLogActivatedUntil(): Promise<number | null> {
   return isNaN(n) ? null : n;
 }
 
-export async function activateLog(): Promise<void> {
-  const until = Date.now() + LOG_WINDOW_MS;
+export async function activateLog(hours: number = 24): Promise<void> {
+  const until = Date.now() + hours * 60 * 60 * 1000;
   await AsyncStorage.setItem(LOG_ACTIVATED_UNTIL_KEY, String(until));
   await AsyncStorage.removeItem(LOG_ENTRIES_KEY);
 }

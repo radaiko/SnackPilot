@@ -114,7 +114,7 @@ export async function registerBackgroundMenuCheck(): Promise<void> {
   if (isRegistered) return;
 
   await BackgroundTask.registerTaskAsync(TASK_NAME, {
-    minimumInterval: 15 * 60, // 15 minutes (OS may choose longer)
+    minimumInterval: 15, // 15 minutes (OS may choose longer)
   });
 }
 

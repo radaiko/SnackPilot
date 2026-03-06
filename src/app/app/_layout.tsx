@@ -21,6 +21,7 @@ import {
   registerBackgroundSync,
 } from '../src-rn/utils/notificationService';
 import { getReminderEnabled } from '../src-rn/utils/reminderStorage';
+import { migrateKeychainAccessibility } from '../src-rn/utils/secureStorage';
 
 const backgroundMenuCheck = isNative()
   ? require('../src-rn/utils/backgroundMenuCheck')
@@ -33,8 +34,16 @@ function AppContent() {
   const { colorScheme } = useTheme();
 
   useEffect(() => {
-    gourmetLoginWithSaved();
-    ventopayLoginWithSaved();
+    void (async () => {
+      if (isNative()) {
+        await migrateKeychainAccessibility([
+          'gourmet_username', 'gourmet_password',
+          'ventopay_username', 'ventopay_password',
+        ]);
+      }
+      gourmetLoginWithSaved();
+      ventopayLoginWithSaved();
+    })();
   }, [gourmetLoginWithSaved, ventopayLoginWithSaved]);
 
   useEffect(() => {

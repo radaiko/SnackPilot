@@ -180,8 +180,8 @@ export default function NotificationsScreen() {
     await disableNotifications();
   };
 
-  const handleActivateLog = async () => {
-    await activateLog();
+  const handleActivateLog = async (hours: number) => {
+    await activateLog(hours);
     await loadLogState();
   };
 
@@ -328,12 +328,20 @@ export default function NotificationsScreen() {
           </Pressable>
         </View>
       ) : (
-        <Pressable
-          style={[styles.button, styles.buttonPrimary]}
-          onPress={handleActivateLog}
-        >
-          <Text style={styles.buttonPrimaryText}>Log aktivieren (24 Stunden)</Text>
-        </Pressable>
+        <View style={styles.logActivateRow}>
+          <Pressable
+            style={[styles.button, styles.buttonPrimary, styles.logActivateButton]}
+            onPress={() => handleActivateLog(12)}
+          >
+            <Text style={styles.buttonPrimaryText}>12 Stunden</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.button, styles.buttonPrimary, styles.logActivateButton]}
+            onPress={() => handleActivateLog(24)}
+          >
+            <Text style={styles.buttonPrimaryText}>24 Stunden</Text>
+          </Pressable>
+        </View>
       )}
     </ScrollView>
   );
@@ -462,5 +470,12 @@ const createStyles = (c: Colors) =>
     logDiscardText: {
       fontSize: isCompactDesktop ? 12 : 14,
       color: c.textTertiary,
+    },
+    logActivateRow: {
+      flexDirection: 'row',
+      gap: isCompactDesktop ? 8 : 12,
+    },
+    logActivateButton: {
+      flex: 1,
     },
   });
