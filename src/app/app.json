@@ -3,7 +3,7 @@
     "name": "SnackPilot",
     "slug": "GourmetApp",
     "scheme": "snackpilot",
-    "version": "1.3.13",
+    "version": "1.3.14",
     "orientation": "portrait",
     "icon": "./assets/icons/icon-orange.png",
     "userInterfaceStyle": "automatic",
