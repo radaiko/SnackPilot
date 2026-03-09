@@ -33,6 +33,15 @@ if (Platform.OS !== 'web') {
       if (eventType === Location.GeofencingEventType.Enter) {
         useLocationStore.getState().setIsAtCompany(true);
         await appendLogEntry('geofence', 'info', 'region_enter', 'isAtCompany=true');
+        // Check notification immediately on arrival (don't rely on background task timing)
+        try {
+          // Load cached orders first — on cold start the Zustand store is empty
+          await useOrderStore.getState().loadCachedOrders();
+          await checkAndNotify();
+        } catch (e) {
+          await appendLogEntry('geofence', 'error', 'enter_notify_error',
+            e instanceof Error ? e.message : String(e));
+        }
       } else if (eventType === Location.GeofencingEventType.Exit) {
         useLocationStore.getState().setIsAtCompany(false);
         await appendLogEntry('geofence', 'info', 'region_exit', 'isAtCompany=false');

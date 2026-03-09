@@ -4,7 +4,7 @@ import { GourmetMenuItem, GourmetDayMenu } from '../types/menu';
 import { useAuthStore } from './authStore';
 import { useOrderStore } from './orderStore';
 import { MENU_CACHE_VALIDITY_MS } from '../utils/constants';
-import { isSameDay, isOrderingCutoff, localDateKey } from '../utils/dateUtils';
+import { isSameDay, isOrderingCutoff, localDateKey, findNearestDate } from '../utils/dateUtils';
 import { trackSignal } from '../utils/analytics';
 
 const MENU_CACHE_KEY = 'menus_items';
@@ -95,12 +95,13 @@ export const useMenuStore = create<MenuState>((set, get) => ({
       set({ items, lastFetched: Date.now(), loading: false });
       await AsyncStorage.setItem(MENU_CACHE_KEY, serializeMenuItems(items));
 
-      // Auto-select the first available date only if current selection is gone
+      // Auto-select nearest date if current selection has no menus
       const dates = get().getAvailableDates();
       const current = get().selectedDate;
       const stillExists = dates.some((d) => d.toDateString() === current.toDateString());
       if (dates.length > 0 && !stillExists) {
-        set({ selectedDate: dates[0] });
+        const nearest = findNearestDate(dates, current);
+        set({ selectedDate: nearest ?? dates[0] });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Menüs konnten nicht geladen werden';

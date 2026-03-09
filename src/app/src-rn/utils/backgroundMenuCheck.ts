@@ -87,6 +87,15 @@ async function backgroundMenuCheckTask(): Promise<BackgroundTask.BackgroundTaskR
       return BackgroundTask.BackgroundTaskResult.Success;
     }
 
+    // When menus haven't changed, reset the sent flag so the next
+    // new batch can trigger a notification.
+    if (!hasNew && alreadySent) {
+      await setNotificationSent(false);
+      await setKnownMenus(currentFingerprints);
+      await appendLogEntry('menu-check', 'info', 'notification_flag_reset',
+        'menus unchanged, reset for next batch');
+    }
+
     await appendLogEntry('menu-check', 'guard', 'no_notification',
       `hasNew=${hasNew} alreadySent=${alreadySent}`);
     return BackgroundTask.BackgroundTaskResult.Success;
