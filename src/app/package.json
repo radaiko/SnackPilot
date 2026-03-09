@@ -61,5 +61,9 @@
     "tsx": "^4.21.0",
     "typescript": "~5.9.2"
   },
+  "overrides": {
+    "tar": ">=7.5.10",
+    "@tootallnate/once": ">=3.0.1"
+  },
   "private": true
 }
