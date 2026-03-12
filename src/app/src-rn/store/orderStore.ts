@@ -1,8 +1,10 @@
 import { create } from 'zustand';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GourmetOrderedMenu } from '../types/order';
 import { useAuthStore } from './authStore';
 import { trackSignal } from '../utils/analytics';
+import { isSameDay, viennaToday } from '../utils/dateUtils';
 
 const ORDER_CACHE_KEY = 'orders_list';
 
@@ -63,6 +65,22 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       const orders = await api.getOrders();
       set({ orders, loading: false });
       await AsyncStorage.setItem(ORDER_CACHE_KEY, serializeOrders(orders));
+
+      // Update scheduled notifications based on fresh order data
+      if (Platform.OS !== 'web') {
+        const today = viennaToday();
+        const hasOrderToday = orders.some((o) => isSameDay(o.date, today));
+        try {
+          if (hasOrderToday) {
+            // Cancel geofence "no order" notification — user has ordered
+            const { cancelGeofenceNotification } = require('../utils/notificationService');
+            await cancelGeofenceNotification();
+          }
+          // Schedule/update daily reminder with latest order content
+          const { checkDailyReminder } = require('../utils/dailyReminderCheck');
+          await checkDailyReminder();
+        } catch { /* notification service may not be available */ }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Bestellungen konnten nicht geladen werden';
       set({ error: message, loading: false });

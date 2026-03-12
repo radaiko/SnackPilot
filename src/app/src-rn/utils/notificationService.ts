@@ -11,7 +11,10 @@ import {
   NOTIFICATION_HOUR,
   NOTIFICATION_MINUTE,
   NOTIFICATION_CHANNEL_ID,
+  GEOFENCE_NOTIFICATION_ID,
+  DAILY_REMINDER_NOTIFICATION_ID,
 } from './constants';
+import { viennaMinutes } from './dateUtils';
 
 export async function requestLocationPermissions(): Promise<boolean> {
   const fg = await Location.requestForegroundPermissionsAsync();
@@ -85,6 +88,110 @@ export async function unregisterBackgroundSync(): Promise<void> {
   if (isRegistered) {
     await BackgroundTask.unregisterTaskAsync(BACKGROUND_ORDER_SYNC_TASK);
   }
+}
+
+/**
+ * Schedule the geofence "no order" notification for today at the configured time.
+ * If the target time has already passed (but before 14:00), fires immediately.
+ * Returns true if a notification was scheduled/fired, false if skipped.
+ */
+export async function scheduleGeofenceNotification(): Promise<boolean> {
+  const currentMin = viennaMinutes();
+  const targetMin = NOTIFICATION_HOUR * 60 + NOTIFICATION_MINUTE;
+
+  // Too late in the day (past 14:00) — skip
+  if (currentMin >= 14 * 60) return false;
+
+  if (currentMin < targetMin) {
+    // Schedule for the target time
+    const deltaMs = (targetMin - currentMin) * 60 * 1000;
+    const targetDate = new Date(Date.now() + deltaMs);
+    await Notifications.scheduleNotificationAsync({
+      identifier: GEOFENCE_NOTIFICATION_ID,
+      content: {
+        title: 'SnackPilot',
+        body: 'Du bist im Büro, hast aber noch nicht bestellt!',
+        sound: 'default',
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: targetDate,
+        channelId: NOTIFICATION_CHANNEL_ID,
+      },
+    });
+  } else {
+    // Already past target time — fire immediately
+    await Notifications.scheduleNotificationAsync({
+      identifier: GEOFENCE_NOTIFICATION_ID,
+      content: {
+        title: 'SnackPilot',
+        body: 'Du bist im Büro, hast aber noch nicht bestellt!',
+        sound: 'default',
+      },
+      trigger: null,
+    });
+  }
+  return true;
+}
+
+/**
+ * Cancel a previously scheduled geofence notification.
+ */
+export async function cancelGeofenceNotification(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(GEOFENCE_NOTIFICATION_ID);
+}
+
+/**
+ * Schedule the daily reminder notification at the given time with order content.
+ * If the target time has already passed, fires immediately.
+ * Re-scheduling with the same identifier replaces any previous notification.
+ */
+export async function scheduleDailyReminderNotification(
+  targetHour: number,
+  targetMinute: number,
+  body: string,
+): Promise<boolean> {
+  const currentMin = viennaMinutes();
+  const targetMin = targetHour * 60 + targetMinute;
+
+  if (currentMin < targetMin) {
+    const deltaMs = (targetMin - currentMin) * 60 * 1000;
+    const targetDate = new Date(Date.now() + deltaMs);
+    await Notifications.scheduleNotificationAsync({
+      identifier: DAILY_REMINDER_NOTIFICATION_ID,
+      content: {
+        title: 'Deine Bestellung heute',
+        body,
+        sound: 'default',
+        data: { screen: '/(tabs)/orders' },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: targetDate,
+        channelId: NOTIFICATION_CHANNEL_ID,
+      },
+    });
+  } else {
+    // Already past target time — fire immediately
+    await Notifications.scheduleNotificationAsync({
+      identifier: DAILY_REMINDER_NOTIFICATION_ID,
+      content: {
+        title: 'Deine Bestellung heute',
+        body,
+        sound: 'default',
+        data: { screen: '/(tabs)/orders' },
+      },
+      trigger: null,
+    });
+  }
+  return true;
+}
+
+/**
+ * Cancel a previously scheduled daily reminder notification.
+ */
+export async function cancelDailyReminderNotification(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(DAILY_REMINDER_NOTIFICATION_ID);
 }
 
 export async function scheduleDailyNotification(): Promise<void> {

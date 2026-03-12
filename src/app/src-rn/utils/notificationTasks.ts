@@ -1,17 +1,18 @@
 import { Platform } from 'react-native';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
-import * as Notifications from 'expo-notifications';
 import { useLocationStore } from '../store/locationStore';
 import { useOrderStore } from '../store/orderStore';
-import { isSameDay, viennaMinutes, viennaToday } from './dateUtils';
+import { isSameDay, viennaToday } from './dateUtils';
 import { checkDailyReminder } from './dailyReminderCheck';
 import { appendLogEntry } from './notificationLogStorage';
 import {
+  scheduleGeofenceNotification,
+  cancelGeofenceNotification,
+} from './notificationService';
+import {
   GEOFENCE_TASK_NAME,
   BACKGROUND_ORDER_SYNC_TASK,
-  NOTIFICATION_HOUR,
-  NOTIFICATION_MINUTE,
 } from './constants';
 
 // Only define tasks on native platforms
@@ -33,11 +34,23 @@ if (Platform.OS !== 'web') {
       if (eventType === Location.GeofencingEventType.Enter) {
         useLocationStore.getState().setIsAtCompany(true);
         await appendLogEntry('geofence', 'info', 'region_enter', 'isAtCompany=true');
-        // Check notification immediately on arrival (don't rely on background task timing)
         try {
           // Load cached orders first — on cold start the Zustand store is empty
           await useOrderStore.getState().loadCachedOrders();
-          await checkAndNotify();
+          const orders = useOrderStore.getState().orders;
+          const today = viennaToday();
+          const hasOrderToday = orders.some((o) => isSameDay(o.date, today));
+
+          if (hasOrderToday) {
+            await appendLogEntry('geofence', 'guard', 'has_order_today',
+              `ordersLoaded=${orders.length}`);
+            return;
+          }
+
+          // Schedule notification for the configured time (or fire immediately if past)
+          const scheduled = await scheduleGeofenceNotification();
+          await appendLogEntry('geofence', 'info', 'notification_scheduled',
+            `scheduled=${scheduled} ordersLoaded=${orders.length}`);
         } catch (e) {
           await appendLogEntry('geofence', 'error', 'enter_notify_error',
             e instanceof Error ? e.message : String(e));
@@ -45,6 +58,14 @@ if (Platform.OS !== 'web') {
       } else if (eventType === Location.GeofencingEventType.Exit) {
         useLocationStore.getState().setIsAtCompany(false);
         await appendLogEntry('geofence', 'info', 'region_exit', 'isAtCompany=false');
+        // Cancel any pending geofence notification — user left the office
+        try {
+          await cancelGeofenceNotification();
+          await appendLogEntry('geofence', 'info', 'notification_cancelled', 'region_exit');
+        } catch (e) {
+          await appendLogEntry('geofence', 'error', 'exit_cancel_error',
+            e instanceof Error ? e.message : String(e));
+        }
       }
     }
   );
@@ -58,19 +79,6 @@ if (Platform.OS !== 'web') {
 
       // Load cached orders (no network calls to avoid concurrent scraping)
       await useOrderStore.getState().loadCachedOrders();
-
-      // Location-based notification check (only if company location configured)
-      if (useLocationStore.getState().hasCompanyLocation()) {
-        try {
-          await checkAndNotify();
-        } catch (e) {
-          await appendLogEntry('order-sync', 'error', 'location_check_error',
-            e instanceof Error ? e.message : String(e));
-        }
-      } else {
-        await appendLogEntry('order-sync', 'guard', 'location_check_skip',
-          'no company location configured');
-      }
 
       // Daily order reminder check
       try {
@@ -89,57 +97,3 @@ if (Platform.OS !== 'web') {
     }
   });
 }
-
-/**
- * Check order/location state and send notification if needed.
- * Only fires within a 30-minute window around the configured
- * notification time (NOTIFICATION_HOUR:NOTIFICATION_MINUTE) in Vienna timezone.
- */
-async function checkAndNotify(): Promise<void> {
-  const targetMinutes = NOTIFICATION_HOUR * 60 + NOTIFICATION_MINUTE;
-  const currentMinutes = viennaMinutes();
-  const delta = Math.abs(currentMinutes - targetMinutes);
-  // Only fire within ±15 minutes of the target time
-  if (delta > 15) {
-    await appendLogEntry('geofence', 'guard', 'time_guard_fail',
-      `currentMin=${currentMinutes} targetMin=${targetMinutes} delta=${delta}`);
-    return;
-  }
-  await appendLogEntry('geofence', 'guard', 'time_guard_pass',
-    `currentMin=${currentMinutes} targetMin=${targetMinutes}`);
-
-  const { isAtCompany } = useLocationStore.getState();
-  const orders = useOrderStore.getState().orders;
-  const today = viennaToday();
-  const hasOrderToday = orders.some((o) => isSameDay(o.date, today));
-
-  await appendLogEntry('geofence', 'info', 'state_snapshot',
-    `isAtCompany=${isAtCompany} hasOrderToday=${hasOrderToday} ordersLoaded=${orders.length}`);
-
-  if (isAtCompany && !hasOrderToday) {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'SnackPilot',
-        body: 'Du bist im Büro, hast aber noch nicht bestellt!',
-        sound: 'default',
-      },
-      trigger: null,
-    });
-    await appendLogEntry('geofence', 'notification', 'fired_at_company_no_order');
-  } else if (!isAtCompany && hasOrderToday) {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'SnackPilot',
-        body: 'Du hast heute bestellt, bist aber nicht im Büro!',
-        sound: 'default',
-      },
-      trigger: null,
-    });
-    await appendLogEntry('geofence', 'notification', 'fired_has_order_not_at_company');
-  } else {
-    await appendLogEntry('geofence', 'guard', 'no_notification_needed',
-      `isAtCompany=${isAtCompany} hasOrderToday=${hasOrderToday}`);
-  }
-}
-
-export { checkAndNotify };

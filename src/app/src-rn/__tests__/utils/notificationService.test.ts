@@ -16,7 +16,8 @@ jest.mock('expo-notifications', () => ({
   setNotificationChannelAsync: jest.fn(),
   scheduleNotificationAsync: jest.fn(),
   cancelAllScheduledNotificationsAsync: jest.fn(),
-  SchedulableTriggerInputTypes: { DAILY: 'daily' },
+  cancelScheduledNotificationAsync: jest.fn(),
+  SchedulableTriggerInputTypes: { DAILY: 'daily', DATE: 'date' },
   AndroidImportance: { HIGH: 4 },
 }));
 
@@ -34,6 +35,10 @@ jest.mock('expo-task-manager', () => ({
 
 jest.mock('react-native', () => ({
   Platform: { OS: 'ios', select: (spec: any) => spec.ios ?? spec.default },
+}));
+
+jest.mock('../../utils/dateUtils', () => ({
+  viennaMinutes: jest.fn(() => 480), // default: 8:00
 }));
 
 jest.mock('../../store/locationStore', () => {
@@ -55,6 +60,7 @@ import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 import { useLocationStore } from '../../store/locationStore';
 
+import { viennaMinutes } from '../../utils/dateUtils';
 import {
   requestLocationPermissions,
   requestNotificationPermissions,
@@ -64,6 +70,8 @@ import {
   unregisterBackgroundSync,
   scheduleDailyNotification,
   cancelDailyNotification,
+  scheduleGeofenceNotification,
+  cancelGeofenceNotification,
   setupNotificationHandler,
   setupAndroidChannel,
   getCurrentPosition,
@@ -279,6 +287,60 @@ describe('notificationService', () => {
       expect(Location.stopGeofencingAsync).toHaveBeenCalled();
       expect(BackgroundTask.unregisterTaskAsync).toHaveBeenCalled();
       expect(Notifications.cancelAllScheduledNotificationsAsync).toHaveBeenCalled();
+    });
+  });
+
+  describe('scheduleGeofenceNotification', () => {
+    it('schedules for target time when current time is before target', async () => {
+      (viennaMinutes as jest.Mock).mockReturnValue(480); // 8:00, target is 8:45
+
+      const result = await scheduleGeofenceNotification();
+
+      expect(result).toBe(true);
+      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          identifier: 'geofence-no-order-reminder',
+          content: expect.objectContaining({
+            body: 'Du bist im Büro, hast aber noch nicht bestellt!',
+          }),
+          trigger: expect.objectContaining({
+            type: 'date',
+          }),
+        })
+      );
+    });
+
+    it('fires immediately when current time is past target but before 14:00', async () => {
+      (viennaMinutes as jest.Mock).mockReturnValue(600); // 10:00
+
+      const result = await scheduleGeofenceNotification();
+
+      expect(result).toBe(true);
+      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          identifier: 'geofence-no-order-reminder',
+          trigger: null,
+        })
+      );
+    });
+
+    it('skips when current time is past 14:00', async () => {
+      (viennaMinutes as jest.Mock).mockReturnValue(840 + 1); // 14:01
+
+      const result = await scheduleGeofenceNotification();
+
+      expect(result).toBe(false);
+      expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelGeofenceNotification', () => {
+    it('cancels the geofence notification by identifier', async () => {
+      await cancelGeofenceNotification();
+
+      expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith(
+        'geofence-no-order-reminder'
+      );
     });
   });
 });

@@ -34,3 +34,5 @@ export const COMPANY_GEOFENCE_RADIUS_M = 500;
 export const NOTIFICATION_HOUR = 8;
 export const NOTIFICATION_MINUTE = 45;
 export const NOTIFICATION_CHANNEL_ID = 'order-reminders';
+export const GEOFENCE_NOTIFICATION_ID = 'geofence-no-order-reminder';
+export const DAILY_REMINDER_NOTIFICATION_ID = 'daily-order-reminder';

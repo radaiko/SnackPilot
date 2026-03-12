@@ -1,6 +1,5 @@
-import * as Notifications from 'expo-notifications';
 import { useOrderStore } from '../store/orderStore';
-import { viennaMinutes, viennaToday, isSameDay, localDateKey } from './dateUtils';
+import { viennaToday, isSameDay, localDateKey } from './dateUtils';
 import {
   getReminderEnabled,
   getReminderTime,
@@ -8,17 +7,24 @@ import {
   setReminderSentDate,
 } from './reminderStorage';
 import { appendLogEntry } from './notificationLogStorage';
+import {
+  scheduleDailyReminderNotification,
+  cancelDailyReminderNotification,
+} from './notificationService';
 
 /**
- * Check if a daily order reminder notification should fire.
- * Called from BACKGROUND_ORDER_SYNC_TASK.
+ * Schedule or cancel the daily order reminder notification.
+ * Called from BACKGROUND_ORDER_SYNC_TASK and after orders are fetched.
+ *
+ * Instead of relying on background task timing (±15 min window),
+ * this schedules a local notification at the configured time,
+ * which iOS delivers reliably.
  *
  * Guards:
  * 1. Reminder must be enabled
  * 2. Time must be configured
- * 3. Current Vienna time must be within ±15 min of configured time
- * 4. There must be orders for today
- * 5. Notification must not have been sent today already
+ * 3. There must be orders for today
+ * 4. Notification must not have been sent today already
  */
 export async function checkDailyReminder(): Promise<void> {
   await appendLogEntry('daily-reminder', 'info', 'check_start');
@@ -35,17 +41,6 @@ export async function checkDailyReminder(): Promise<void> {
     return;
   }
 
-  const targetMinutes = time.hour * 60 + time.minute;
-  const currentMinutes = viennaMinutes();
-  const delta = Math.abs(currentMinutes - targetMinutes);
-  if (delta > 15) {
-    await appendLogEntry('daily-reminder', 'guard', 'time_guard_fail',
-      `currentMin=${currentMinutes} targetMin=${targetMinutes} delta=${delta}`);
-    return;
-  }
-  await appendLogEntry('daily-reminder', 'guard', 'time_guard_pass',
-    `currentMin=${currentMinutes} targetMin=${targetMinutes}`);
-
   const today = viennaToday();
   const todayKey = localDateKey(today);
 
@@ -59,6 +54,10 @@ export async function checkDailyReminder(): Promise<void> {
   const orders = useOrderStore.getState().orders;
   const todayOrders = orders.filter((o) => isSameDay(o.date, today));
   if (todayOrders.length === 0) {
+    // No orders for today — cancel any previously scheduled reminder
+    try {
+      await cancelDailyReminderNotification();
+    } catch { /* may not exist */ }
     await appendLogEntry('daily-reminder', 'guard', 'no_orders_today',
       `date=${todayKey} totalOrders=${orders.length}`);
     return;
@@ -68,17 +67,8 @@ export async function checkDailyReminder(): Promise<void> {
     .map((o) => (o.subtitle ? `${o.title} \u2014 ${o.subtitle}` : o.title))
     .join('\n');
 
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: 'Deine Bestellung heute',
-      body,
-      sound: 'default',
-      data: { screen: '/(tabs)/orders' },
-    },
-    trigger: null,
-  });
-
+  await scheduleDailyReminderNotification(time.hour, time.minute, body);
   await setReminderSentDate(todayKey);
-  await appendLogEntry('daily-reminder', 'notification', 'fired',
-    `date=${todayKey} orderCount=${todayOrders.length}`);
+  await appendLogEntry('daily-reminder', 'notification', 'scheduled',
+    `date=${todayKey} orderCount=${todayOrders.length} targetTime=${time.hour}:${time.minute}`);
 }
