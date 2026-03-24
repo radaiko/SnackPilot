@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -258,6 +259,15 @@ export default function NotificationsScreen() {
               );
             })}
           </ScrollView>
+          {Platform.OS === 'android' && (
+            <Pressable style={styles.androidHintBanner} onPress={() => Linking.openSettings()}>
+              <Ionicons name="information-circle-outline" size={18} color={colors.textTertiary} />
+              <Text style={styles.androidHintText}>
+                Damit Erinnerungen zuverlässig funktionieren, muss die Hintergrundaktivität für diese App erlaubt sein.{' '}
+                <Text style={styles.androidHintLink}>App-Einstellungen öffnen</Text>
+              </Text>
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -477,5 +487,24 @@ const createStyles = (c: Colors) =>
     },
     logActivateButton: {
       flex: 1,
+    },
+    androidHintBanner: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+      marginTop: 12,
+      padding: 12,
+      borderRadius: 10,
+      backgroundColor: c.surfaceVariant,
+    },
+    androidHintText: {
+      flex: 1,
+      fontSize: 12,
+      color: c.textTertiary,
+      lineHeight: 18,
+    },
+    androidHintLink: {
+      color: c.primary,
+      fontWeight: '600',
     },
   });

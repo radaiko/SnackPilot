@@ -1,5 +1,5 @@
 import { useOrderStore } from '../store/orderStore';
-import { viennaToday, isSameDay, localDateKey } from './dateUtils';
+import { viennaToday, isSameDay, localDateKey, viennaMinutes } from './dateUtils';
 import {
   getReminderEnabled,
   getReminderTime,
@@ -43,9 +43,12 @@ export async function checkDailyReminder(): Promise<void> {
 
   const today = viennaToday();
   const todayKey = localDateKey(today);
+  const currentMin = viennaMinutes();
+  const targetMin = time.hour * 60 + time.minute;
 
+  // Only block rescheduling after the notification has already fired today
   const sentDate = await getReminderSentDate();
-  if (sentDate === todayKey) {
+  if (currentMin >= targetMin && sentDate === todayKey) {
     await appendLogEntry('daily-reminder', 'guard', 'already_sent_today',
       `sentDate=${sentDate}`);
     return;
@@ -68,7 +71,12 @@ export async function checkDailyReminder(): Promise<void> {
     .join('\n');
 
   await scheduleDailyReminderNotification(time.hour, time.minute, body);
-  await setReminderSentDate(todayKey);
+
+  // Only mark as sent when the notification fires immediately (past target time).
+  // Before target time, leave sentDate unset so order changes can trigger a reschedule.
+  if (currentMin >= targetMin) {
+    await setReminderSentDate(todayKey);
+  }
   await appendLogEntry('daily-reminder', 'notification', 'scheduled',
     `date=${todayKey} orderCount=${todayOrders.length} targetTime=${time.hour}:${time.minute}`);
 }

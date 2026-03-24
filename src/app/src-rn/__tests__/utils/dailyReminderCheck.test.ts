@@ -94,10 +94,26 @@ describe('checkDailyReminder', () => {
     expect(mockScheduleDailyReminderNotification).not.toHaveBeenCalled();
   });
 
-  it('does nothing when already sent today', async () => {
+  it('reschedules before notification time even if sentDate matches today', async () => {
     await setReminderEnabled(true);
     await setReminderTime(11, 0);
     await setReminderSentDate('2026-02-25');
+    mockViennaMinutes.mockReturnValue(8 * 60); // 08:00 — before 11:00
+
+    (useOrderStore as any).__setOrders([
+      { positionId: '1', eatingCycleId: 'e1', date: new Date(2026, 1, 25), title: 'MENÜ I', subtitle: 'Schnitzel', approved: true },
+    ]);
+
+    await checkDailyReminder();
+
+    expect(mockScheduleDailyReminderNotification).toHaveBeenCalledWith(11, 0, 'MENÜ I \u2014 Schnitzel');
+  });
+
+  it('does nothing when already sent today and past notification time', async () => {
+    await setReminderEnabled(true);
+    await setReminderTime(11, 0);
+    await setReminderSentDate('2026-02-25');
+    mockViennaMinutes.mockReturnValue(12 * 60); // 12:00 — past 11:00
 
     (useOrderStore as any).__setOrders([
       { positionId: '1', eatingCycleId: 'e1', date: new Date(2026, 1, 25), title: 'MENÜ I', subtitle: 'Schnitzel', approved: true },
@@ -139,19 +155,42 @@ describe('checkDailyReminder', () => {
     );
   });
 
-  it('marks sent date after scheduling notification', async () => {
+  it('marks sent date and blocks duplicate when past notification time', async () => {
     await setReminderEnabled(true);
     await setReminderTime(11, 0);
+    mockViennaMinutes.mockReturnValue(12 * 60); // 12:00 — past 11:00
 
     (useOrderStore as any).__setOrders([
       { positionId: '1', eatingCycleId: 'e1', date: new Date(2026, 1, 25), title: 'MENÜ I', subtitle: 'Test', approved: true },
     ]);
 
     await checkDailyReminder();
-    // Second call should not schedule again
+    // Second call should not schedule again — sentDate was written on immediate fire
     await checkDailyReminder();
 
     expect(mockScheduleDailyReminderNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mark sent date before notification time, allowing rescheduling', async () => {
+    await setReminderEnabled(true);
+    await setReminderTime(11, 0);
+    mockViennaMinutes.mockReturnValue(7 * 60); // 07:00 — before 11:00
+
+    (useOrderStore as any).__setOrders([
+      { positionId: '1', eatingCycleId: 'e1', date: new Date(2026, 1, 25), title: 'MENÜ I', subtitle: 'Old', approved: true },
+    ]);
+
+    await checkDailyReminder();
+
+    // Update orders — simulates user changing their order
+    (useOrderStore as any).__setOrders([
+      { positionId: '2', eatingCycleId: 'e2', date: new Date(2026, 1, 25), title: 'MENÜ III', subtitle: 'New', approved: true },
+    ]);
+
+    await checkDailyReminder();
+
+    expect(mockScheduleDailyReminderNotification).toHaveBeenCalledTimes(2);
+    expect(mockScheduleDailyReminderNotification).toHaveBeenLastCalledWith(11, 0, 'MENÜ III \u2014 New');
   });
 
   it('schedules again on a new day', async () => {
