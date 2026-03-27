@@ -72,11 +72,10 @@ export async function checkDailyReminder(): Promise<void> {
 
   await scheduleDailyReminderNotification(time.hour, time.minute, body);
 
-  // Only mark as sent when the notification fires immediately (past target time).
-  // Before target time, leave sentDate unset so order changes can trigger a reschedule.
-  if (currentMin >= targetMin) {
-    await setReminderSentDate(todayKey);
-  }
+  // Mark as sent/scheduled so subsequent calls don't re-fire the notification.
+  // Before target time this is safe: if orders change, the scheduled DATE trigger
+  // gets replaced (same identifier), and sentDate only blocks after targetMin.
+  await setReminderSentDate(todayKey);
   await appendLogEntry('daily-reminder', 'notification', 'scheduled',
     `date=${todayKey} orderCount=${todayOrders.length} targetTime=${time.hour}:${time.minute}`);
 }

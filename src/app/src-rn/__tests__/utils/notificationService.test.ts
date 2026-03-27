@@ -145,14 +145,14 @@ describe('notificationService', () => {
       expect(Location.startGeofencingAsync).not.toHaveBeenCalled();
     });
 
-    it('stops existing geofencing before restarting', async () => {
+    it('skips starting when geofencing is already running', async () => {
       (Location.hasStartedGeofencingAsync as jest.Mock).mockResolvedValue(true);
       (useLocationStore as any).setState({ companyLocation: { latitude: 48.2, longitude: 16.3 } });
 
       await startGeofencing();
 
-      expect(Location.stopGeofencingAsync).toHaveBeenCalledWith('COMPANY_GEOFENCE_TASK');
-      expect(Location.startGeofencingAsync).toHaveBeenCalled();
+      expect(Location.stopGeofencingAsync).not.toHaveBeenCalled();
+      expect(Location.startGeofencingAsync).not.toHaveBeenCalled();
     });
   });
 

@@ -47,10 +47,10 @@ export async function startGeofencing(): Promise<void> {
   const { companyLocation } = useLocationStore.getState();
   if (!companyLocation) return;
 
+  // Skip if already running — restarting causes iOS to re-fire Enter events
+  // when the device is already inside the zone, which triggers spurious notifications.
   const isRunning = await Location.hasStartedGeofencingAsync(GEOFENCE_TASK_NAME);
-  if (isRunning) {
-    await Location.stopGeofencingAsync(GEOFENCE_TASK_NAME);
-  }
+  if (isRunning) return;
 
   await Location.startGeofencingAsync(GEOFENCE_TASK_NAME, [
     {
