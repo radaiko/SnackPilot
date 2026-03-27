@@ -1,6 +1,6 @@
 [package]
 name = "snack-pilot"
-version = "1.3.17"
+version = "1.3.18"
 description = "Desktop client for company cafeteria menu ordering and billing"
 edition = "2021"
 
