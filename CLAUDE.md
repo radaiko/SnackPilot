@@ -62,7 +62,7 @@ analysis/                         # Playwright findings document
 
 ## Tech Stack
 
-- Expo SDK 54, React Native 0.81.5, React 19.1.0
+- Expo SDK 55, React Native 0.83.2, React 19.2.0
 - Expo Router (file-based navigation with tabs)
 - Zustand (state management)
 - Cheerio (HTML parsing)
