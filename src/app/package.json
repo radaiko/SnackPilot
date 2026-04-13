@@ -18,7 +18,7 @@
     "@g9k/expo-dynamic-app-icon": "^2.0.8",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@typedigital/telemetrydeck-react": "^0.5.0",
-    "axios": "^1.13.5",
+    "axios": "^1.15.0",
     "cheerio": "^1.0.0-rc.12",
     "expo": "^55.0.0",
     "expo-background-task": "~55.0.10",
