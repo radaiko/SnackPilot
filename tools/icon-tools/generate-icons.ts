@@ -84,7 +84,7 @@ function generateAdaptiveSvg(id: string, color: string, gradientEnd: string): st
 </svg>`;
 }
 
-const outDir = path.join(__dirname, '..', 'assets', 'icons');
+const outDir = path.join(__dirname, '..', '..', 'src', 'app', 'assets', 'icons');
 fs.mkdirSync(outDir, { recursive: true });
 
 for (const [id, { color, gradientEnd }] of Object.entries(ACCENTS)) {
@@ -98,4 +98,4 @@ for (const [id, { color, gradientEnd }] of Object.entries(ACCENTS)) {
 }
 
 console.log('\nDone! Now convert SVGs to PNGs:');
-console.log('  npx tsx scripts/render-icons.ts');
+console.log('  npm run render');

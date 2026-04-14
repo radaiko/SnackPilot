@@ -2,8 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import sharp from 'sharp';
 
-const iconsDir = path.join(__dirname, '..', 'assets', 'icons');
-const assetsDir = path.join(__dirname, '..', 'assets');
+const assetsDir = path.join(__dirname, '..', '..', 'src', 'app', 'assets');
+const iconsDir = path.join(assetsDir, 'icons');
 
 async function main() {
   const svgFiles = fs.readdirSync(iconsDir).filter(f => f.endsWith('.svg'));

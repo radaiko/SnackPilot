@@ -1,0 +1,19 @@
+{
+  "name": "snackpilot-icon-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dev-only tool for generating and rendering SnackPilot app icons. Isolated from src/app so sharp is not shipped to EAS builds.",
+  "scripts": {
+    "generate": "tsx generate-icons.ts",
+    "render": "tsx render-icons.ts",
+    "all": "tsx generate-icons.ts && tsx render-icons.ts"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.2"
+  }
+}
