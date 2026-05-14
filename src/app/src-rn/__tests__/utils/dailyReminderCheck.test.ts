@@ -155,20 +155,18 @@ describe('checkDailyReminder', () => {
     );
   });
 
-  it('marks sent date and blocks duplicate when past notification time', async () => {
+  it('does not schedule when current time is past target (iOS 26 late-BG-task fix)', async () => {
     await setReminderEnabled(true);
     await setReminderTime(11, 0);
-    mockViennaMinutes.mockReturnValue(12 * 60); // 12:00 — past 11:00
+    mockViennaMinutes.mockReturnValue(13 * 60); // 13:00 — BG task running 2h late
 
     (useOrderStore as any).__setOrders([
       { positionId: '1', eatingCycleId: 'e1', date: new Date(2026, 1, 25), title: 'MENÜ I', subtitle: 'Test', approved: true },
     ]);
 
     await checkDailyReminder();
-    // Second call should not schedule again — sentDate was written on immediate fire
-    await checkDailyReminder();
 
-    expect(mockScheduleDailyReminderNotification).toHaveBeenCalledTimes(1);
+    expect(mockScheduleDailyReminderNotification).not.toHaveBeenCalled();
   });
 
   it('does not mark sent date before notification time, allowing rescheduling', async () => {

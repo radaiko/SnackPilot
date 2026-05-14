@@ -72,6 +72,8 @@ import {
   cancelDailyNotification,
   scheduleGeofenceNotification,
   cancelGeofenceNotification,
+  scheduleCancelReminderNotification,
+  cancelCancelReminderNotification,
   setupNotificationHandler,
   setupAndroidChannel,
   getCurrentPosition,
@@ -290,6 +292,33 @@ describe('notificationService', () => {
     });
   });
 
+  describe('scheduleDailyReminderNotification', () => {
+    const { scheduleDailyReminderNotification } = require('../../utils/notificationService');
+
+    it('schedules for target time when before target', async () => {
+      (viennaMinutes as jest.Mock).mockReturnValue(8 * 60); // 8:00, target 11:00
+
+      const result = await scheduleDailyReminderNotification(11, 0, 'order body');
+
+      expect(result).toBe(true);
+      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          identifier: 'daily-order-reminder',
+          trigger: expect.objectContaining({ type: 'date' }),
+        })
+      );
+    });
+
+    it('does NOT fire immediately when past target time (iOS 26 late-BG-task fix)', async () => {
+      (viennaMinutes as jest.Mock).mockReturnValue(13 * 60); // 13:00, target 11:00 (BG task running late)
+
+      const result = await scheduleDailyReminderNotification(11, 0, 'order body');
+
+      expect(result).toBe(false);
+      expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+    });
+  });
+
   describe('scheduleGeofenceNotification', () => {
     it('schedules for target time when current time is before target', async () => {
       (viennaMinutes as jest.Mock).mockReturnValue(480); // 8:00, target is 8:45
@@ -340,6 +369,60 @@ describe('notificationService', () => {
 
       expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith(
         'geofence-no-order-reminder'
+      );
+    });
+  });
+
+  describe('scheduleCancelReminderNotification', () => {
+    it('schedules for 08:45 when current time is before target', async () => {
+      (viennaMinutes as jest.Mock).mockReturnValue(480); // 8:00, target is 8:45
+
+      const result = await scheduleCancelReminderNotification();
+
+      expect(result).toBe(true);
+      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          identifier: 'cancel-order-reminder',
+          content: expect.objectContaining({
+            body: 'Du hast heute bestellt, bist aber nicht im Büro. Stornieren?',
+          }),
+          trigger: expect.objectContaining({
+            type: 'date',
+          }),
+        })
+      );
+    });
+
+    it('fires immediately when current time is past target but before 09:00 deadline', async () => {
+      (viennaMinutes as jest.Mock).mockReturnValue(8 * 60 + 50); // 8:50
+
+      const result = await scheduleCancelReminderNotification();
+
+      expect(result).toBe(true);
+      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          identifier: 'cancel-order-reminder',
+          trigger: null,
+        })
+      );
+    });
+
+    it('skips when current time is past 09:00 cancellation deadline', async () => {
+      (viennaMinutes as jest.Mock).mockReturnValue(9 * 60 + 1); // 9:01
+
+      const result = await scheduleCancelReminderNotification();
+
+      expect(result).toBe(false);
+      expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelCancelReminderNotification', () => {
+    it('cancels the cancel-reminder notification by identifier', async () => {
+      await cancelCancelReminderNotification();
+
+      expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith(
+        'cancel-order-reminder'
       );
     });
   });

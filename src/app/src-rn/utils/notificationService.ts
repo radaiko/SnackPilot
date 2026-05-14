@@ -13,6 +13,9 @@ import {
   NOTIFICATION_CHANNEL_ID,
   GEOFENCE_NOTIFICATION_ID,
   DAILY_REMINDER_NOTIFICATION_ID,
+  CANCEL_REMINDER_NOTIFICATION_ID,
+  CANCEL_REMINDER_DEADLINE_HOUR,
+  CANCEL_REMINDER_DEADLINE_MINUTE,
 } from './constants';
 import { viennaMinutes } from './dateUtils';
 
@@ -142,9 +145,62 @@ export async function cancelGeofenceNotification(): Promise<void> {
 }
 
 /**
+ * Schedule the "you ordered but you're not at the office" cancel reminder
+ * for today at the configured time (08:45).
+ * If past 09:00 (Gourmet's cancellation deadline), skip entirely — too late to cancel.
+ * If past 08:45 but before 09:00, fire immediately.
+ */
+export async function scheduleCancelReminderNotification(): Promise<boolean> {
+  const currentMin = viennaMinutes();
+  const targetMin = NOTIFICATION_HOUR * 60 + NOTIFICATION_MINUTE;
+  const deadlineMin = CANCEL_REMINDER_DEADLINE_HOUR * 60 + CANCEL_REMINDER_DEADLINE_MINUTE;
+
+  if (currentMin >= deadlineMin) return false;
+
+  const content = {
+    title: 'SnackPilot',
+    body: 'Du hast heute bestellt, bist aber nicht im Büro. Stornieren?',
+    sound: 'default',
+    data: { screen: '/(tabs)/orders' },
+  };
+
+  if (currentMin < targetMin) {
+    const deltaMs = (targetMin - currentMin) * 60 * 1000;
+    const targetDate = new Date(Date.now() + deltaMs);
+    await Notifications.scheduleNotificationAsync({
+      identifier: CANCEL_REMINDER_NOTIFICATION_ID,
+      content,
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: targetDate,
+        channelId: NOTIFICATION_CHANNEL_ID,
+      },
+    });
+  } else {
+    await Notifications.scheduleNotificationAsync({
+      identifier: CANCEL_REMINDER_NOTIFICATION_ID,
+      content,
+      trigger: null,
+    });
+  }
+  return true;
+}
+
+/**
+ * Cancel a previously scheduled cancel-reminder notification.
+ */
+export async function cancelCancelReminderNotification(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(CANCEL_REMINDER_NOTIFICATION_ID);
+}
+
+/**
  * Schedule the daily reminder notification at the given time with order content.
- * If the target time has already passed, fires immediately.
+ * Returns false if the target time has already passed — caller should not mark sent.
  * Re-scheduling with the same identifier replaces any previous notification.
+ *
+ * Past-target skip is intentional: BGAppRefreshTask on iOS 26 can run hours after
+ * its scheduled window, and immediate-fire from a late task delivers the reminder
+ * at the wrong time of day rather than at the user's configured slot.
  */
 export async function scheduleDailyReminderNotification(
   targetHour: number,
@@ -154,36 +210,24 @@ export async function scheduleDailyReminderNotification(
   const currentMin = viennaMinutes();
   const targetMin = targetHour * 60 + targetMinute;
 
-  if (currentMin < targetMin) {
-    const deltaMs = (targetMin - currentMin) * 60 * 1000;
-    const targetDate = new Date(Date.now() + deltaMs);
-    await Notifications.scheduleNotificationAsync({
-      identifier: DAILY_REMINDER_NOTIFICATION_ID,
-      content: {
-        title: 'Deine Bestellung heute',
-        body,
-        sound: 'default',
-        data: { screen: '/(tabs)/orders' },
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: targetDate,
-        channelId: NOTIFICATION_CHANNEL_ID,
-      },
-    });
-  } else {
-    // Already past target time — fire immediately
-    await Notifications.scheduleNotificationAsync({
-      identifier: DAILY_REMINDER_NOTIFICATION_ID,
-      content: {
-        title: 'Deine Bestellung heute',
-        body,
-        sound: 'default',
-        data: { screen: '/(tabs)/orders' },
-      },
-      trigger: null,
-    });
-  }
+  if (currentMin >= targetMin) return false;
+
+  const deltaMs = (targetMin - currentMin) * 60 * 1000;
+  const targetDate = new Date(Date.now() + deltaMs);
+  await Notifications.scheduleNotificationAsync({
+    identifier: DAILY_REMINDER_NOTIFICATION_ID,
+    content: {
+      title: 'Deine Bestellung heute',
+      body,
+      sound: 'default',
+      data: { screen: '/(tabs)/orders' },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: targetDate,
+      channelId: NOTIFICATION_CHANNEL_ID,
+    },
+  });
   return true;
 }
 

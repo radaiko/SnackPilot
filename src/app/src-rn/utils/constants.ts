@@ -36,3 +36,7 @@ export const NOTIFICATION_MINUTE = 45;
 export const NOTIFICATION_CHANNEL_ID = 'order-reminders';
 export const GEOFENCE_NOTIFICATION_ID = 'geofence-no-order-reminder';
 export const DAILY_REMINDER_NOTIFICATION_ID = 'daily-order-reminder';
+export const CANCEL_REMINDER_NOTIFICATION_ID = 'cancel-order-reminder';
+// Gourmet's cancellation deadline is 09:00 — past this, cancelling is no longer possible.
+export const CANCEL_REMINDER_DEADLINE_HOUR = 9;
+export const CANCEL_REMINDER_DEADLINE_MINUTE = 0;

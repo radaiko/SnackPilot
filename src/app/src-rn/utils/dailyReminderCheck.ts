@@ -3,7 +3,6 @@ import { viennaToday, isSameDay, localDateKey, viennaMinutes } from './dateUtils
 import {
   getReminderEnabled,
   getReminderTime,
-  getReminderSentDate,
   setReminderSentDate,
 } from './reminderStorage';
 import { appendLogEntry } from './notificationLogStorage';
@@ -46,11 +45,13 @@ export async function checkDailyReminder(): Promise<void> {
   const currentMin = viennaMinutes();
   const targetMin = time.hour * 60 + time.minute;
 
-  // Only block rescheduling after the notification has already fired today
-  const sentDate = await getReminderSentDate();
-  if (currentMin >= targetMin && sentDate === todayKey) {
-    await appendLogEntry('daily-reminder', 'guard', 'already_sent_today',
-      `sentDate=${sentDate}`);
+  // Past target time — can no longer schedule for today's slot.
+  // Skipping avoids the iOS 26 BGAppRefreshTask "late delivery" symptom
+  // where the reminder would fire whenever the BG task runs (potentially hours
+  // after the user's configured time).
+  if (currentMin >= targetMin) {
+    await appendLogEntry('daily-reminder', 'guard', 'past_target_time',
+      `currentMin=${currentMin} targetMin=${targetMin}`);
     return;
   }
 
@@ -70,12 +71,11 @@ export async function checkDailyReminder(): Promise<void> {
     .map((o) => (o.subtitle ? `${o.title} \u2014 ${o.subtitle}` : o.title))
     .join('\n');
 
-  await scheduleDailyReminderNotification(time.hour, time.minute, body);
+  const scheduled = await scheduleDailyReminderNotification(time.hour, time.minute, body);
 
-  // Mark as sent/scheduled so subsequent calls don't re-fire the notification.
-  // Before target time this is safe: if orders change, the scheduled DATE trigger
-  // gets replaced (same identifier), and sentDate only blocks after targetMin.
-  await setReminderSentDate(todayKey);
-  await appendLogEntry('daily-reminder', 'notification', 'scheduled',
-    `date=${todayKey} orderCount=${todayOrders.length} targetTime=${time.hour}:${time.minute}`);
+  if (scheduled) {
+    await setReminderSentDate(todayKey);
+    await appendLogEntry('daily-reminder', 'notification', 'scheduled',
+      `date=${todayKey} orderCount=${todayOrders.length} targetTime=${time.hour}:${time.minute}`);
+  }
 }

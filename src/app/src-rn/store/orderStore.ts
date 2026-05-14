@@ -79,6 +79,9 @@ export const useOrderStore = create<OrderState>((set, get) => ({
           // Schedule/update daily reminder with latest order content
           const { checkDailyReminder } = require('../utils/dailyReminderCheck');
           await checkDailyReminder();
+          // Schedule/cancel "cancel order" reminder based on location + order state
+          const { checkCancelReminder } = require('../utils/cancelReminderCheck');
+          await checkCancelReminder();
         } catch { /* notification service may not be available */ }
       }
     } catch (err) {

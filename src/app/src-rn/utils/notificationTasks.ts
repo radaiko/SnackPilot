@@ -5,6 +5,7 @@ import { useLocationStore } from '../store/locationStore';
 import { useOrderStore } from '../store/orderStore';
 import { isSameDay, viennaToday } from './dateUtils';
 import { checkDailyReminder } from './dailyReminderCheck';
+import { checkCancelReminder } from './cancelReminderCheck';
 import { appendLogEntry } from './notificationLogStorage';
 import {
   scheduleGeofenceNotification,
@@ -41,6 +42,9 @@ if (Platform.OS !== 'web') {
           const today = viennaToday();
           const hasOrderToday = orders.some((o) => isSameDay(o.date, today));
 
+          // User arrived at office — cancel any pending cancel-reminder
+          await checkCancelReminder();
+
           if (hasOrderToday) {
             await appendLogEntry('geofence', 'guard', 'has_order_today',
               `ordersLoaded=${orders.length}`);
@@ -58,10 +62,12 @@ if (Platform.OS !== 'web') {
       } else if (eventType === Location.GeofencingEventType.Exit) {
         useLocationStore.getState().setIsAtCompany(false);
         await appendLogEntry('geofence', 'info', 'region_exit', 'isAtCompany=false');
-        // Cancel any pending geofence notification — user left the office
         try {
           await cancelGeofenceNotification();
           await appendLogEntry('geofence', 'info', 'notification_cancelled', 'region_exit');
+          // User left office — schedule cancel-reminder if order exists for today
+          await useOrderStore.getState().loadCachedOrders();
+          await checkCancelReminder();
         } catch (e) {
           await appendLogEntry('geofence', 'error', 'exit_cancel_error',
             e instanceof Error ? e.message : String(e));
@@ -85,6 +91,14 @@ if (Platform.OS !== 'web') {
         await checkDailyReminder();
       } catch (e) {
         await appendLogEntry('order-sync', 'error', 'reminder_check_error',
+          e instanceof Error ? e.message : String(e));
+      }
+
+      // Cancel-reminder check (has order + not at company)
+      try {
+        await checkCancelReminder();
+      } catch (e) {
+        await appendLogEntry('order-sync', 'error', 'cancel_reminder_check_error',
           e instanceof Error ? e.message : String(e));
       }
 
