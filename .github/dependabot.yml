@@ -17,14 +17,29 @@ updates:
         update-types:
           - minor
           - patch
-        # Expo SDK packages must be upgraded together via `npx expo install`,
-        # not individually by Dependabot.
-        exclude-patterns:
-          - "expo*"
-          - "react-native*"
-          - "react"
-          - "react-dom"
-          - "@expo/*"
+    # Expo SDK packages and React Native must be upgraded together via
+    # `npx expo install`, never individually. `exclude-patterns` on the group
+    # is not enough — excluded packages get individual PRs instead — so
+    # SDK-coupled upgrades are suppressed here. Minor/patch bumps within the
+    # current SDK remain allowed (and grouped above).
+    ignore:
+      - dependency-name: "expo*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@expo/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "jest-expo"
+        update-types: ["version-update:semver-major"]
+      # react-native uses 0.x versioning: minor = breaking, SDK-coupled
+      - dependency-name: "react-native"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # Companion libs (screens, svg, safe-area-context, ...) are pinned to
+      # SDK-compatible majors by `npx expo install`
+      - dependency-name: "react-native-*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
 
   # Desktop wrapper (Tauri CLI)
   - package-ecosystem: npm
