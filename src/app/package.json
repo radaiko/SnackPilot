@@ -27,7 +27,7 @@
     "expo-crypto": "~55.0.10",
     "expo-device": "~55.0.10",
     "expo-font": "~55.0.4",
-    "expo-linking": "~55.0.8",
+    "expo-linking": "~57.0.1",
     "expo-localization": "~55.0.9",
     "expo-location": "~55.1.4",
     "expo-mail-composer": "~55.0.9",
