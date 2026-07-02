@@ -49,7 +49,7 @@
     "@types/jest": "29.5.14",
     "@types/react": "~19.2.17",
     "@types/tough-cookie": "^4.0.5",
-    "axios-cookiejar-support": "^6.0.5",
+    "axios-cookiejar-support": "^7.0.0",
     "dotenv": "^17.4.2",
     "jest": "~29.7.0",
     "jest-expo": "~55.0.19",
