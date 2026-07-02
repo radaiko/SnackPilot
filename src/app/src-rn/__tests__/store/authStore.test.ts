@@ -200,3 +200,14 @@ describe('useAuthStore', () => {
     });
   });
 });
+
+describe('demo mode', () => {
+  it('logs in with demo credentials without touching the real API', async () => {
+    const ok = await useAuthStore.getState().login('demo', 'demo1234!');
+
+    expect(ok).toBe(true);
+    expect(useAuthStore.getState().status).toBe('authenticated');
+    expect(useAuthStore.getState().userInfo).not.toBeNull();
+    expect(mockLogin).not.toHaveBeenCalled();
+  });
+});

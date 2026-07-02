@@ -74,3 +74,33 @@ describe('getColorsForAccent', () => {
     }
   });
 });
+
+describe('flat style variants', () => {
+  function loadColors(flat: boolean) {
+    jest.resetModules();
+    jest.doMock('../../utils/platform', () => ({ useFlatStyle: flat }));
+    const mod = require('../../theme/colors');
+    jest.dontMock('../../utils/platform');
+    return mod as typeof import('../../theme/colors');
+  }
+
+  it('uses opaque glass colors when flat style is active (Android/desktop)', () => {
+    const { LightColors: light, DarkColors: dark, ACCENT_COLORS: accents } = loadColors(true);
+    expect(light.glassSurface).toBe('#ffffff');
+    expect(light.glassPrimary).toBe('#FFF1EB');
+    expect(dark.glassSurface).toBe('#1C1C1E');
+    expect(dark.glassPrimary).toBe('#2A1A10');
+    expect(accents.ocean.light.glassPrimary).toBe('#EBF2FC');
+    expect(accents.ocean.dark.glassPrimary).toBe('#101A2A');
+  });
+
+  it('uses translucent rgba glass colors when flat style is off (iOS)', () => {
+    const { LightColors: light, DarkColors: dark, ACCENT_COLORS: accents } = loadColors(false);
+    expect(light.glassSurface).toBe('rgba(255,255,255,0.70)');
+    expect(light.glassPrimary).toBe('rgba(212,80,26,0.08)');
+    expect(dark.glassSurface).toBe('rgba(28,28,30,0.72)');
+    expect(dark.glassPrimary).toBe('rgba(255,107,53,0.14)');
+    expect(accents.ocean.light.glassPrimary).toBe('rgba(37,99,168,0.08)');
+    expect(accents.ocean.dark.glassPrimary).toBe('rgba(74,144,217,0.14)');
+  });
+});

@@ -356,6 +356,39 @@ describe('menuStore', () => {
       expect(mockApi.confirmOrders).toHaveBeenCalled();
     });
 
+    it('warns when a pending cancellation cannot be resolved to an order', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const items = [
+        makeItem({ id: 'menu-001', day: FUTURE_DATE, ordered: true, category: GourmetMenuCategory.Menu1 }),
+        makeItem({ id: 'menu-009', day: FUTURE_DATE, ordered: false, category: GourmetMenuCategory.Menu2 }),
+      ];
+      useMenuStore.setState({ items });
+
+      // Default orderStore mock has no orders, so the cancellation cannot resolve
+      useMenuStore.getState().togglePendingOrder('menu-001', FUTURE_DATE);
+
+      await useMenuStore.getState().submitOrders();
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Could not resolve all cancellations'));
+      warnSpy.mockRestore();
+    });
+
+    it('sets the cutoff error when all new orders are blocked and nothing to cancel', async () => {
+      const { isOrderingCutoff } = require('../../utils/dateUtils') as { isOrderingCutoff: jest.Mock };
+      isOrderingCutoff.mockReturnValue(true);
+
+      try {
+        useMenuStore.getState().togglePendingOrder('menu-001', FUTURE_DATE);
+
+        await useMenuStore.getState().submitOrders();
+
+        expect(useMenuStore.getState().error).toBe(ORDERING_CUTOFF_MESSAGE);
+        expect(mockApi.addToCart).not.toHaveBeenCalled();
+      } finally {
+        isOrderingCutoff.mockRestore();
+      }
+    });
+
     it('handles cancellation-only submit (no new orders)', async () => {
       const date = FUTURE_DATE;
       const items = [
@@ -545,6 +578,60 @@ describe('menuStore', () => {
     it('loadCachedMenus does nothing when cache is empty', async () => {
       await useMenuStore.getState().loadCachedMenus();
       expect(useMenuStore.getState().items).toEqual([]);
+    });
+
+    it('loadCachedMenus discards a corrupt cache entry', async () => {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      await AsyncStorage.setItem('menus_items', '{not valid json');
+
+      await useMenuStore.getState().loadCachedMenus();
+
+      expect(useMenuStore.getState().items).toEqual([]);
+    });
+  });
+
+  describe('refreshAvailability merge details', () => {
+    it('appends brand-new items that are not in the cache', async () => {
+      const cached = makeItem({ id: 'menu-001', day: FUTURE_DATE, available: true });
+      useMenuStore.setState({ items: [cached] });
+
+      const freshExisting = makeItem({ id: 'menu-001', day: FUTURE_DATE, available: false, ordered: true });
+      const freshNew = makeItem({ id: 'menu-002', day: FUTURE_DATE, category: GourmetMenuCategory.Menu2 });
+      mockApi.getMenus.mockResolvedValue([freshExisting, freshNew]);
+
+      await useMenuStore.getState().refreshAvailability();
+
+      const items = useMenuStore.getState().items;
+      expect(items).toHaveLength(2);
+      expect(items[0].available).toBe(false);
+      expect(items[0].ordered).toBe(true);
+      expect(items[1].id).toBe('menu-002');
+    });
+
+    it('fails silently and keeps cached items on refresh error', async () => {
+      const cached = makeItem({ id: 'menu-001', day: FUTURE_DATE });
+      useMenuStore.setState({ items: [cached] });
+      mockApi.getMenus.mockRejectedValue(new Error('network'));
+
+      await useMenuStore.getState().refreshAvailability();
+
+      expect(useMenuStore.getState().refreshing).toBe(false);
+      expect(useMenuStore.getState().error).toBeNull();
+      expect(useMenuStore.getState().items).toEqual([cached]);
+    });
+  });
+
+  describe('clearPendingChanges', () => {
+    it('clears both pending sets', () => {
+      useMenuStore.setState({
+        pendingOrders: new Set(['menu-001|2026-08-01']),
+        pendingCancellations: new Set(['menu-002|2026-08-01']),
+      });
+
+      useMenuStore.getState().clearPendingChanges();
+
+      expect(useMenuStore.getState().pendingOrders.size).toBe(0);
+      expect(useMenuStore.getState().pendingCancellations.size).toBe(0);
     });
   });
 });

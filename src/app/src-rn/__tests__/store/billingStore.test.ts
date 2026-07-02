@@ -27,9 +27,10 @@ jest.mock('../../store/authStore', () => {
 
 jest.mock('../../store/ventopayAuthStore', () => {
   const mockApi = { getTransactions: jest.fn() };
+  const state = { api: mockApi, status: 'authenticated' };
   return {
     useVentopayAuthStore: {
-      getState: () => ({ api: mockApi, status: 'authenticated' }),
+      getState: () => state,
       setState: jest.fn(),
       subscribe: jest.fn(),
     },
@@ -76,8 +77,11 @@ function makeTransaction(overrides: Partial<VentopayTransaction> = {}): Ventopay
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+  await AsyncStorage.clear();
   jest.clearAllMocks();
+  (useVentopayAuthStore as any).getState().status = 'authenticated';
   useBillingStore.setState({
     gourmetMonths: {},
     ventopayMonths: {},
@@ -216,9 +220,165 @@ describe('billingStore', () => {
       expect(useBillingStore.getState().selectedMonthIndex).toBe(2);
     });
 
+    it('triggers both fetches for the selected month', () => {
+      mockGourmetApi.getBillings.mockResolvedValue([]);
+      mockVentopayApi.getTransactions.mockResolvedValue([]);
+
+      useBillingStore.getState().selectMonth(0);
+
+      expect(mockGourmetApi.getBillings).toHaveBeenCalledWith('0');
+      expect(mockVentopayApi.getTransactions).toHaveBeenCalled();
+    });
+
     it('updates sourceFilter', () => {
       useBillingStore.getState().setSourceFilter('ventopay');
       expect(useBillingStore.getState().sourceFilter).toBe('ventopay');
+    });
+  });
+
+  describe('selected month getters', () => {
+    it('return null when no data exists for the selected month', () => {
+      expect(useBillingStore.getState().getSelectedGourmetBilling()).toBeNull();
+      expect(useBillingStore.getState().getSelectedVentopayBilling()).toBeNull();
+    });
+
+    it('return the data of the selected month', async () => {
+      mockGourmetApi.getBillings.mockResolvedValue([makeBill()]);
+      mockVentopayApi.getTransactions.mockResolvedValue([makeTransaction()]);
+      await useBillingStore.getState().fetchBilling(0);
+      await useBillingStore.getState().fetchVentopayBilling(0);
+
+      const gourmet = useBillingStore.getState().getSelectedGourmetBilling();
+      const ventopay = useBillingStore.getState().getSelectedVentopayBilling();
+      expect(gourmet?.totalBilling).toBe(3.00);
+      expect(ventopay?.total).toBe(4.50);
+    });
+
+    it('return null for an out-of-range month index', () => {
+      useBillingStore.setState({ selectedMonthIndex: 7 });
+      expect(useBillingStore.getState().getSelectedGourmetBilling()).toBeNull();
+      expect(useBillingStore.getState().getSelectedVentopayBilling()).toBeNull();
+    });
+  });
+
+  describe('fetchBilling guards', () => {
+    it('returns early for an invalid month offset', async () => {
+      await useBillingStore.getState().fetchBilling(7);
+      expect(mockGourmetApi.getBillings).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the selected month when no offset is given', async () => {
+      mockGourmetApi.getBillings.mockResolvedValue([]);
+      mockVentopayApi.getTransactions.mockResolvedValue([]);
+      useBillingStore.setState({ selectedMonthIndex: 1 });
+
+      await useBillingStore.getState().fetchBilling();
+      await useBillingStore.getState().fetchVentopayBilling();
+
+      expect(mockGourmetApi.getBillings).toHaveBeenCalledWith('1');
+      expect(mockVentopayApi.getTransactions).toHaveBeenCalled();
+    });
+
+    it('uses a fallback message for non-Error rejections', async () => {
+      mockGourmetApi.getBillings.mockRejectedValue('boom');
+
+      await useBillingStore.getState().fetchBilling(0);
+
+      expect(useBillingStore.getState().error).toBe('Abrechnung konnte nicht geladen werden');
+    });
+
+    it('skips fetching while another fetch is in flight', async () => {
+      useBillingStore.setState({ loading: true });
+      await useBillingStore.getState().fetchBilling(0);
+      expect(mockGourmetApi.getBillings).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('fetchVentopayBilling guards and errors', () => {
+    it('returns early for an invalid month offset', async () => {
+      await useBillingStore.getState().fetchVentopayBilling(7);
+      expect(mockVentopayApi.getTransactions).not.toHaveBeenCalled();
+    });
+
+    it('skips fetch for past months with existing transactions', async () => {
+      const options = useBillingStore.getState().getMonthOptions();
+      const pastKey = options[1].key;
+      useBillingStore.setState({
+        ventopayMonths: {
+          [pastKey]: {
+            monthKey: pastKey,
+            label: options[1].label,
+            transactions: [makeTransaction()],
+            total: 4.50,
+            fetchedAt: Date.now(),
+          },
+        },
+      });
+
+      await useBillingStore.getState().fetchVentopayBilling(1);
+
+      expect(mockVentopayApi.getTransactions).not.toHaveBeenCalled();
+    });
+
+    it('skips fetch when Ventopay is not authenticated', async () => {
+      (useVentopayAuthStore as any).getState().status = 'unauthenticated';
+
+      await useBillingStore.getState().fetchVentopayBilling(0);
+
+      expect(mockVentopayApi.getTransactions).not.toHaveBeenCalled();
+    });
+
+    it('warns but does not set error on failure', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      mockVentopayApi.getTransactions.mockRejectedValue(new Error('Ventopay down'));
+
+      await useBillingStore.getState().fetchVentopayBilling(0);
+
+      expect(useBillingStore.getState().error).toBeNull();
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('caches transactions to AsyncStorage', async () => {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      mockVentopayApi.getTransactions.mockResolvedValue([makeTransaction()]);
+
+      await useBillingStore.getState().fetchVentopayBilling(0);
+
+      const call = AsyncStorage.setItem.mock.calls.find(([k]: [string]) => k.startsWith('ventopay_billing_'));
+      expect(call).toBeDefined();
+    });
+  });
+
+  describe('loadCachedMonths', () => {
+    it('restores gourmet and ventopay months with revived dates', async () => {
+      // Populate the cache through real fetches, then reset in-memory state
+      mockGourmetApi.getBillings.mockResolvedValue([makeBill()]);
+      mockVentopayApi.getTransactions.mockResolvedValue([makeTransaction()]);
+      await useBillingStore.getState().fetchBilling(0);
+      await useBillingStore.getState().fetchVentopayBilling(0);
+      useBillingStore.setState({ gourmetMonths: {}, ventopayMonths: {} });
+
+      await useBillingStore.getState().loadCachedMonths();
+
+      const options = useBillingStore.getState().getMonthOptions();
+      const gourmet = useBillingStore.getState().gourmetMonths[options[0].key];
+      const ventopay = useBillingStore.getState().ventopayMonths[options[0].key];
+
+      expect(gourmet).toBeDefined();
+      expect(gourmet.bills[0].billDate).toBeInstanceOf(Date);
+      expect(gourmet.totalBilling).toBe(3.00);
+      expect(gourmet.fetchedAt).toBe(0);
+
+      expect(ventopay).toBeDefined();
+      expect(ventopay.transactions[0].date).toBeInstanceOf(Date);
+      expect(ventopay.total).toBe(4.50);
+    });
+
+    it('leaves months without cached data absent', async () => {
+      await useBillingStore.getState().loadCachedMonths();
+      expect(Object.keys(useBillingStore.getState().gourmetMonths)).toHaveLength(0);
+      expect(Object.keys(useBillingStore.getState().ventopayMonths)).toHaveLength(0);
     });
   });
 });

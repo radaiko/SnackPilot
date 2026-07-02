@@ -142,3 +142,13 @@ describe('useVentopayAuthStore', () => {
     });
   });
 });
+
+describe('demo mode', () => {
+  it('logs in with demo credentials without touching the real API', async () => {
+    const ok = await useVentopayAuthStore.getState().login('demo', 'demo1234!');
+
+    expect(ok).toBe(true);
+    expect(useVentopayAuthStore.getState().status).toBe('authenticated');
+    expect(mockLogin).not.toHaveBeenCalled();
+  });
+});
