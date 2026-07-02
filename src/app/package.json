@@ -22,7 +22,7 @@
     "cheerio": "^1.0.0-rc.12",
     "expo": "^55.0.0",
     "expo-background-task": "~55.0.10",
-    "expo-blur": "~55.0.10",
+    "expo-blur": "~57.0.0",
     "expo-constants": "~55.0.9",
     "expo-crypto": "~55.0.10",
     "expo-device": "~55.0.10",
