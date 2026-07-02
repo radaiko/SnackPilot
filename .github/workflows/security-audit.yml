@@ -1,0 +1,62 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/security-audit.yml"
+  pull_request:
+    paths:
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/security-audit.yml"
+  schedule:
+    # Weekly sweep so new advisories surface even without code changes
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [src/app, src/desktop, tools/icon-tools]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+
+      - name: npm audit (${{ matrix.dir }})
+        working-directory: ${{ matrix.dir }}
+        run: npm audit --package-lock-only --audit-level=moderate
+
+  cargo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2.82.7
+        with:
+          tool: cargo-audit
+
+      - name: cargo audit
+        working-directory: src/desktop/src-tauri
+        run: cargo audit

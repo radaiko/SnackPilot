@@ -1,0 +1,67 @@
+version: 2
+updates:
+  # Expo React Native app
+  - package-ecosystem: npm
+    directory: /src/app
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      npm-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+        # Expo SDK packages must be upgraded together via `npx expo install`,
+        # not individually by Dependabot.
+        exclude-patterns:
+          - "expo*"
+          - "react-native*"
+          - "react"
+          - "react-dom"
+          - "@expo/*"
+
+  # Desktop wrapper (Tauri CLI)
+  - package-ecosystem: npm
+    directory: /src/desktop
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      npm-all:
+        patterns:
+          - "*"
+
+  # Icon generation tooling
+  - package-ecosystem: npm
+    directory: /tools/icon-tools
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      npm-all:
+        patterns:
+          - "*"
+
+  # Tauri Rust backend
+  - package-ecosystem: cargo
+    directory: /src/desktop/src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      cargo-all:
+        patterns:
+          - "*"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday

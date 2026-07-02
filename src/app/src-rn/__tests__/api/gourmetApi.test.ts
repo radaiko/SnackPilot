@@ -103,6 +103,20 @@ describe('GourmetApi', () => {
       expect(api.isAuthenticated()).toBe(true);
     });
 
+    it('re-fetches the start page when the login response lacks user info fields', async () => {
+      const bareLoggedInPage =
+        '<html><a href="https://alaclickneu.gourmet.at/einstellungen/" class="navbar-link">Einstellungen</a></html>';
+      mockGet.mockResolvedValueOnce(loginPage);
+      mockPostForm.mockResolvedValueOnce(bareLoggedInPage);
+      mockGet.mockResolvedValueOnce(loginSuccess);
+
+      const api = new GourmetApi();
+      const userInfo = await api.login('testuser', 'testpass');
+
+      expect(mockGet).toHaveBeenCalledTimes(2);
+      expect(userInfo.eaterId).toBe('EATER-TEST-456');
+    });
+
     it('logs out stale session before login when native cookies persist', async () => {
       const api = new GourmetApi();
 
@@ -176,6 +190,75 @@ describe('GourmetApi', () => {
 
       expect(mockGet).toHaveBeenCalledTimes(1);
       expect(items.length).toBe(2);
+    });
+
+    it('re-fetches the first page after session re-login', async () => {
+      const api = new GourmetApi();
+      await loginApi(api);
+
+      // First GET returns unauthenticated page -> triggers re-login
+      mockGet.mockResolvedValueOnce(loginFailed);
+      // Re-login sequence
+      mockGet.mockResolvedValueOnce(loginPage);
+      mockPostForm.mockResolvedValueOnce(loginSuccess);
+      // Re-fetch page 0
+      mockGet.mockResolvedValueOnce(menusPage1);
+
+      const items = await api.getMenus();
+
+      expect(items.length).toBe(2);
+    });
+
+    it('recovers user info from the menus page when missing', async () => {
+      const api = new GourmetApi();
+      // No login: userInfo is null, but the session cookie is still valid
+      mockGet.mockResolvedValueOnce(menusPage0);
+      mockGet.mockResolvedValueOnce(menusPage1);
+
+      await api.getMenus();
+
+      expect(api.getUserInfo()).toEqual({
+        username: 'TestUser',
+        shopModelId: 'SM-TEST-123',
+        eaterId: 'EATER-TEST-456',
+        staffGroupId: 'SG-TEST-789',
+      });
+    });
+
+    it('tolerates a logged-in page without user info fields', async () => {
+      const api = new GourmetApi();
+      const bareLoggedInPage =
+        '<html><a href="https://alaclickneu.gourmet.at/einstellungen/" class="navbar-link">Einstellungen</a></html>';
+      mockGet.mockResolvedValueOnce(bareLoggedInPage);
+
+      const items = await api.getMenus();
+
+      expect(items).toEqual([]);
+      expect(api.getUserInfo()).toBeNull();
+    });
+  });
+
+  describe('session expiry', () => {
+    it('throws SessionExpiredError when session is gone and no credentials are stored', async () => {
+      const api = new GourmetApi();
+      mockGet.mockResolvedValueOnce(loginFailed);
+
+      await expect(api.getOrders()).rejects.toThrow('Session expired');
+    });
+  });
+
+  describe('getUserInfo', () => {
+    it('returns null before login and the user info after login', async () => {
+      const api = new GourmetApi();
+      expect(api.getUserInfo()).toBeNull();
+
+      await loginApi(api);
+      expect(api.getUserInfo()).toEqual({
+        username: 'TestUser',
+        shopModelId: 'SM-TEST-123',
+        eaterId: 'EATER-TEST-456',
+        staffGroupId: 'SG-TEST-789',
+      });
     });
   });
 
@@ -291,6 +374,23 @@ describe('GourmetApi', () => {
 
       expect(mockPostForm).not.toHaveBeenCalled();
     });
+
+    it('re-fetches the orders page after session re-login', async () => {
+      const api = new GourmetApi();
+      await loginApi(api);
+
+      // First GET returns unauthenticated page -> triggers re-login
+      mockGet.mockResolvedValueOnce(loginFailed);
+      mockGet.mockResolvedValueOnce(loginPage);
+      mockPostForm.mockResolvedValueOnce(loginSuccess);
+      // Re-fetch orders (editMode True -> nothing to confirm)
+      mockGet.mockResolvedValueOnce(ordersPage);
+
+      await api.confirmOrders();
+
+      // Only the re-login POST, no edit mode toggle
+      expect(mockPostForm).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('cancelOrders', () => {
@@ -313,6 +413,46 @@ describe('GourmetApi', () => {
           __ncforminfo: 'NCFORM-TOKEN-CANCEL-POS001-BBB',
         })
       );
+    });
+
+    it('enters edit mode first when not already in it, and exits afterwards', async () => {
+      const api = new GourmetApi();
+      await loginApi(api);
+
+      // Orders page with editMode="True" (NOT in edit mode)
+      mockGet.mockResolvedValueOnce(ordersPage);
+      // POST to enter edit mode
+      mockPostForm.mockResolvedValueOnce('');
+      // Re-fetch shows edit mode active (editMode="False")
+      mockGet.mockResolvedValueOnce(ordersPageEditMode);
+      // Cancel POST
+      mockPostForm.mockResolvedValueOnce('');
+      // Re-fetch after cancel (still in edit mode)
+      mockGet.mockResolvedValueOnce(ordersPageEditMode);
+      // Exit edit mode POST
+      mockPostForm.mockResolvedValueOnce('');
+
+      await api.cancelOrders(['POS-001']);
+
+      expect(mockPostForm).toHaveBeenCalledTimes(3);
+      // 1st call enters edit mode with the tokens from the normal orders page
+      expect(mockPostForm.mock.calls[0][1]).toMatchObject({ editMode: 'True' });
+      // 2nd call is the cancellation itself
+      expect(mockPostForm.mock.calls[1][1]).toMatchObject({ cp_PositionId: 'POS-001' });
+      // 3rd call exits edit mode
+      expect(mockPostForm.mock.calls[2][1]).toMatchObject({ editMode: 'False' });
+    });
+
+    it('throws when entering edit mode fails', async () => {
+      const api = new GourmetApi();
+      await loginApi(api);
+
+      mockGet.mockResolvedValueOnce(ordersPage);
+      mockPostForm.mockResolvedValueOnce('');
+      // Re-fetch still shows editMode="True" -> edit mode was not entered
+      mockGet.mockResolvedValueOnce(ordersPage);
+
+      await expect(api.cancelOrders(['POS-001'])).rejects.toThrow('Failed to enter edit mode');
     });
   });
 
@@ -356,6 +496,45 @@ describe('GourmetApi', () => {
           checkLastMonthNumber: '0',
         }
       );
+    });
+  });
+
+  describe('getBillings edge cases', () => {
+    it('throws when not logged in', async () => {
+      const api = new GourmetApi();
+      await expect(api.getBillings('0')).rejects.toThrow('Not logged in');
+    });
+
+    it('handles a raw array response without the Billings wrapper', async () => {
+      const api = new GourmetApi();
+      await loginApi(api);
+
+      mockGet.mockResolvedValueOnce(loginSuccess);
+      mockPostJson.mockResolvedValueOnce([
+        {
+          BillNr: 20001,
+          BillDate: '2026-06-01T12:00:00',
+          Location: 'Betriebsrestaurant Wien',
+          BillingItemInfo: [],
+          Billing: 2.50,
+        },
+      ]);
+
+      const bills = await api.getBillings('1');
+
+      expect(bills).toHaveLength(1);
+      expect(bills[0].billNr).toBe(20001);
+      expect(bills[0].billDate).toBeInstanceOf(Date);
+    });
+
+    it('returns [] when the response has no Billings array', async () => {
+      const api = new GourmetApi();
+      await loginApi(api);
+
+      mockGet.mockResolvedValueOnce(loginSuccess);
+      mockPostJson.mockResolvedValueOnce({});
+
+      expect(await api.getBillings('0')).toEqual([]);
     });
   });
 

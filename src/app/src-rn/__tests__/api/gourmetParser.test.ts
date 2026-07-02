@@ -300,3 +300,58 @@ describe('extractLogoutFormTokens', () => {
     );
   });
 });
+
+describe('parser edge cases', () => {
+  it('detects Unknown category for titles that match no known pattern', () => {
+    const html = `
+      <div class="row hide-sm-down">
+        <div class="meal">
+          <a class="open_info menu-article-detail" data-id="m-x" data-date="02-10-2026"></a>
+          <div class="title">WOCHENANGEBOT<div class="subtitle">Special</div></div>
+        </div>
+      </div>`;
+
+    const items = parseMenuItems(html);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].category).toBe(GourmetMenuCategory.Unknown);
+  });
+
+  it('extractEditModeFormData throws when the form is missing its tokens', () => {
+    const html = '<form class="form-toggleEditMode"><input name="editMode" value="True" /></form>';
+    expect(() => extractEditModeFormData(html)).toThrow('Could not extract edit mode form data');
+  });
+
+  it('extractCancelOrderFormData falls back to matching by position input', () => {
+    const html = `
+      <form id="someOtherId">
+        <input name="cp_PositionId" value="POS-77" />
+        <input name="cp_EatingCycleId_POS-77" value="EC-77" />
+        <input name="cp_Date_POS-77" value="10.02.2026 00:00:00" />
+        <input name="ufprt" value="UFPRT-77" />
+        <input name="__ncforminfo" value="NC-77" />
+      </form>`;
+
+    const data = extractCancelOrderFormData(html, 'POS-77');
+
+    expect(data).toEqual({
+      positionId: 'POS-77',
+      eatingCycleId: 'EC-77',
+      date: '10.02.2026 00:00:00',
+      ufprt: 'UFPRT-77',
+      ncforminfo: 'NC-77',
+    });
+  });
+
+  it('extractCancelOrderFormData throws when tokens are missing', () => {
+    const html = '<form><input name="cp_PositionId" value="POS-88" /></form>';
+    expect(() => extractCancelOrderFormData(html, 'POS-88')).toThrow(
+      'Could not extract cancel form data for position: POS-88'
+    );
+  });
+
+  it('extractLogoutFormTokens throws when the logout form lacks tokens', () => {
+    const html = '<form><button id="btnHeaderLogout">Logout</button></form>';
+    expect(() => extractLogoutFormTokens(html)).toThrow('Could not extract logout form tokens');
+  });
+});

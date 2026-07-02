@@ -27,6 +27,19 @@ jest.mock('../../store/authStore', () => {
   };
 });
 
+const mockCancelGeofenceNotification = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../utils/notificationService', () => ({
+  cancelGeofenceNotification: mockCancelGeofenceNotification,
+}));
+const mockCheckDailyReminder = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../utils/dailyReminderCheck', () => ({
+  checkDailyReminder: mockCheckDailyReminder,
+}));
+const mockCheckCancelReminder = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../utils/cancelReminderCheck', () => ({
+  checkCancelReminder: mockCheckCancelReminder,
+}));
+
 import { useOrderStore } from '../../store/orderStore';
 import { useAuthStore } from '../../store/authStore';
 import { GourmetOrderedMenu } from '../../types/order';
@@ -86,6 +99,53 @@ describe('orderStore', () => {
       expect(useOrderStore.getState().error).toBe('Fetch failed');
       expect(useOrderStore.getState().loading).toBe(false);
     });
+
+    it('uses a fallback message for non-Error rejections', async () => {
+      mockApi.getOrders.mockRejectedValue('boom');
+
+      await useOrderStore.getState().fetchOrders();
+
+      expect(useOrderStore.getState().error).toBe('Bestellungen konnten nicht geladen werden');
+    });
+
+    it('skips fetch while another fetch is in flight', async () => {
+      useOrderStore.setState({ loading: true });
+
+      await useOrderStore.getState().fetchOrders();
+
+      expect(mockApi.getOrders).not.toHaveBeenCalled();
+    });
+
+    it('cancels the geofence notification and updates reminders when an order exists today', async () => {
+      mockApi.getOrders.mockResolvedValue([makeOrder({ date: new Date() })]);
+
+      await useOrderStore.getState().fetchOrders();
+
+      expect(mockCancelGeofenceNotification).toHaveBeenCalled();
+      expect(mockCheckDailyReminder).toHaveBeenCalled();
+      expect(mockCheckCancelReminder).toHaveBeenCalled();
+    });
+
+    it('does not cancel the geofence notification without an order today', async () => {
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      mockApi.getOrders.mockResolvedValue([makeOrder({ date: nextWeek })]);
+
+      await useOrderStore.getState().fetchOrders();
+
+      expect(mockCancelGeofenceNotification).not.toHaveBeenCalled();
+      expect(mockCheckDailyReminder).toHaveBeenCalled();
+    });
+
+    it('ignores notification helper failures', async () => {
+      mockApi.getOrders.mockResolvedValue([makeOrder({ date: new Date() })]);
+      mockCancelGeofenceNotification.mockRejectedValueOnce(new Error('no permission'));
+
+      await useOrderStore.getState().fetchOrders();
+
+      expect(useOrderStore.getState().error).toBeNull();
+      expect(useOrderStore.getState().orders).toHaveLength(1);
+    });
   });
 
   describe('confirmOrders', () => {
@@ -105,6 +165,24 @@ describe('orderStore', () => {
       await useOrderStore.getState().confirmOrders();
 
       expect(mockApi.getOrders).toHaveBeenCalled();
+    });
+
+    it('sets error on failure', async () => {
+      mockApi.confirmOrders.mockRejectedValue(new Error('Confirm failed'));
+
+      await useOrderStore.getState().confirmOrders();
+
+      expect(useOrderStore.getState().error).toBe('Confirm failed');
+      expect(useOrderStore.getState().loading).toBe(false);
+      expect(mockApi.getOrders).not.toHaveBeenCalled();
+    });
+
+    it('uses a fallback message for non-Error rejections', async () => {
+      mockApi.confirmOrders.mockRejectedValue('boom');
+
+      await useOrderStore.getState().confirmOrders();
+
+      expect(useOrderStore.getState().error).toBe('Bestellungen konnten nicht bestätigt werden');
     });
   });
 
@@ -129,6 +207,33 @@ describe('orderStore', () => {
       resolveFn!();
       await promise;
       expect(useOrderStore.getState().cancellingId).toBe(null);
+    });
+
+    it('skips when another cancellation is in flight', async () => {
+      useOrderStore.setState({ cancellingId: 'P9' });
+
+      await useOrderStore.getState().cancelOrder('P1');
+
+      expect(mockApi.cancelOrders).not.toHaveBeenCalled();
+      expect(useOrderStore.getState().cancellingId).toBe('P9');
+    });
+
+    it('sets error and clears cancellingId on failure', async () => {
+      mockApi.cancelOrders.mockRejectedValue(new Error('Cancel failed'));
+
+      await useOrderStore.getState().cancelOrder('P1');
+
+      expect(useOrderStore.getState().error).toBe('Cancel failed');
+      expect(useOrderStore.getState().cancellingId).toBe(null);
+      expect(mockApi.getOrders).not.toHaveBeenCalled();
+    });
+
+    it('uses a fallback message for non-Error rejections', async () => {
+      mockApi.cancelOrders.mockRejectedValue('boom');
+
+      await useOrderStore.getState().cancelOrder('P1');
+
+      expect(useOrderStore.getState().error).toBe('Bestellung konnte nicht storniert werden');
     });
   });
 
@@ -200,6 +305,16 @@ describe('orderStore', () => {
     it('loadCachedOrders does nothing when cache is empty', async () => {
       await useOrderStore.getState().loadCachedOrders();
       expect(useOrderStore.getState().orders).toEqual([]);
+    });
+
+    it('loadCachedOrders discards a corrupt cache entry', async () => {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      await AsyncStorage.setItem('orders_list', '{not valid json');
+
+      await useOrderStore.getState().loadCachedOrders();
+
+      expect(useOrderStore.getState().orders).toEqual([]);
+      expect(AsyncStorage.removeItem).toHaveBeenCalledWith('orders_list');
     });
   });
 });

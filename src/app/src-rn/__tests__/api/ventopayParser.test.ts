@@ -109,3 +109,50 @@ describe('parseTransactions', () => {
     expect(transactions).toEqual([]);
   });
 });
+
+describe('parser edge cases', () => {
+  it('falls back to Date parsing for non-German timestamp formats', () => {
+    const html = `
+      <div class="content">
+        <div class="transact" id="tx-iso">
+          <a href="rechnung.aspx?id=tx-iso">
+            <div class="transact_title">€ 2,50 (Café + Co. Automaten)</div>
+            <div class="transact_timestamp">2026-02-09T11:49:00</div>
+          </a>
+        </div>
+      </div>`;
+
+    const [tx] = parseTransactions(html);
+
+    expect(tx.date.getFullYear()).toBe(2026);
+    expect(tx.date.getMonth()).toBe(1);
+    expect(tx.date.getDate()).toBe(9);
+  });
+
+  it('falls back to raw amount parsing when the title has no restaurant parentheses', () => {
+    const html = `
+      <div class="content">
+        <div class="transact" id="tx-basic">
+          <a href="rechnung.aspx?id=tx-basic">
+            <div class="transact_title">1,80</div>
+            <div class="transact_timestamp">09. Feb 2026 - 11:49 Uhr</div>
+          </a>
+        </div>
+      </div>`;
+
+    const [tx] = parseTransactions(html);
+
+    expect(tx.amount).toBe(1.8);
+    expect(tx.restaurant).toBe('1,80');
+  });
+
+  it('skips transact divs without an id or title', () => {
+    const html = `
+      <div class="content">
+        <div class="transact"><a><div class="transact_title">€ 1,00 (X)</div></a></div>
+        <div class="transact" id="tx-no-title"><a></a></div>
+      </div>`;
+
+    expect(parseTransactions(html)).toEqual([]);
+  });
+});

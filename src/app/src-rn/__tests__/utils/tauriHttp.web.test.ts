@@ -82,6 +82,175 @@ describe('tauriHttp.web', () => {
     expect(response.headers['set-cookie']).toEqual(['SessId=abc; Path=/']);
   });
 
+  function getAdapter() {
+    const axios = require('axios').default;
+    axios.create({});
+    return axiosCreateMock.mock.calls[0][0].adapter;
+  }
+
+  function mockOkResponse(body = '{}') {
+    invokeMock.mockResolvedValue({
+      status: 200,
+      headers: {},
+      setCookies: [],
+      body,
+      url: 'https://example.test/',
+    });
+  }
+
+  it('throws when Tauri IPC is not available', async () => {
+    loadModule(true);
+    const adapter = getAdapter();
+    delete (globalThis as any).__TAURI_INTERNALS__;
+
+    await expect(adapter({ url: 'https://example.test/', headers: {} }))
+      .rejects.toThrow('Tauri IPC not available');
+  });
+
+  it('passes an absolute URL through untouched and joins relative URLs without slash', async () => {
+    loadModule(true);
+    const adapter = getAdapter();
+    mockOkResponse();
+
+    await adapter({ url: 'https://example.test/abs', method: 'get', headers: {} });
+    expect(invokeMock.mock.calls[0][1].request.url).toBe('https://example.test/abs');
+
+    await adapter({ baseURL: 'https://example.test', url: 'rel', method: 'get', headers: {} });
+    expect(invokeMock.mock.calls[1][1].request.url).toBe('https://example.test/rel');
+  });
+
+  it('extracts FormData into formData and strips the Content-Type', async () => {
+    loadModule(true);
+    const adapter = getAdapter();
+    mockOkResponse();
+
+    const form = new FormData();
+    form.append('Username', 'user');
+    form.append('ufprt', 'token');
+
+    await adapter({
+      url: 'https://example.test/start/',
+      method: 'post',
+      data: form,
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    const request = invokeMock.mock.calls[0][1].request;
+    expect(request.formData).toEqual({ Username: 'user', ufprt: 'token' });
+    expect(request.body).toBeUndefined();
+    expect(request.headers['Content-Type']).toBeUndefined();
+  });
+
+  it('converts a plain object to formData when Content-Type is multipart', async () => {
+    loadModule(true);
+    const adapter = getAdapter();
+    mockOkResponse();
+
+    await adapter({
+      url: 'https://example.test/start/',
+      method: 'post',
+      data: { Username: 'user', RememberMe: 'false' },
+      headers: { 'content-type': 'multipart/form-data' },
+    });
+
+    const request = invokeMock.mock.calls[0][1].request;
+    expect(request.formData).toEqual({ Username: 'user', RememberMe: 'false' });
+    expect(request.headers['content-type']).toBeUndefined();
+  });
+
+  it('passes string data through as the raw body', async () => {
+    loadModule(true);
+    const adapter = getAdapter();
+    mockOkResponse();
+
+    await adapter({
+      url: 'https://example.test/',
+      method: 'post',
+      data: 'raw-body=1',
+      headers: {},
+    });
+
+    expect(invokeMock.mock.calls[0][1].request.body).toBe('raw-body=1');
+  });
+
+  it('url-encodes object data without a JSON content type', async () => {
+    loadModule(true);
+    const adapter = getAdapter();
+    mockOkResponse();
+
+    await adapter({
+      url: 'https://example.test/',
+      method: 'post',
+      data: { a: '1', b: 'x y' },
+      headers: {},
+    });
+
+    expect(invokeMock.mock.calls[0][1].request.body).toBe('a=1&b=x+y');
+  });
+
+  it('keeps the body as a string when responseType is text', async () => {
+    loadModule(true);
+    const adapter = getAdapter();
+    mockOkResponse('{"looks":"like json"}');
+
+    const response = await adapter({
+      url: 'https://example.test/',
+      method: 'get',
+      responseType: 'text',
+      headers: {},
+    });
+
+    expect(response.data).toBe('{"looks":"like json"}');
+  });
+
+  it('rejects with an axios-like error on non-2xx status', async () => {
+    loadModule(true);
+    const adapter = getAdapter();
+    invokeMock.mockResolvedValue({
+      status: 404,
+      headers: {},
+      setCookies: [],
+      body: 'not found',
+      url: 'https://example.test/missing',
+    });
+
+    await expect(adapter({ url: 'https://example.test/missing', method: 'get', headers: {} }))
+      .rejects.toMatchObject({
+        message: 'Request failed with status 404',
+        isAxiosError: true,
+        response: { status: 404 },
+      });
+  });
+
+  it('honours a custom validateStatus', async () => {
+    loadModule(true);
+    const adapter = getAdapter();
+    invokeMock.mockResolvedValue({
+      status: 302,
+      headers: { location: '/redirect' },
+      setCookies: [],
+      body: '',
+      url: 'https://example.test/',
+    });
+
+    const response = await adapter({
+      url: 'https://example.test/',
+      method: 'get',
+      headers: {},
+      validateStatus: (s: number) => s < 400,
+    });
+
+    expect(response.status).toBe(302);
+  });
+
+  it('resetTauriHttp is a no-op without Tauri IPC', async () => {
+    const { resetTauriHttp } = loadModule(true);
+    delete (globalThis as any).__TAURI_INTERNALS__;
+
+    await expect(resetTauriHttp()).resolves.toBeUndefined();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
   it('does not patch axios.create on non-desktop', () => {
     loadModule(false);
     const axios = require('axios').default;
