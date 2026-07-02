@@ -32,9 +32,11 @@ updates:
       # react-native uses 0.x versioning: minor = breaking, SDK-coupled
       - dependency-name: "react-native"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
-      # Companion libs (screens, svg, safe-area-context, ...) are pinned to
-      # SDK-compatible majors by `npx expo install`
+      # Companion libs (screens, svg, safe-area-context, async-storage, ...)
+      # are pinned to SDK-compatible majors by `npx expo install`
       - dependency-name: "react-native-*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@react-native-*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "react"
         update-types: ["version-update:semver-major"]
