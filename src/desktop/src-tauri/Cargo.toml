@@ -21,5 +21,5 @@ tokio = { version = "1", features = ["sync"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Networking_WinHttp", "Win32_Foundation"] }
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinHttp", "Win32_Foundation"] }
 url = "2"
