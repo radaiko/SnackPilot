@@ -9,12 +9,12 @@
     "all": "tsx generate-icons.ts && tsx render-icons.ts"
   },
   "dependencies": {
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "tsx": "^4.21.0",
-    "typescript": "~5.9.2"
+    "@types/node": "^26.1.0",
+    "tsx": "^4.22.4",
+    "typescript": "~6.0.3"
   },
   "overrides": {
     "esbuild": "^0.28.1"
