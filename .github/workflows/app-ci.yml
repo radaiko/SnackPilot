@@ -1,0 +1,49 @@
+name: App CI
+
+on:
+  pull_request:
+    paths:
+      - "src/app/**"
+      - ".github/workflows/app-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/app/**"
+      - ".github/workflows/app-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-bundle:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/app
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      # Jest runs in Node and cannot catch Metro-only failures (e.g. a
+      # dependency importing node:stream, which broke the v1.4.5 iOS
+      # release). Exporting the iOS bundle exercises the same Metro build
+      # that EAS runs at release time.
+      - name: Verify Metro bundle (iOS)
+        run: npx expo export -p ios
+        env:
+          CI: "1"

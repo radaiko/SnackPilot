@@ -42,6 +42,11 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "react-dom"
         update-types: ["version-update:semver-major"]
+      # cheerio must stay pinned to 1.0.0-rc.12: every later release imports
+      # node:stream / undici in its entry point, which Metro cannot resolve
+      # for React Native — the app JS bundle fails to build (broke the
+      # v1.4.5 iOS release). Revisit only if cheerio ships an RN-safe entry.
+      - dependency-name: "cheerio"
 
   # Desktop wrapper (Tauri CLI)
   - package-ecosystem: npm

@@ -65,7 +65,7 @@ analysis/                         # Playwright findings document
 - Expo SDK 55, React Native 0.83.2, React 19.2.0
 - Expo Router (file-based navigation with tabs)
 - Zustand (state management)
-- Cheerio (HTML parsing)
+- Cheerio (HTML parsing) — **pinned to exactly 1.0.0-rc.12**: all later versions import `node:stream`/`undici` in their entry point, which Metro cannot resolve for React Native (breaks the app bundle at build time; Jest won't catch it because it runs in Node)
 - Axios (HTTP client; Gourmet uses native cookie handling via `withCredentials`, Ventopay uses manual cookie management via interceptors)
 - expo-secure-store (credential storage on native), localStorage (web/desktop)
 - Tauri v2 (desktop wrapper with webview)
