@@ -54,6 +54,15 @@ import { MENU_CACHE_VALIDITY_MS } from '../../utils/constants';
 
 const mockApi = (useAuthStore as any).getState().api;
 
+// A date safely in the future so submitOrders tests never hit the ordering
+// cutoff, regardless of when the suite runs.
+const FUTURE_DATE = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() + 14);
+  d.setHours(0, 0, 0, 0);
+  return d;
+})();
+
 function makeItem(overrides: Partial<import('../../types/menu').GourmetMenuItem> = {}): import('../../types/menu').GourmetMenuItem {
   return {
     id: 'menu-001',
@@ -256,7 +265,7 @@ describe('menuStore', () => {
   describe('submitOrders', () => {
     beforeEach(() => {
       const items = [
-        makeItem({ id: 'menu-001', day: new Date(2026, 5, 10) }),
+        makeItem({ id: 'menu-001', day: FUTURE_DATE }),
       ];
       useMenuStore.setState({ items });
       mockApi.addToCart.mockResolvedValue(undefined);
@@ -271,7 +280,7 @@ describe('menuStore', () => {
     });
 
     it('calls addToCart and confirmOrders', async () => {
-      const date = new Date(2026, 5, 10);
+      const date = FUTURE_DATE;
       useMenuStore.getState().togglePendingOrder('menu-001', date);
 
       await useMenuStore.getState().submitOrders();
@@ -282,11 +291,11 @@ describe('menuStore', () => {
 
     it('submits multiple menus for the same date', async () => {
       const items = [
-        makeItem({ id: 'menu-001', day: new Date(2026, 5, 10), category: GourmetMenuCategory.Menu1 }),
-        makeItem({ id: 'menu-002', day: new Date(2026, 5, 10), category: GourmetMenuCategory.Menu2 }),
+        makeItem({ id: 'menu-001', day: FUTURE_DATE, category: GourmetMenuCategory.Menu1 }),
+        makeItem({ id: 'menu-002', day: FUTURE_DATE, category: GourmetMenuCategory.Menu2 }),
       ];
       useMenuStore.setState({ items });
-      const date = new Date(2026, 5, 10);
+      const date = FUTURE_DATE;
       useMenuStore.getState().togglePendingOrder('menu-001', date);
       useMenuStore.getState().togglePendingOrder('menu-002', date);
 
@@ -301,7 +310,7 @@ describe('menuStore', () => {
     });
 
     it('clears pendingOrders after submit', async () => {
-      const date = new Date(2026, 5, 10);
+      const date = FUTURE_DATE;
       useMenuStore.getState().togglePendingOrder('menu-001', date);
 
       await useMenuStore.getState().submitOrders();
@@ -310,7 +319,7 @@ describe('menuStore', () => {
     });
 
     it('sets error on failure', async () => {
-      const date = new Date(2026, 5, 10);
+      const date = FUTURE_DATE;
       useMenuStore.getState().togglePendingOrder('menu-001', date);
       mockApi.addToCart.mockRejectedValue(new Error('Cart error'));
 
@@ -320,7 +329,7 @@ describe('menuStore', () => {
     });
 
     it('cancels orders from pendingCancellations before adding new ones', async () => {
-      const date = new Date(2026, 5, 10);
+      const date = FUTURE_DATE;
       const items = [
         makeItem({ id: 'menu-001', day: date, ordered: true, category: GourmetMenuCategory.Menu1 }),
         makeItem({ id: 'menu-002', day: date, ordered: false, category: GourmetMenuCategory.Menu2 }),
@@ -348,7 +357,7 @@ describe('menuStore', () => {
     });
 
     it('handles cancellation-only submit (no new orders)', async () => {
-      const date = new Date(2026, 5, 10);
+      const date = FUTURE_DATE;
       const items = [
         makeItem({ id: 'menu-001', day: date, ordered: true, category: GourmetMenuCategory.Menu1 }),
       ];
@@ -406,7 +415,7 @@ describe('menuStore', () => {
     });
 
     it('clears both pendingOrders and pendingCancellations after submit', async () => {
-      const date = new Date(2026, 5, 10);
+      const date = FUTURE_DATE;
       const items = [
         makeItem({ id: 'menu-001', day: date, ordered: true, category: GourmetMenuCategory.Menu1 }),
         makeItem({ id: 'menu-002', day: date, ordered: false, category: GourmetMenuCategory.Menu2 }),
