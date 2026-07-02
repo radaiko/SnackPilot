@@ -104,7 +104,7 @@ jobs:
             ${{ runner.os == 'macOS' && '--signAppIdentity "Developer ID Application: Aiko Radlingmayr (555V4MNLK3)" --signInstallIdentity "Developer ID Installer: Aiko Radlingmayr (555V4MNLK3)" --notaryProfile "notary-profile"' || '' }}
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: releases-${{ matrix.artifact }}
           path: releases/*
