@@ -1,0 +1,13 @@
+# Accepted-risk advisories for `cargo audit` (used by the security-audit CI job).
+# Each entry must document why it is ignored and when to revisit.
+
+[advisories]
+ignore = [
+    # quick-xml < 0.41: quadratic runtime parsing start tags with many
+    # duplicate-checked attributes (DoS on untrusted XML). Unfixable here:
+    # quick-xml is only pulled in via plist, and the latest plist (1.9.0)
+    # pins quick-xml ^0.39. plist parses macOS property lists inside Tauri,
+    # never attacker-controlled XML, so the practical risk is negligible.
+    # Revisit: remove once plist releases with quick-xml >= 0.41.
+    "RUSTSEC-2026-0194",
+]
