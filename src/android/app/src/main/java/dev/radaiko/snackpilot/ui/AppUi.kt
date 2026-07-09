@@ -65,7 +65,7 @@ fun RootScreen(
     initialTab: String? = null,
     autoOrder: Boolean = false
 ) {
-    LaunchedEffect(autoDemo) {
+    LaunchedEffect(Unit) {
         if (autoDemo) {
             vm.selectedTab = when (initialTab) {
                 "orders" -> 1
@@ -75,6 +75,8 @@ fun RootScreen(
             }
             vm.debugAutoOrder = autoOrder
             vm.loadDemo()
+        } else {
+            vm.attemptAutoLogin()
         }
     }
     if (vm.userInfo == null) LoginScreen(vm) else MainScaffold(vm)

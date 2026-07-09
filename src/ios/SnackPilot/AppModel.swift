@@ -47,8 +47,17 @@ final class AppModel: ObservableObject {
                 selectedTab = tabIndex(args[i + 1])
             }
             Task { await login(user: "demo", pass: "demo1234!") }
+            return
         }
         #endif
+        attemptAutoLogin()
+    }
+
+    /// Startup auto-login (settings §3.7): if credentials are saved (this install's, or a v1
+    /// install's — same Keychain coordinates), log straight in. No login wall for returning users.
+    private func attemptAutoLogin() {
+        guard let creds = KeychainStore.savedGourmet() else { return }
+        Task { await login(user: creds.username, pass: creds.password) }
     }
 
     func isDemoCredentials(user: String, pass: String) -> Bool {
@@ -61,6 +70,8 @@ final class AppModel: ObservableObject {
         busy = true
         errorText = nil
         let demo = isDemoCredentials(user: user, pass: pass)
+        // Persist before the attempt (settings §3.6; v1 saves even if login later fails).
+        KeychainStore.saveGourmet(username: user, password: pass)
         do {
             userInfo = try await core.gourmetLogin(creds: Credentials(username: user, password: pass))
             demoMode = demo

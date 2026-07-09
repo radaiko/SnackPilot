@@ -29,6 +29,7 @@ import java.io.File
  */
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val core: SnackPilotCore
+    private val creds = SecureCredentialStore(app)
 
     var userInfo by mutableStateOf<GourmetUserInfo?>(null)
         private set
@@ -75,6 +76,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  never reaches the live server); everything else performs live scraping. */
     fun login(user: String, pass: String) {
         val demo = isDemoCreds(user, pass)
+        // Persist before the attempt (settings §3.6; v1 saves even if login later fails).
+        creds.saveGourmet(user, pass)
         viewModelScope.launch {
             busy = true
             errorText = null
@@ -169,6 +172,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Offline demo session (button / debug hook) — routes through the same login path. */
     fun loadDemo() = login("demo", "demo1234!")
+
+    /** Startup auto-login (settings §3.7): log in from saved credentials (this install's, or a
+     *  v1 install's — same store format). No login wall for returning users. */
+    fun attemptAutoLogin() {
+        val saved = creds.savedGourmet() ?: return
+        login(saved.first, saved.second)
+    }
 
     fun logout() {
         userInfo = null
