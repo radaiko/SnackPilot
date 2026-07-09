@@ -8,5 +8,6 @@ pub mod error;
 pub mod features;
 pub mod gourmet;
 pub mod http;
+pub mod notify;
 pub mod storage;
 pub mod ventopay;
