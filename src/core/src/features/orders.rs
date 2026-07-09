@@ -7,13 +7,13 @@
 use crate::datetime::Clock;
 use crate::domain::{OrderedMenu, OrdersSplit};
 use crate::error::CoreResult;
-use crate::gourmet::api::GourmetApi;
+use crate::gourmet::provider::GourmetProvider;
 use crate::storage::{cache, Kv};
 use chrono::{Local, TimeZone};
 use std::sync::{Arc, Mutex};
 
 pub struct OrderStore {
-    gourmet: Arc<GourmetApi>,
+    gourmet: Arc<GourmetProvider>,
     kv: Arc<dyn Kv>,
     clock: Arc<dyn Clock>,
     orders: Mutex<Vec<OrderedMenu>>,
@@ -23,7 +23,7 @@ pub struct OrderStore {
 }
 
 impl OrderStore {
-    pub fn new(gourmet: Arc<GourmetApi>, kv: Arc<dyn Kv>, clock: Arc<dyn Clock>) -> Self {
+    pub fn new(gourmet: Arc<GourmetProvider>, kv: Arc<dyn Kv>, clock: Arc<dyn Clock>) -> Self {
         Self {
             gourmet,
             kv,
@@ -142,8 +142,14 @@ mod tests {
     use super::*;
     use crate::datetime::{FixedClock, SystemClock};
     use crate::domain::Credentials;
+    use crate::gourmet::api::GourmetApi;
     use crate::http::{CapturingTransport, HttpResponse};
     use crate::storage::MemoryKv;
+
+    /// Wrap a live GourmetApi in a provider (stores now take `Arc<GourmetProvider>`).
+    fn gp(api: Arc<GourmetApi>) -> Arc<GourmetProvider> {
+        Arc::new(GourmetProvider::new(api, Arc::new(SystemClock)))
+    }
 
     const G_LOGIN_PAGE: &str = include_str!("../../tests/fixtures/gourmet/login-page.html");
     const G_LOGIN_OK: &str = include_str!("../../tests/fixtures/gourmet/login-success.html");
@@ -157,7 +163,7 @@ mod tests {
         }
     }
 
-    async fn logged_in_gourmet(t: &Arc<CapturingTransport>) -> Arc<GourmetApi> {
+    async fn logged_in_gourmet(t: &Arc<CapturingTransport>) -> Arc<GourmetProvider> {
         t.queue_response(ok(G_LOGIN_PAGE));
         t.queue_response(ok(G_LOGIN_OK));
         let api = Arc::new(GourmetApi::new(t.clone()));
@@ -167,7 +173,7 @@ mod tests {
         })
         .await
         .unwrap();
-        api
+        gp(api)
     }
 
     #[tokio::test]
@@ -210,7 +216,7 @@ mod tests {
     #[tokio::test]
     async fn split_upcoming_and_past_at_local_midnight() {
         let t = Arc::new(CapturingTransport::new());
-        let g = Arc::new(GourmetApi::new(t.clone()));
+        let g = gp(Arc::new(GourmetApi::new(t.clone())));
         // fix clock to 2026-02-10 12:00 local
         let midnight = local_midnight_ms(
             chrono::Local

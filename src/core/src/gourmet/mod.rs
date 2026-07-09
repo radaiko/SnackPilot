@@ -2,6 +2,7 @@
 pub mod api;
 pub mod client;
 pub mod parser;
+pub mod provider;
 
 /// 01-gourmet-scraping §1.
 pub const GOURMET_BASE_URL: &str = "https://alaclickneu.gourmet.at";

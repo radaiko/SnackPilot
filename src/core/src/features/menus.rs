@@ -6,7 +6,7 @@ use crate::datetime::{is_ordering_cutoff, local_date_key, Clock};
 use crate::domain::{MenuItem, MenuSnapshot, OrderProgress, OrderedMenu};
 use crate::error::CoreResult;
 use crate::features::{AnalyticsSink, ProgressListener};
-use crate::gourmet::api::GourmetApi;
+use crate::gourmet::provider::GourmetProvider;
 use crate::storage::{cache, Kv};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -22,7 +22,7 @@ const ORDERING_CUTOFF_MESSAGE: &str = "Bestellung für heute geschlossen (Bestel
 const SUBMIT_FAILED_MESSAGE: &str = "Bestellung konnte nicht aufgegeben werden";
 
 pub struct MenuStore {
-    gourmet: Arc<GourmetApi>,
+    gourmet: Arc<GourmetProvider>,
     kv: Arc<dyn Kv>,
     clock: Arc<dyn Clock>,
     inner: Mutex<State>,
@@ -45,7 +45,7 @@ struct State {
 }
 
 impl MenuStore {
-    pub fn new(gourmet: Arc<GourmetApi>, kv: Arc<dyn Kv>, clock: Arc<dyn Clock>) -> Self {
+    pub fn new(gourmet: Arc<GourmetProvider>, kv: Arc<dyn Kv>, clock: Arc<dyn Clock>) -> Self {
         Self {
             gourmet,
             kv,
@@ -112,6 +112,19 @@ impl MenuStore {
         if let Some(items) = cache::load_menus(self.kv.as_ref()) {
             self.inner.lock().unwrap().items = items;
         }
+    }
+
+    /// Reset menu state + drop the persisted cache. Called on demo login so cached live menus
+    /// don't leak into the demo session (demo-mode §1).
+    pub fn reset_for_demo(&self) {
+        let mut s = self.inner.lock().unwrap();
+        s.items.clear();
+        s.last_fetched = None;
+        s.selected_date = None;
+        s.pending_orders.clear();
+        s.pending_cancellations.clear();
+        s.error = None;
+        let _ = self.kv.remove(cache::MENUS_KEY);
     }
 
     /// §3.2 — full fetch. Re-entrancy guard + 4h TTL unless `force`.
@@ -442,8 +455,14 @@ mod tests {
     use super::*;
     use crate::datetime::{FixedClock, SystemClock};
     use crate::domain::{Credentials, MenuCategory};
+    use crate::gourmet::api::GourmetApi;
     use crate::http::{CapturingTransport, HttpResponse};
     use crate::storage::MemoryKv;
+
+    /// Wrap a live GourmetApi in a provider (stores now take `Arc<GourmetProvider>`).
+    fn gp(api: Arc<GourmetApi>) -> Arc<GourmetProvider> {
+        Arc::new(GourmetProvider::new(api, Arc::new(SystemClock)))
+    }
 
     const G_LOGIN_PAGE: &str = include_str!("../../tests/fixtures/gourmet/login-page.html");
     const G_LOGIN_OK: &str = include_str!("../../tests/fixtures/gourmet/login-success.html");
@@ -473,7 +492,7 @@ mod tests {
         }
     }
 
-    async fn logged_in_gourmet(t: &Arc<CapturingTransport>) -> Arc<GourmetApi> {
+    async fn logged_in_gourmet(t: &Arc<CapturingTransport>) -> Arc<GourmetProvider> {
         t.queue_response(ok(G_LOGIN_PAGE));
         t.queue_response(ok(G_LOGIN_OK));
         let api = Arc::new(GourmetApi::new(t.clone()));
@@ -483,7 +502,7 @@ mod tests {
         })
         .await
         .unwrap();
-        api
+        gp(api)
     }
 
     #[tokio::test]
@@ -507,7 +526,7 @@ mod tests {
     #[tokio::test]
     async fn toggle_pending_moves_between_orders_and_cancellations() {
         let t = Arc::new(CapturingTransport::new());
-        let g = Arc::new(GourmetApi::new(t.clone()));
+        let g = gp(Arc::new(GourmetApi::new(t.clone())));
         let store = MenuStore::new(g, Arc::new(MemoryKv::new()), Arc::new(SystemClock));
         store.inner.lock().unwrap().items = vec![
             item("menu-001", "2026-02-10", true, false), // not ordered → toggling adds a new order
@@ -565,7 +584,9 @@ mod tests {
             .timestamp_millis();
         use chrono::TimeZone;
         let store = MenuStore::new(
-            Arc::new(GourmetApi::new(Arc::new(CapturingTransport::new()))),
+            gp(Arc::new(GourmetApi::new(Arc::new(
+                CapturingTransport::new(),
+            )))),
             Arc::new(MemoryKv::new()),
             Arc::new(FixedClock { epoch_ms: ms }),
         );
@@ -625,7 +646,7 @@ mod tests {
     async fn submit_no_op_when_nothing_pending() {
         let t = Arc::new(CapturingTransport::new());
         let store = MenuStore::new(
-            Arc::new(GourmetApi::new(t.clone())),
+            gp(Arc::new(GourmetApi::new(t.clone()))),
             Arc::new(MemoryKv::new()),
             Arc::new(SystemClock),
         );
@@ -636,7 +657,7 @@ mod tests {
     #[tokio::test]
     async fn submit_all_cutoff_blocked_sets_error_and_keeps_pending() {
         let t = Arc::new(CapturingTransport::new());
-        let g = Arc::new(GourmetApi::new(t.clone()));
+        let g = gp(Arc::new(GourmetApi::new(t.clone())));
         let store = MenuStore::new(
             g,
             Arc::new(MemoryKv::new()),

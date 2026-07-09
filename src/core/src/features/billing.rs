@@ -6,15 +6,15 @@ use crate::domain::{
     Bill, GourmetMonthlyBilling, MonthOption, VentopayMonthlyBilling, VentopayTransaction,
 };
 use crate::error::CoreResult;
-use crate::gourmet::api::GourmetApi;
+use crate::gourmet::provider::GourmetProvider;
 use crate::storage::{cache, Kv};
-use crate::ventopay::api::VentopayApi;
+use crate::ventopay::provider::VentopayProvider;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 pub struct BillingStore {
-    gourmet: Arc<GourmetApi>,
-    ventopay: Arc<VentopayApi>,
+    gourmet: Arc<GourmetProvider>,
+    ventopay: Arc<VentopayProvider>,
     kv: Arc<dyn Kv>,
     clock: Arc<dyn Clock>,
     gourmet_months: Mutex<HashMap<String, GourmetMonthlyBilling>>,
@@ -25,8 +25,8 @@ pub struct BillingStore {
 
 impl BillingStore {
     pub fn new(
-        gourmet: Arc<GourmetApi>,
-        ventopay: Arc<VentopayApi>,
+        gourmet: Arc<GourmetProvider>,
+        ventopay: Arc<VentopayProvider>,
         kv: Arc<dyn Kv>,
         clock: Arc<dyn Clock>,
     ) -> Self {
@@ -239,11 +239,22 @@ fn parse_key(key: &str) -> (i32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::datetime::FixedClock;
+    use crate::datetime::{FixedClock, SystemClock};
     use crate::domain::Credentials;
+    use crate::gourmet::api::GourmetApi;
     use crate::http::{CapturingTransport, HttpResponse};
     use crate::storage::MemoryKv;
+    use crate::ventopay::api::VentopayApi;
+    use crate::ventopay::provider::VentopayProvider;
     use chrono::TimeZone;
+
+    /// Wrap live APIs in providers (the store now takes providers).
+    fn gp(api: Arc<GourmetApi>) -> Arc<GourmetProvider> {
+        Arc::new(GourmetProvider::new(api, Arc::new(SystemClock)))
+    }
+    fn vp(api: Arc<VentopayApi>) -> Arc<VentopayProvider> {
+        Arc::new(VentopayProvider::new(api, Arc::new(SystemClock)))
+    }
 
     const G_LOGIN_PAGE: &str = include_str!("../../tests/fixtures/gourmet/login-page.html");
     const G_LOGIN_OK: &str = include_str!("../../tests/fixtures/gourmet/login-success.html");
@@ -265,7 +276,7 @@ mod tests {
         Arc::new(FixedClock { epoch_ms: ms })
     }
 
-    async fn logged_in_gourmet(t: &Arc<CapturingTransport>) -> Arc<GourmetApi> {
+    async fn logged_in_gourmet(t: &Arc<CapturingTransport>) -> Arc<GourmetProvider> {
         t.queue_response(ok(G_LOGIN_PAGE));
         t.queue_response(ok(G_LOGIN_OK));
         let api = Arc::new(GourmetApi::new(t.clone()));
@@ -275,15 +286,15 @@ mod tests {
         })
         .await
         .unwrap();
-        api
+        gp(api)
     }
 
     #[tokio::test]
     async fn month_options_are_three_with_austrian_labels() {
         let t = Arc::new(CapturingTransport::new());
         let store = BillingStore::new(
-            Arc::new(GourmetApi::new(t.clone())),
-            Arc::new(VentopayApi::new(t.clone())),
+            gp(Arc::new(GourmetApi::new(t.clone()))),
+            vp(Arc::new(VentopayApi::new(t.clone()))),
             Arc::new(MemoryKv::new()),
             feb_2026_clock(),
         );
@@ -302,7 +313,7 @@ mod tests {
         let kv = Arc::new(MemoryKv::new());
         let store = BillingStore::new(
             gourmet,
-            Arc::new(VentopayApi::new(t.clone())),
+            vp(Arc::new(VentopayApi::new(t.clone()))),
             kv.clone(),
             feb_2026_clock(),
         );
@@ -327,8 +338,8 @@ mod tests {
     async fn ventopay_fetch_skipped_when_not_authenticated() {
         let t = Arc::new(CapturingTransport::new());
         let store = BillingStore::new(
-            Arc::new(GourmetApi::new(t.clone())),
-            Arc::new(VentopayApi::new(t.clone())), // never logged in
+            gp(Arc::new(GourmetApi::new(t.clone()))),
+            vp(Arc::new(VentopayApi::new(t.clone()))), // never logged in
             Arc::new(MemoryKv::new()),
             feb_2026_clock(),
         );
@@ -343,7 +354,7 @@ mod tests {
         let gourmet = logged_in_gourmet(&t).await;
         let store = BillingStore::new(
             gourmet,
-            Arc::new(VentopayApi::new(t.clone())),
+            vp(Arc::new(VentopayApi::new(t.clone()))),
             Arc::new(MemoryKv::new()),
             feb_2026_clock(),
         );

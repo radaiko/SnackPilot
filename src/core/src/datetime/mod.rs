@@ -18,6 +18,11 @@ impl Clock for SystemClock {
 pub struct FixedClock {
     pub epoch_ms: i64,
 }
+impl FixedClock {
+    pub fn new(epoch_ms: i64) -> Self {
+        Self { epoch_ms }
+    }
+}
 impl Clock for FixedClock {
     fn now_epoch_ms(&self) -> i64 {
         self.epoch_ms

@@ -13,6 +13,7 @@ use crate::features::menus::MenuStore;
 use crate::features::orders::OrderStore;
 use crate::features::{AnalyticsSink, ProgressListener};
 use crate::gourmet::api::GourmetApi;
+use crate::gourmet::provider::GourmetProvider;
 use crate::http::reqwest_transport::ReqwestTransport;
 use crate::http::Transport;
 use crate::notify::cancel_reminder::check_cancel_reminder;
@@ -22,6 +23,7 @@ use crate::notify::menu_check::run_background_menu_check;
 use crate::notify::{log, DailyReminderSettings, MenuCheckResult, NotificationCommand};
 use crate::storage::{FileKv, Kv};
 use crate::ventopay::api::VentopayApi;
+use crate::ventopay::provider::VentopayProvider;
 use std::sync::Arc;
 
 /// Host-injected configuration (docs/architecture §4.1).
@@ -35,8 +37,8 @@ pub struct CoreConfig {
 /// stores, and the shared KV + clock.
 #[derive(uniffi::Object)]
 pub struct SnackPilotCore {
-    gourmet: Arc<GourmetApi>,
-    ventopay: Arc<VentopayApi>,
+    gourmet: Arc<GourmetProvider>,
+    ventopay: Arc<VentopayProvider>,
     kv: Arc<dyn Kv>,
     clock: Arc<dyn Clock>,
     analytics: Option<Arc<dyn AnalyticsSink>>,
@@ -56,10 +58,18 @@ impl SnackPilotCore {
     ) -> Result<Arc<Self>, CoreError> {
         let gourmet_tx: Arc<dyn Transport> = Arc::new(ReqwestTransport::new(true)?);
         let ventopay_tx: Arc<dyn Transport> = Arc::new(ReqwestTransport::new(false)?);
-        let gourmet = Arc::new(GourmetApi::new(gourmet_tx));
-        let ventopay = Arc::new(VentopayApi::new(ventopay_tx));
         let kv: Arc<dyn Kv> = Arc::new(FileKv::new(config.storage_dir.into()));
         let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+        // Wrap the live scraping APIs in providers that swap to demo data on magic-credential
+        // login (demo-mode §1). Stores hold the providers; the live path is untouched.
+        let gourmet = Arc::new(GourmetProvider::new(
+            Arc::new(GourmetApi::new(gourmet_tx)),
+            clock.clone(),
+        ));
+        let ventopay = Arc::new(VentopayProvider::new(
+            Arc::new(VentopayApi::new(ventopay_tx)),
+            clock.clone(),
+        ));
 
         let mut menu_store = MenuStore::new(gourmet.clone(), kv.clone(), clock.clone());
         if let Some(a) = &analytics {
@@ -88,6 +98,12 @@ impl SnackPilotCore {
 
     // ---- Gourmet session ----
     pub async fn gourmet_login(&self, creds: Credentials) -> Result<GourmetUserInfo, CoreError> {
+        // Magic credentials activate demo mode: swap in the offline backend and clear cached
+        // live menus BEFORE any request, so demo creds never reach the live server (§1).
+        if crate::demo::is_demo_credentials(&creds.username, &creds.password) {
+            self.gourmet.enter_demo();
+            self.menus.reset_for_demo();
+        }
         self.gourmet.login(creds).await
     }
     pub async fn gourmet_logout(&self) -> Result<(), CoreError> {
@@ -102,6 +118,11 @@ impl SnackPilotCore {
 
     // ---- Ventopay session ----
     pub async fn ventopay_login(&self, creds: Credentials) -> Result<(), CoreError> {
+        // Magic credentials activate demo mode on the Ventopay side too (§1, §4) — the demo
+        // creds must never reach the live server.
+        if crate::demo::is_demo_credentials(&creds.username, &creds.password) {
+            self.ventopay.enter_demo();
+        }
         self.ventopay.login(creds).await
     }
     pub async fn ventopay_logout(&self) -> Result<(), CoreError> {

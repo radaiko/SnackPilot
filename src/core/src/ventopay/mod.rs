@@ -2,6 +2,7 @@
 pub mod api;
 pub mod client;
 pub mod parser;
+pub mod provider;
 
 /// 02-ventopay-scraping §1.
 pub const VENTOPAY_BASE_URL: &str = "https://my.ventopay.com/mocca.website";
