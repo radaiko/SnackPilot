@@ -8,7 +8,9 @@ fn main() {
     println!("cargo:rerun-if-changed={}", docs.display());
     println!("cargo:rerun-if-changed={}", tests.display());
     if let Err(e) = compare_dirs(&docs, &tests) {
-        panic!("fixture mirror out of sync: {e}\nRe-copy docs/fixtures into src/core/tests/fixtures");
+        panic!(
+            "fixture mirror out of sync: {e}\nRe-copy docs/fixtures into src/core/tests/fixtures"
+        );
     }
 }
 

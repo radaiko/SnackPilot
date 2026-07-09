@@ -21,7 +21,9 @@ impl ReqwestTransport {
             .redirect(reqwest::redirect::Policy::limited(5))
             // reqwest sets no default UA when we don't call .user_agent(); leave it absent.
             .build()
-            .map_err(|e| CoreError::Http { message: e.to_string() })?;
+            .map_err(|e| CoreError::Http {
+                message: e.to_string(),
+            })?;
         Ok(Self { client })
     }
 }
@@ -36,15 +38,16 @@ impl Transport for ReqwestTransport {
                 Method::Get => reqwest::Method::GET,
                 Method::Post => reqwest::Method::POST,
             };
-            let mut rb = self.client.request(method, &req.url).header("Accept", ACCEPT);
+            let mut rb = self
+                .client
+                .request(method, &req.url)
+                .header("Accept", ACCEPT);
             for (k, v) in &req.headers {
                 rb = rb.header(k.as_str(), v.as_str());
             }
             rb = match req.body {
                 None => rb,
-                Some(RequestBody::Json(s)) => {
-                    rb.header("Content-Type", "application/json").body(s)
-                }
+                Some(RequestBody::Json(s)) => rb.header("Content-Type", "application/json").body(s),
                 Some(RequestBody::Form(fields)) => {
                     // preserve field order; reqwest .form() takes a slice of pairs.
                     rb.form(&fields)
@@ -57,24 +60,28 @@ impl Transport for ReqwestTransport {
                     rb.multipart(form)
                 }
             };
-            let resp = rb
-                .send()
-                .await
-                .map_err(|e| CoreError::Http { message: e.to_string() })?;
+            let resp = rb.send().await.map_err(|e| CoreError::Http {
+                message: e.to_string(),
+            })?;
             let status = resp.status().as_u16();
             if status >= 400 {
-                return Err(CoreError::Http { message: format!("HTTP {status}") });
+                return Err(CoreError::Http {
+                    message: format!("HTTP {status}"),
+                });
             }
             let headers = resp
                 .headers()
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
-            let body = resp
-                .text()
-                .await
-                .map_err(|e| CoreError::Http { message: e.to_string() })?;
-            Ok(HttpResponse { status, headers, body })
+            let body = resp.text().await.map_err(|e| CoreError::Http {
+                message: e.to_string(),
+            })?;
+            Ok(HttpResponse {
+                status,
+                headers,
+                body,
+            })
         })
     }
 }

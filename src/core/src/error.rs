@@ -36,7 +36,10 @@ mod tests {
         // 01-gourmet-scraping §14, §7; orders.md §8
         assert_eq!(CoreError::SessionExpired.to_string(), "Session expired");
         assert_eq!(CoreError::NotLoggedIn.to_string(), "Not logged in");
-        assert_eq!(CoreError::EditModeFailed.to_string(), "Failed to enter edit mode");
+        assert_eq!(
+            CoreError::EditModeFailed.to_string(),
+            "Failed to enter edit mode"
+        );
         assert_eq!(
             CoreError::LoginFailed {
                 message: "Login failed: invalid credentials or account blocked".into()
@@ -45,7 +48,10 @@ mod tests {
             "Login failed: invalid credentials or account blocked"
         );
         assert_eq!(
-            CoreError::AddToCartFailed { message: "boom".into() }.to_string(),
+            CoreError::AddToCartFailed {
+                message: "boom".into()
+            }
+            .to_string(),
             "Add to cart failed: boom"
         );
     }

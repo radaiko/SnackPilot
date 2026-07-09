@@ -140,21 +140,29 @@ mod tests {
 
     #[test]
     fn cutoff_before_today_is_blocked() {
-        let clock = FixedClock { epoch_ms: vienna(2026, 2, 10, 8, 0) };
+        let clock = FixedClock {
+            epoch_ms: vienna(2026, 2, 10, 8, 0),
+        };
         assert!(is_ordering_cutoff(&clock, "2026-02-09")); // yesterday
     }
 
     #[test]
     fn cutoff_today_depends_on_0900_vienna() {
-        let before = FixedClock { epoch_ms: vienna(2026, 2, 10, 8, 59) };
-        let after = FixedClock { epoch_ms: vienna(2026, 2, 10, 9, 0) };
+        let before = FixedClock {
+            epoch_ms: vienna(2026, 2, 10, 8, 59),
+        };
+        let after = FixedClock {
+            epoch_ms: vienna(2026, 2, 10, 9, 0),
+        };
         assert!(!is_ordering_cutoff(&before, "2026-02-10")); // before 09:00 → open
         assert!(is_ordering_cutoff(&after, "2026-02-10")); // at/after 09:00 → blocked
     }
 
     #[test]
     fn cutoff_future_never_blocked() {
-        let clock = FixedClock { epoch_ms: vienna(2026, 2, 10, 23, 0) };
+        let clock = FixedClock {
+            epoch_ms: vienna(2026, 2, 10, 23, 0),
+        };
         assert!(!is_ordering_cutoff(&clock, "2026-02-11"));
     }
 }
