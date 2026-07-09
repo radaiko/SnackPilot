@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns the UI; this is just the window backdrop (no ActionBar). -->
+    <style name="Theme.SnackPilot" parent="android:Theme.Material.NoActionBar" />
+</resources>

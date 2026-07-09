@@ -1,0 +1,11 @@
+# Gradle / build
+.gradle/
+build/
+/local.properties
+.idea/
+*.iml
+.DS_Store
+
+# Generated/copied from the Rust core (bootstrap.sh regenerates)
+app/src/main/jniLibs/
+app/src/main/java/uniffi/
