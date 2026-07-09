@@ -3,6 +3,7 @@
 //! docs/requirements/ and docs/architecture/v2-architecture.md.
 
 pub mod datetime;
+pub mod demo;
 pub mod domain;
 pub mod error;
 pub mod features;
