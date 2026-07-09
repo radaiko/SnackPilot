@@ -10,7 +10,7 @@ crate-type = ["lib"]
 
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "multipart"] }
-tokio = { version = "1", features = ["sync", "rt", "macros"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.9"
 scraper = "0.20"
