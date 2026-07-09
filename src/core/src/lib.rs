@@ -5,5 +5,6 @@
 pub mod datetime;
 pub mod domain;
 pub mod error;
+pub mod gourmet;
 pub mod http;
 pub mod storage;
