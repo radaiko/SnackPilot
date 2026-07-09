@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head><title>AlaClick - Menüs</title></head>
+<body>
+<nav class="navbar">
+  <span class="loginname">TestUser</span>
+  <a href="https://alaclickneu.gourmet.at/einstellungen/" class="navbar-link">Einstellungen</a>
+</nav>
+<div class="container">
+  <input type="hidden" id="shopModel" value="SM-TEST-123" />
+  <input type="hidden" id="eater" value="EATER-TEST-456" />
+  <input type="hidden" id="staffGroup" value="SG-TEST-789" />
+
+  <!-- Desktop layout -->
+  <div class="row hide-sm-down">
+    <!-- Monday: MENÜ I -->
+    <div class="meal">
+      <div class="open_info menu-article-detail" data-id="menu-001" data-date="02-10-2026">
+      </div>
+      <div class="title">
+        MENÜ I
+        <div class="subtitle">Wiener Schnitzel mit Kartoffelsalat</div>
+      </div>
+      <ul><li class="allergen">A, C, G</li></ul>
+      <div class="price"><span>€ 5,50</span></div>
+      <input type="checkbox" class="menu-clicked" />
+    </div>
+
+    <!-- Monday: MENÜ II -->
+    <div class="meal">
+      <div class="open_info menu-article-detail" data-id="menu-002" data-date="02-10-2026">
+      </div>
+      <div class="title">
+        MENÜ II
+        <div class="subtitle">Spaghetti Bolognese</div>
+      </div>
+      <ul><li class="allergen">A, G</li></ul>
+      <div class="price"><span>€ 5,50</span></div>
+      <input type="checkbox" class="menu-clicked" />
+    </div>
+
+    <!-- Monday: MENÜ III -->
+    <div class="meal">
+      <div class="open_info menu-article-detail" data-id="menu-003" data-date="02-10-2026">
+      </div>
+      <div class="title">
+        MENÜ III
+        <div class="subtitle">Gemüsecurry mit Basmatireis (vegan)</div>
+      </div>
+      <ul><li class="allergen">F, L</li></ul>
+      <div class="price"><span>€ 5,50</span></div>
+      <input type="checkbox" class="menu-clicked" />
+    </div>
+
+    <!-- Monday: SUPPE & SALAT -->
+    <div class="meal">
+      <div class="open_info menu-article-detail" data-id="menu-004" data-date="02-10-2026">
+      </div>
+      <div class="title">
+        SUPPE & SALAT
+        <div class="subtitle">Tomatencremesuppe, Gemischter Salat</div>
+      </div>
+      <ul><li class="allergen">A</li></ul>
+      <div class="price"><span>€ 3,00</span></div>
+      <input type="checkbox" class="menu-clicked" />
+    </div>
+
+    <!-- Tuesday: MENÜ I (already ordered) -->
+    <div class="meal">
+      <div class="open_info menu-article-detail" data-id="menu-001" data-date="02-11-2026">
+      </div>
+      <div class="title">
+        MENÜ I
+        <div class="subtitle">Schweinsbraten mit Knödel</div>
+      </div>
+      <ul><li class="allergen">A, G</li></ul>
+      <div class="price"><span>€ 5,50</span></div>
+      <input type="checkbox" class="menu-clicked" checked />
+    </div>
+
+    <!-- Tuesday: MENÜ II (no checkbox = not available) -->
+    <div class="meal">
+      <div class="open_info menu-article-detail" data-id="menu-002" data-date="02-11-2026">
+      </div>
+      <div class="title">
+        MENÜ II
+        <div class="subtitle">Gebratener Lachs mit Dillsauce</div>
+      </div>
+      <ul><li class="allergen">D, G</li></ul>
+      <div class="price"><span>€ 5,50</span></div>
+    </div>
+
+    <!-- No allergens item -->
+    <div class="meal">
+      <div class="open_info menu-article-detail" data-id="menu-003" data-date="02-11-2026">
+      </div>
+      <div class="title">
+        MENÜ III
+        <div class="subtitle">Reis mit Gemüse</div>
+      </div>
+      <ul><li class="allergen"></li></ul>
+      <div class="price"><span>€ 5,50</span></div>
+      <input type="checkbox" class="menu-clicked" />
+    </div>
+  </div>
+
+  <!-- Mobile layout (should be ignored by parser) -->
+  <div class="row hide-sm-up">
+    <div class="meal">
+      <div class="open_info menu-article-detail" data-id="menu-mobile-dup" data-date="02-10-2026">
+      </div>
+      <div class="title">MENÜ I<div class="subtitle">Mobile duplicate</div></div>
+    </div>
+  </div>
+
+  <a class="menues-next" href="/menus/?page=1">Nächste</a>
+</div>
+</body>
+</html>

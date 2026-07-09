@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head><title>AlaClick - Bestellungen</title></head>
+<body>
+<nav class="navbar">
+  <span class="loginname">TestUser</span>
+  <a href="https://alaclickneu.gourmet.at/einstellungen/" class="navbar-link">Einstellungen</a>
+  <form method="post" action="/start/" enctype="multipart/form-data">
+    <input type="hidden" name="ufprt" value="CSRF-TOKEN-LOGOUT-EDIT-111" />
+    <input type="hidden" name="__ncforminfo" value="NCFORM-TOKEN-LOGOUT-EDIT-222" />
+    <button type="submit" id="btnHeaderLogout">Logout</button>
+  </form>
+</nav>
+<div class="container">
+  <input type="hidden" id="shopModel" value="SM-TEST-123" />
+  <input type="hidden" id="eater" value="EATER-TEST-456" />
+  <input type="hidden" id="staffGroup" value="SG-TEST-789" />
+
+  <!-- Edit mode toggle form (editMode=False means currently IN edit mode) -->
+  <form class="form-toggleEditMode" method="post" action="/bestellungen/" enctype="multipart/form-data">
+    <input type="hidden" name="editMode" value="False" />
+    <input type="hidden" name="ufprt" value="CSRF-TOKEN-EDITMODE-EXIT-777" />
+    <input type="hidden" name="__ncforminfo" value="NCFORM-TOKEN-EDITMODE-EXIT-888" />
+    <button type="submit">Fertig</button>
+  </form>
+
+  <!-- Order item 1: with cancel form -->
+  <div class="order-item">
+    <input type="hidden" name="cp_PositionId" value="POS-001" />
+    <input type="hidden" name="cp_EatingCycleId_POS-001" value="EC-001" />
+    <input type="hidden" name="cp_Date_POS-001" value="10.02.2026 00:00:00" />
+    <div class="title">
+      MENÜ I
+      <div class="subtitle">Wiener Schnitzel mit Kartoffelsalat</div>
+    </div>
+    <span class="fa fa-check"></span>
+  </div>
+
+  <!-- Cancel form for order 1 -->
+  <form id="form_POS-001_cp" method="post" action="/bestellungen/" enctype="multipart/form-data">
+    <input type="hidden" name="cp_PositionId" value="POS-001" />
+    <input type="hidden" name="cp_EatingCycleId_POS-001" value="EC-001" />
+    <input type="hidden" name="cp_Date_POS-001" value="10.02.2026 00:00:00" />
+    <input type="hidden" name="ufprt" value="CSRF-TOKEN-CANCEL-POS001-AAA" />
+    <input type="hidden" name="__ncforminfo" value="NCFORM-TOKEN-CANCEL-POS001-BBB" />
+    <button type="submit">Stornieren</button>
+  </form>
+
+  <!-- Order item 2: with cancel form -->
+  <div class="order-item">
+    <input type="hidden" name="cp_PositionId" value="POS-002" />
+    <input type="hidden" name="cp_EatingCycleId_POS-002" value="EC-002" />
+    <input type="hidden" name="cp_Date_POS-002" value="11.02.2026 00:00:00" />
+    <div class="title">
+      MENÜ I
+      <div class="subtitle">Schweinsbraten mit Knödel</div>
+    </div>
+  </div>
+
+  <!-- Cancel form for order 2 -->
+  <form id="form_POS-002_cp" method="post" action="/bestellungen/" enctype="multipart/form-data">
+    <input type="hidden" name="cp_PositionId" value="POS-002" />
+    <input type="hidden" name="cp_EatingCycleId_POS-002" value="EC-002" />
+    <input type="hidden" name="cp_Date_POS-002" value="11.02.2026 00:00:00" />
+    <input type="hidden" name="ufprt" value="CSRF-TOKEN-CANCEL-POS002-CCC" />
+    <input type="hidden" name="__ncforminfo" value="NCFORM-TOKEN-CANCEL-POS002-DDD" />
+    <button type="submit">Stornieren</button>
+  </form>
+</div>
+</body>
+</html>
