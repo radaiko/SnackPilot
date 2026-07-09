@@ -7,10 +7,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.radaiko.snackpilot.ui.RootScreen
+import dev.radaiko.snackpilot.ui.SnackPilotTheme
 import uniffi.snackpilot_core.NotificationCommand
 
 class MainActivity : ComponentActivity() {
@@ -33,7 +32,7 @@ class MainActivity : ComponentActivity() {
         val autoLog = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestLog", false)
         val initialTab = intent.getStringExtra("uiTestTab")
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            SnackPilotTheme {
                 RootScreen(
                     viewModel(),
                     autoDemo = autoDemo,

@@ -63,11 +63,11 @@ struct MenusView: View {
                     Text("Bestellen").bold().frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .primaryAction()
             .disabled(model.busy)
         }
         .padding()
-        .background(.regularMaterial)
+        .glassBar()
     }
 
     private func items(for day: String, in snapshot: MenuSnapshot) -> [MenuItem] {

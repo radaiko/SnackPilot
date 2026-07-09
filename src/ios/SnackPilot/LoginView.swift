@@ -42,6 +42,7 @@ struct LoginView: View {
                             Spacer()
                         }
                     }
+                    .primaryAction()
                     .disabled(model.busy || username.isEmpty || password.isEmpty)
                 }
 

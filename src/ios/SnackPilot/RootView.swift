@@ -6,10 +6,13 @@ struct RootView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        if model.userInfo == nil {
-            LoginView()
-        } else {
-            MainTabView()
+        Group {
+            if model.userInfo == nil {
+                LoginView()
+            } else {
+                MainTabView()
+            }
         }
+        .tint(.brand)
     }
 }
