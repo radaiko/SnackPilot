@@ -126,6 +126,23 @@ impl SnackPilotCore {
     pub fn menu_snapshot(&self) -> MenuSnapshot {
         self.menus.snapshot()
     }
+    /// Demo menus rendered as a snapshot — no network (demo-mode §5.2). Lets the shell show
+    /// real menu data offline (store review / FFI preview) without touching the live server.
+    pub fn demo_menu_snapshot(&self) -> MenuSnapshot {
+        let items = crate::demo::data::generate_demo_menus(self.clock.as_ref());
+        let mut dates: Vec<String> = items.iter().map(|i| i.day.clone()).collect();
+        dates.sort();
+        dates.dedup();
+        MenuSnapshot {
+            items,
+            available_dates: dates,
+            pending_orders: vec![],
+            pending_cancellations: vec![],
+            loading: false,
+            refreshing: false,
+            error: None,
+        }
+    }
     pub fn toggle_pending(&self, menu_id: String, date_key: String) -> MenuSnapshot {
         self.menus.toggle_pending(menu_id, date_key)
     }
