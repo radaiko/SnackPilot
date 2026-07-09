@@ -6,6 +6,7 @@ use std::pin::Pin;
 
 pub mod cookie_jar;
 pub mod fake;
+pub mod reqwest_transport;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
