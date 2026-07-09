@@ -1,4 +1,5 @@
 //! Ventopay (Automaten) scraping — client, parser, API (docs/requirements/02-ventopay-scraping.md).
+pub mod client;
 pub mod parser;
 
 /// 02-ventopay-scraping §1.
