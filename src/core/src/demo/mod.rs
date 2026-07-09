@@ -1,5 +1,6 @@
 //! Demo mode — canned data served behind the same API surface, no network
 //! (03-features/demo-mode.md). Activated by the magic credentials `demo` / `demo1234!`.
+pub mod data;
 pub mod prng;
 
 /// Magic demo credentials (demo-mode §1; v1 constants.ts:23-28). Never sent to a live server.
