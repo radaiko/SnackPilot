@@ -1,0 +1,8 @@
+# Generated/copied from the Rust core (refresh-core.sh regenerates)
+Frameworks/
+SnackPilot/Generated/
+# Xcode
+*.xcodeproj/
+build/
+DerivedData/
+*.xcuserstate

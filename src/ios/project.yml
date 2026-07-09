@@ -1,0 +1,31 @@
+name: SnackPilot
+options:
+  bundleIdPrefix: dev.radaiko
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "2.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+targets:
+  SnackPilot:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: SnackPilot
+    dependencies:
+      - framework: Frameworks/SnackPilotCore.xcframework
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.radaiko.gourmetclient
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: SnackPilot
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        TARGETED_DEVICE_FAMILY: "1"
+        # rustls-tls core links no Apple TLS, but reqwest/ring still need libc++.
+        OTHER_LDFLAGS: "-lc++"
