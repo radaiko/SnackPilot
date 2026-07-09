@@ -5,6 +5,7 @@ pub mod cancel_reminder;
 pub mod daily_reminder;
 pub mod fingerprint;
 pub mod geofence;
+pub mod log;
 
 /// Fixed notification identifiers (dedupe = re-issue with the same id replaces the pending one).
 pub const DAILY_REMINDER_ID: &str = "daily-order-reminder";
