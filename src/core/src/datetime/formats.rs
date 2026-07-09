@@ -90,6 +90,19 @@ fn local_epoch_ms(ndt: NaiveDateTime) -> Option<i64> {
         .map(|dt| dt.timestamp_millis())
 }
 
+/// Local-tz epoch ms for Y/M/D h:m (seconds 0). None on an invalid date (Ventopay §6.4).
+pub fn local_epoch_from_parts(
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+) -> Option<i64> {
+    let d = NaiveDate::from_ymd_opt(year, month, day)?;
+    let t = NaiveTime::from_hms_opt(hour, minute, 0)?;
+    local_epoch_ms(d.and_time(t))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +177,14 @@ mod tests {
             epoch_ms: vienna(2026, 2, 10, 23, 0),
         };
         assert!(!is_ordering_cutoff(&clock, "2026-02-11"));
+    }
+
+    #[test]
+    fn local_epoch_from_parts_matches_local_midnight_helper() {
+        let a = local_epoch_from_parts(2026, 2, 10, 0, 0).unwrap();
+        assert_eq!(a, vienna_like_local("2026-02-10", 0, 0));
+        let b = local_epoch_from_parts(2026, 2, 10, 11, 49).unwrap();
+        assert_eq!(b, vienna_like_local("2026-02-10", 11, 49));
+        assert_eq!(local_epoch_from_parts(2026, 13, 40, 0, 0), None);
     }
 }
