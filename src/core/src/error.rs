@@ -5,24 +5,24 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Eq, Error, uniffi::Error)]
 pub enum CoreError {
     /// LoginFailed carries the full message verbatim (Gourmet or Ventopay variant text).
-    #[error("{message}")]
-    LoginFailed { message: String },
+    #[error("{detail}")]
+    LoginFailed { detail: String },
     #[error("Session expired")]
     SessionExpired,
     #[error("Not logged in")]
     NotLoggedIn,
-    #[error("Add to cart failed: {message}")]
-    AddToCartFailed { message: String },
+    #[error("Add to cart failed: {detail}")]
+    AddToCartFailed { detail: String },
     #[error("Failed to enter edit mode")]
     EditModeFailed,
     /// Parser errors, incl. missing-token messages, carried verbatim.
-    #[error("{message}")]
-    Parse { message: String },
+    #[error("{detail}")]
+    Parse { detail: String },
     /// Transport-level failure or HTTP status >= 400.
-    #[error("{message}")]
-    Http { message: String },
-    #[error("{message}")]
-    Storage { message: String },
+    #[error("{detail}")]
+    Http { detail: String },
+    #[error("{detail}")]
+    Storage { detail: String },
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -42,14 +42,14 @@ mod tests {
         );
         assert_eq!(
             CoreError::LoginFailed {
-                message: "Login failed: invalid credentials or account blocked".into()
+                detail: "Login failed: invalid credentials or account blocked".into()
             }
             .to_string(),
             "Login failed: invalid credentials or account blocked"
         );
         assert_eq!(
             CoreError::AddToCartFailed {
-                message: "boom".into()
+                detail: "boom".into()
             }
             .to_string(),
             "Add to cart failed: boom"

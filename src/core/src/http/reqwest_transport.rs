@@ -22,7 +22,7 @@ impl ReqwestTransport {
             // reqwest sets no default UA when we don't call .user_agent(); leave it absent.
             .build()
             .map_err(|e| CoreError::Http {
-                message: e.to_string(),
+                detail: e.to_string(),
             })?;
         Ok(Self { client })
     }
@@ -61,12 +61,12 @@ impl Transport for ReqwestTransport {
                 }
             };
             let resp = rb.send().await.map_err(|e| CoreError::Http {
-                message: e.to_string(),
+                detail: e.to_string(),
             })?;
             let status = resp.status().as_u16();
             if status >= 400 {
                 return Err(CoreError::Http {
-                    message: format!("HTTP {status}"),
+                    detail: format!("HTTP {status}"),
                 });
             }
             let headers = resp
@@ -75,7 +75,7 @@ impl Transport for ReqwestTransport {
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
             let body = resp.text().await.map_err(|e| CoreError::Http {
-                message: e.to_string(),
+                detail: e.to_string(),
             })?;
             Ok(HttpResponse {
                 status,

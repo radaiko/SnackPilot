@@ -80,7 +80,7 @@ impl GourmetApi {
         // Step 3 — verify. Failure leaves cached creds/user info untouched (§6.2 note).
         if !parser::is_logged_in(&post_html) {
             return Err(CoreError::LoginFailed {
-                message: "Login failed: invalid credentials or account blocked".into(),
+                detail: "Login failed: invalid credentials or account blocked".into(),
             });
         }
 
@@ -194,7 +194,7 @@ impl GourmetApi {
         let resp = self.client.post_json(GOURMET_ADD_TO_CART_URL, body).await?;
         let parsed: serde_json::Value =
             serde_json::from_str(&resp).map_err(|e| CoreError::Parse {
-                message: e.to_string(),
+                detail: e.to_string(),
             })?;
         if parsed.get("success").and_then(|v| v.as_bool()) != Some(true) {
             let message = parsed
@@ -202,7 +202,7 @@ impl GourmetApi {
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown error")
                 .to_string();
-            return Err(CoreError::AddToCartFailed { message });
+            return Err(CoreError::AddToCartFailed { detail: message });
         }
         Ok(())
     }
@@ -257,7 +257,7 @@ impl GourmetApi {
         let edit_mode = parser::extract_edit_mode(html).unwrap_or_else(|| "True".to_string());
         let (ufprt, ncform) = parser::extract_form_tokens(html, "form.form-toggleEditMode")
             .map_err(|_| CoreError::Parse {
-                message: "Could not extract edit mode form data".into(),
+                detail: "Could not extract edit mode form data".into(),
             })?;
         self.client
             .post_form(
@@ -291,7 +291,7 @@ impl GourmetApi {
         let resp = self.client.post_json(GOURMET_BILLING_URL, body).await?;
         let parsed: serde_json::Value =
             serde_json::from_str(&resp).map_err(|e| CoreError::Parse {
-                message: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         let arr = parsed

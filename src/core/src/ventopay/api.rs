@@ -54,7 +54,7 @@ impl VentopayApi {
             .await?;
         if !parser::is_logged_in(&resp) {
             return Err(CoreError::LoginFailed {
-                message: "Ventopay login failed: invalid credentials or account blocked".into(),
+                detail: "Ventopay login failed: invalid credentials or account blocked".into(),
             });
         }
         *self.logged_in.lock().unwrap() = true;

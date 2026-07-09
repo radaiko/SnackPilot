@@ -43,22 +43,22 @@ impl Kv for FileKv {
             Ok(s) => Ok(Some(s)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(CoreError::Storage {
-                message: e.to_string(),
+                detail: e.to_string(),
             }),
         }
     }
     fn set(&self, key: &str, value: &str) -> CoreResult<()> {
         let _g = self.lock.lock().unwrap();
         std::fs::create_dir_all(&self.dir).map_err(|e| CoreError::Storage {
-            message: e.to_string(),
+            detail: e.to_string(),
         })?;
         let final_path = self.path_for(key);
         let tmp_path = final_path.with_extension("val.tmp");
         std::fs::write(&tmp_path, value).map_err(|e| CoreError::Storage {
-            message: e.to_string(),
+            detail: e.to_string(),
         })?;
         std::fs::rename(&tmp_path, &final_path).map_err(|e| CoreError::Storage {
-            message: e.to_string(),
+            detail: e.to_string(),
         })?;
         Ok(())
     }
@@ -68,7 +68,7 @@ impl Kv for FileKv {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(CoreError::Storage {
-                message: e.to_string(),
+                detail: e.to_string(),
             }),
         }
     }

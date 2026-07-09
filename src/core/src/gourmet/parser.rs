@@ -6,9 +6,7 @@ use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
 
 fn parse_err(msg: impl Into<String>) -> CoreError {
-    CoreError::Parse {
-        message: msg.into(),
-    }
+    CoreError::Parse { detail: msg.into() }
 }
 
 /// Read `ufprt` + `__ncforminfo` value attrs from the FIRST element matching `form_selector`.

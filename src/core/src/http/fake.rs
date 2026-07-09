@@ -43,7 +43,7 @@ impl Transport for CapturingTransport {
                 .unwrap()
                 .pop_front()
                 .ok_or_else(|| CoreError::Http {
-                    message: "no queued response".into(),
+                    detail: "no queued response".into(),
                 })
         })
     }

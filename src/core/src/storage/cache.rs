@@ -100,7 +100,7 @@ pub fn month_label(month_key: &str) -> String {
 
 fn save<T: serde::Serialize + ?Sized>(kv: &dyn Kv, key: &str, value: &T) -> CoreResult<()> {
     let json = serde_json::to_string(value).map_err(|e| crate::error::CoreError::Storage {
-        message: e.to_string(),
+        detail: e.to_string(),
     })?;
     kv.set(key, &json)
 }

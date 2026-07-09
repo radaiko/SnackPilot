@@ -6,9 +6,7 @@ use regex::Regex;
 use scraper::{Html, Selector};
 
 fn parse_err(msg: impl Into<String>) -> CoreError {
-    CoreError::Parse {
-        message: msg.into(),
-    }
+    CoreError::Parse { detail: msg.into() }
 }
 
 #[derive(Debug, Clone, PartialEq)]
