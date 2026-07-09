@@ -7,8 +7,11 @@ pub mod demo;
 pub mod domain;
 pub mod error;
 pub mod features;
+pub mod ffi;
 pub mod gourmet;
 pub mod http;
 pub mod notify;
 pub mod storage;
+
+uniffi::setup_scaffolding!();
 pub mod ventopay;

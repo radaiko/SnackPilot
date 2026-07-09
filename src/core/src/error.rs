@@ -2,7 +2,7 @@
 //! displays them (01-gourmet-scraping §14, 02-ventopay-scraping §3-4, orders.md §8).
 use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, uniffi::Error)]
 pub enum CoreError {
     /// LoginFailed carries the full message verbatim (Gourmet or Ventopay variant text).
     #[error("{message}")]

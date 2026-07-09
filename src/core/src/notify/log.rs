@@ -9,7 +9,7 @@ pub const ENTRIES_KEY: &str = "notification_debug_log_entries";
 pub const ACTIVATED_UNTIL_KEY: &str = "notification_debug_log_activated_until";
 const MAX_ENTRIES: usize = 200;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 #[serde(rename_all = "kebab-case")]
 pub enum LogSubsystem {
     Geofence,
@@ -18,7 +18,7 @@ pub enum LogSubsystem {
     MenuCheck,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     Info,
@@ -27,7 +27,7 @@ pub enum LogLevel {
     Notification,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
 pub struct LogEntry {
     /// ISO 8601 UTC, produced at append time.
     pub ts: String,

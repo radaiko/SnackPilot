@@ -6,14 +6,17 @@ pub mod menus;
 pub mod orders;
 
 use crate::domain::OrderProgress;
+use std::collections::HashMap;
 
 /// Fire-and-forget analytics emission (docs/architecture §4.1; 03-features/analytics.md).
 /// The core emits core-originated events; the shell forwards them to TelemetryDeck.
+#[uniffi::export(with_foreign)]
 pub trait AnalyticsSink: Send + Sync {
-    fn track(&self, event: &str, props: Vec<(String, String)>);
+    fn track(&self, event: String, props: HashMap<String, String>);
 }
 
 /// Drives the order-submit progress banner (docs/architecture §4.1). `None` = finished.
+#[uniffi::export(with_foreign)]
 pub trait ProgressListener: Send + Sync {
     fn on_progress(&self, phase: Option<OrderProgress>);
 }

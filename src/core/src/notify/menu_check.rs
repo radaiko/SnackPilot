@@ -99,7 +99,10 @@ pub async fn run_background_menu_check(
             set_notification_sent(kv, true);
             save_known_menus(kv, &current);
             if let Some(a) = analytics {
-                a.track("menu.newDetected", vec![]);
+                a.track(
+                    "menu.newDetected".to_string(),
+                    std::collections::HashMap::new(),
+                );
             }
             log(LogLevel::Notification, "fired", Some("new menus detected"));
             MenuCheckResult {

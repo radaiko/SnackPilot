@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Geofence region-monitoring event delivered by the shell (03-features/notifications-location).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum GeofenceEvent {
     Enter,
     Exit,
@@ -9,7 +9,7 @@ pub enum GeofenceEvent {
 
 /// Saved office coordinates (decimal degrees). Persisted with `is_at_company` under the
 /// `company-location` key.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
 pub struct CompanyLocation {
     pub latitude: f64,
     pub longitude: f64,

@@ -343,13 +343,11 @@ impl MenuStore {
 
         // 9. analytics.
         if let Some(a) = &self.analytics {
-            a.track(
-                "order.submitted",
-                vec![
-                    ("orderedCount".to_string(), allowed.len().to_string()),
-                    ("cancelledCount".to_string(), cancel_ids.len().to_string()),
-                ],
-            );
+            let props = std::collections::HashMap::from([
+                ("orderedCount".to_string(), allowed.len().to_string()),
+                ("cancelledCount".to_string(), cancel_ids.len().to_string()),
+            ]);
+            a.track("order.submitted".to_string(), props);
         }
 
         // 10. finish: clear progress; error = cutoff msg if anything was blocked, else None.
@@ -602,8 +600,10 @@ mod tests {
         events: StdMutex<Vec<RecordedEvent>>,
     }
     impl AnalyticsSink for RecordingAnalytics {
-        fn track(&self, event: &str, props: Vec<(String, String)>) {
-            self.events.lock().unwrap().push((event.to_string(), props));
+        fn track(&self, event: String, props: std::collections::HashMap<String, String>) {
+            let mut v: Vec<(String, String)> = props.into_iter().collect();
+            v.sort();
+            self.events.lock().unwrap().push((event, v));
         }
     }
 

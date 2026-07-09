@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
 pub struct BillingItem {
     pub id: String,
     pub article_id: String,
@@ -12,7 +12,7 @@ pub struct BillingItem {
     pub is_custom_menu: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
 pub struct Bill {
     pub bill_nr: i64,
     pub bill_date_epoch_ms: i64,
@@ -21,7 +21,7 @@ pub struct Bill {
     pub billing: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct GourmetMonthlyBilling {
     pub month_key: String,
     pub label: String,
@@ -33,7 +33,7 @@ pub struct GourmetMonthlyBilling {
     pub fetched_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
 pub struct VentopayTransaction {
     pub id: String,
     pub date_epoch_ms: i64,
@@ -42,7 +42,7 @@ pub struct VentopayTransaction {
     pub location: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct VentopayMonthlyBilling {
     pub month_key: String,
     pub label: String,
@@ -51,7 +51,7 @@ pub struct VentopayMonthlyBilling {
     pub fetched_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct MonthOption {
     pub key: String,
     pub label: String,

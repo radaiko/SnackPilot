@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 pub enum MenuCategory {
     Menu1,
     Menu2,
@@ -22,7 +22,7 @@ impl MenuCategory {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
 pub struct MenuItem {
     pub id: String,
     /// Local-date key "YYYY-MM-DD" (menus.md §1).
@@ -36,7 +36,7 @@ pub struct MenuItem {
     pub price: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum OrderProgress {
     Adding,
     Confirming,
@@ -44,7 +44,7 @@ pub enum OrderProgress {
     Refreshing,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct MenuSnapshot {
     pub items: Vec<MenuItem>,
     pub available_dates: Vec<String>,

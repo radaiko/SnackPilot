@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
 pub struct OrderedMenu {
     pub position_id: String,
     pub eating_cycle_id: String,
@@ -10,7 +10,7 @@ pub struct OrderedMenu {
     pub approved: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct OrdersSplit {
     pub upcoming: Vec<OrderedMenu>,
     pub past: Vec<OrderedMenu>,

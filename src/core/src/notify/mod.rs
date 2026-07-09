@@ -20,7 +20,7 @@ pub const MENU_UPDATES_CHANNEL: &str = "menu-updates";
 /// The delivery contract between core decisions and the shell's OS notification APIs
 /// (docs/architecture §4.2). The shell executes these 1:1; re-issuing an id replaces the
 /// pending notification with that id.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum NotificationCommand {
     /// Schedule a local notification to fire at `fire_at_epoch_ms`. `channel_id` is `None`
     /// when v1 attaches no Android channel (falls back to the OS default).
@@ -45,7 +45,7 @@ pub enum NotificationCommand {
 }
 
 /// Daily-reminder settings (03-features/notifications-daily-reminder §3).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct DailyReminderSettings {
     pub enabled: bool,
     pub hour: Option<u8>,
@@ -53,7 +53,7 @@ pub struct DailyReminderSettings {
 }
 
 /// Outcome of a background new-menu check (03-features/notifications-new-menu §3.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum MenuCheckOutcome {
     NoCredentials,
     DemoSkipped,
@@ -63,7 +63,7 @@ pub enum MenuCheckOutcome {
 }
 
 /// Result of a background new-menu check: the outcome plus (when Notified) the command to fire.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct MenuCheckResult {
     pub outcome: MenuCheckOutcome,
     pub notification: Option<NotificationCommand>,
