@@ -1,6 +1,7 @@
 //! Notification decision logic — the portable "which notification should fire" halves of
 //! v1's notification subsystem (03-features/notifications-*). The core computes commands;
 //! the native shells deliver them (docs/architecture §3.5).
+pub mod cancel_reminder;
 pub mod daily_reminder;
 pub mod fingerprint;
 
@@ -18,21 +19,22 @@ pub const MENU_UPDATES_CHANNEL: &str = "menu-updates";
 /// pending notification with that id.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NotificationCommand {
-    /// Schedule a local notification to fire at `fire_at_epoch_ms`.
+    /// Schedule a local notification to fire at `fire_at_epoch_ms`. `channel_id` is `None`
+    /// when v1 attaches no Android channel (falls back to the OS default).
     ScheduleAt {
         id: String,
         title: String,
         body: String,
-        channel_id: String,
+        channel_id: Option<String>,
         fire_at_epoch_ms: i64,
         screen: Option<String>,
     },
-    /// Deliver now.
+    /// Deliver now. `channel_id` is `None` for v1's immediate-fire paths (no channel).
     FireNow {
         id: String,
         title: String,
         body: String,
-        channel_id: String,
+        channel_id: Option<String>,
         screen: Option<String>,
     },
     /// Cancel any pending notification with `id`.

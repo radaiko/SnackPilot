@@ -69,7 +69,7 @@ pub fn check_daily_reminder(
         id: DAILY_REMINDER_ID.to_string(),
         title: TITLE.to_string(),
         body,
-        channel_id: ORDER_REMINDERS_CHANNEL.to_string(),
+        channel_id: Some(ORDER_REMINDERS_CHANNEL.to_string()),
         fire_at_epoch_ms,
         screen: Some("/(tabs)/orders".to_string()),
     })
@@ -167,7 +167,7 @@ mod tests {
                 assert_eq!(id, DAILY_REMINDER_ID);
                 assert_eq!(title, TITLE);
                 assert_eq!(body, "MENÜ I \u{2014} Schnitzel mit Reis\nSUPPE & SALAT");
-                assert_eq!(channel_id, ORDER_REMINDERS_CHANNEL);
+                assert_eq!(channel_id.as_deref(), Some(ORDER_REMINDERS_CHANNEL));
                 // 08:00 → 12:00 is 240 minutes later.
                 assert_eq!(fire_at_epoch_ms, now + 240 * 60_000);
             }
