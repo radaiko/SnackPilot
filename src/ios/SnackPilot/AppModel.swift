@@ -20,6 +20,10 @@ final class AppModel: ObservableObject {
     @Published var ordersSplit: OrdersSplit?
     @Published var ordersError: String?
 
+    // Diagnostics (Einstellungen → Diagnose)
+    @Published var logActive = false
+    @Published var logEntries: [LogEntry] = []
+
     // Billing (Abrechnung)
     @Published var monthOptions: [MonthOption] = []
     @Published var selectedOffset: UInt8 = 0
@@ -118,6 +122,10 @@ final class AppModel: ObservableObject {
             toggle(item: item)
             await submitOrders()
         }
+        if ProcessInfo.processInfo.arguments.contains("-uiTestLog") {
+            activateLog()
+            await runMenuCheck()
+        }
         #endif
     }
 
@@ -185,6 +193,33 @@ final class AppModel: ObservableObject {
     /// Offline demo session (button / debug hook) — routes through the same login path.
     func loadDemo() {
         Task { await login(user: "demo", pass: "demo1234!") }
+    }
+
+    // MARK: Diagnostics
+
+    func refreshLog() {
+        logActive = core.logIsActive()
+        logEntries = core.logEntries()
+    }
+
+    func activateLog() {
+        core.logActivate(hours: 24)
+        refreshLog()
+    }
+
+    func clearLog() {
+        core.logClear()
+        refreshLog()
+    }
+
+    /// Run the background new-menu check on demand (records diagnostic-log entries). Uses the
+    /// current credentials; in demo mode the core short-circuits it (logs `demo_credentials_skip`).
+    func runMenuCheck() async {
+        let creds = KeychainStore.savedGourmet().map {
+            Credentials(username: $0.username, password: $0.password)
+        }
+        _ = try? await core.runMenuCheck(creds: creds)
+        refreshLog()
     }
 
     func logout() {

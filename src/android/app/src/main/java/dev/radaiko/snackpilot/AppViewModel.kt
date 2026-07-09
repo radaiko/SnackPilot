@@ -12,6 +12,7 @@ import uniffi.snackpilot_core.CoreConfig
 import uniffi.snackpilot_core.Credentials
 import uniffi.snackpilot_core.GourmetMonthlyBilling
 import uniffi.snackpilot_core.GourmetUserInfo
+import uniffi.snackpilot_core.LogEntry
 import uniffi.snackpilot_core.MenuItem
 import uniffi.snackpilot_core.MenuSnapshot
 import uniffi.snackpilot_core.MonthOption
@@ -49,8 +50,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var ordersError by mutableStateOf<String?>(null)
         private set
 
-    /** DEBUG headless hook: place a demo order during loadSession (set before loadDemo). */
+    /** DEBUG headless hooks (set before loadDemo). */
     var debugAutoOrder = false
+    var debugAutoLog = false
+
+    // Diagnostics (Einstellungen → Diagnose)
+    var logActive by mutableStateOf(false)
+        private set
+    var logEntries by mutableStateOf<List<LogEntry>>(emptyList())
+        private set
 
     // Billing (Abrechnung)
     var monthOptions by mutableStateOf<List<MonthOption>>(emptyList())
@@ -113,6 +121,40 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 submitOrders()
             }
         }
+        if (BuildConfig.DEBUG && debugAutoLog) {
+            activateLog()
+            runMenuCheck()
+        }
+    }
+
+    // MARK: Diagnostics
+
+    fun refreshLog() {
+        logActive = core.logIsActive()
+        logEntries = core.logEntries()
+    }
+
+    fun activateLog() {
+        core.logActivate(24u)
+        refreshLog()
+    }
+
+    fun clearLog() {
+        core.logClear()
+        refreshLog()
+    }
+
+    /** Run the background new-menu check on demand (records diagnostic-log entries). In demo the
+     *  core short-circuits it, logging `demo_credentials_skip`. */
+    suspend fun runMenuCheck() {
+        val saved = creds.savedGourmet()
+        val c = saved?.let { Credentials(username = it.first, password = it.second) }
+        runCatching { core.runMenuCheck(c) }
+        refreshLog()
+    }
+
+    fun runMenuCheckAsync() {
+        viewModelScope.launch { runMenuCheck() }
     }
 
     // MARK: Orders

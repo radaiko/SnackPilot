@@ -55,11 +55,47 @@ struct SettingsView: View {
                 Section {
                     LabeledContent("Core-Version", value: model.coreVersion)
                 }
+
+                Section("Diagnose") {
+                    LabeledContent("Protokoll",
+                                   value: model.logActive ? "Aktiv" : "Inaktiv")
+                    Button("Protokoll aktivieren (24 h)") { model.activateLog() }
+                    Button("Menü-Check ausführen") { Task { await model.runMenuCheck() } }
+                    if !model.logEntries.isEmpty {
+                        Button("Protokoll leeren", role: .destructive) { model.clearLog() }
+                    }
+                }
+
+                if !model.logEntries.isEmpty {
+                    Section("Protokoll-Einträge (\(model.logEntries.count))") {
+                        ForEach(Array(model.logEntries.enumerated()), id: \.offset) { _, entry in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(Self.subsystem(entry.subsystem)) · \(entry.event)")
+                                    .font(.footnote)
+                                if let detail = entry.detail, !detail.isEmpty {
+                                    Text(detail).font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Text(entry.ts).font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
+
                 Section {
                     Button("Abmelden", role: .destructive) { model.logout() }
                 }
             }
             .navigationTitle("Einstellungen")
+            .onAppear { model.refreshLog() }
+        }
+    }
+
+    static func subsystem(_ s: LogSubsystem) -> String {
+        switch s {
+        case .geofence: return "geofence"
+        case .orderSync: return "order-sync"
+        case .dailyReminder: return "daily-reminder"
+        case .menuCheck: return "menu-check"
         }
     }
 }

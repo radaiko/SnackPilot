@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.radaiko.snackpilot.AppViewModel
+import uniffi.snackpilot_core.LogSubsystem
 import uniffi.snackpilot_core.MenuCategory
 import uniffi.snackpilot_core.MenuItem
 import uniffi.snackpilot_core.MenuSnapshot
@@ -63,7 +64,8 @@ fun RootScreen(
     vm: AppViewModel,
     autoDemo: Boolean = false,
     initialTab: String? = null,
-    autoOrder: Boolean = false
+    autoOrder: Boolean = false,
+    autoLog: Boolean = false
 ) {
     LaunchedEffect(Unit) {
         if (autoDemo) {
@@ -74,6 +76,7 @@ fun RootScreen(
                 else -> 0
             }
             vm.debugAutoOrder = autoOrder
+            vm.debugAutoLog = autoLog
             vm.loadDemo()
         } else {
             vm.attemptAutoLogin()
@@ -430,25 +433,68 @@ private fun billDateLabel(epochMs: Long): String = try {
 
 @Composable
 private fun SettingsScreen(vm: AppViewModel) {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Einstellungen", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.padding(8.dp))
-        vm.userInfo?.let {
-            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("Benutzer: ${it.username}")
-                    if (vm.demoMode) Text("Modus: Demo")
+    LaunchedEffect(Unit) { vm.refreshLog() }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+    ) {
+        item {
+            Text("Einstellungen", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.padding(8.dp))
+            vm.userInfo?.let {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Benutzer: ${it.username}")
+                        if (vm.demoMode) Text("Modus: Demo")
+                    }
                 }
             }
+            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Text("Core-Version: ${vm.coreVersion}", modifier = Modifier.padding(16.dp))
+            }
+
+            Spacer(Modifier.padding(8.dp))
+            Text("Diagnose", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Protokoll: ${if (vm.logActive) "Aktiv" else "Inaktiv"}",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { vm.activateLog() }) { Text("Aktivieren (24 h)") }
+                TextButton(onClick = { vm.runMenuCheckAsync() }) { Text("Menü-Check") }
+                if (vm.logEntries.isNotEmpty()) {
+                    TextButton(onClick = { vm.clearLog() }) {
+                        Text("Leeren", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            if (vm.logEntries.isNotEmpty()) {
+                Text("Protokoll-Einträge (${vm.logEntries.size})",
+                    style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+            }
         }
-        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            Text("Core-Version: ${vm.coreVersion}", modifier = Modifier.padding(16.dp))
+        items(vm.logEntries.size) { i ->
+            val e = vm.logEntries[i]
+            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                Text("${logSubsystemLabel(e.subsystem)} · ${e.event}", style = MaterialTheme.typography.bodySmall)
+                e.detail?.takeIf { it.isNotEmpty() }?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(e.ts, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        Spacer(Modifier.padding(8.dp))
-        TextButton(onClick = { vm.logout() }) {
-            Text("Abmelden", color = MaterialTheme.colorScheme.error)
+        item {
+            Spacer(Modifier.padding(8.dp))
+            TextButton(onClick = { vm.logout() }) {
+                Text("Abmelden", color = MaterialTheme.colorScheme.error)
+            }
         }
     }
+}
+
+private fun logSubsystemLabel(s: LogSubsystem): String = when (s) {
+    LogSubsystem.GEOFENCE -> "geofence"
+    LogSubsystem.ORDER_SYNC -> "order-sync"
+    LogSubsystem.DAILY_REMINDER -> "daily-reminder"
+    LogSubsystem.MENU_CHECK -> "menu-check"
 }
 
 @Composable

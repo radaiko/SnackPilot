@@ -30,10 +30,17 @@ class MainActivity : ComponentActivity() {
 
         val autoDemo = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestDemo", false)
         val autoOrder = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestOrder", false)
+        val autoLog = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestLog", false)
         val initialTab = intent.getStringExtra("uiTestTab")
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                RootScreen(viewModel(), autoDemo = autoDemo, initialTab = initialTab, autoOrder = autoOrder)
+                RootScreen(
+                    viewModel(),
+                    autoDemo = autoDemo,
+                    initialTab = initialTab,
+                    autoOrder = autoOrder,
+                    autoLog = autoLog
+                )
             }
         }
 
