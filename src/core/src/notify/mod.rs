@@ -6,6 +6,7 @@ pub mod daily_reminder;
 pub mod fingerprint;
 pub mod geofence;
 pub mod log;
+pub mod menu_check;
 
 /// Fixed notification identifiers (dedupe = re-issue with the same id replaces the pending one).
 pub const DAILY_REMINDER_ID: &str = "daily-order-reminder";
@@ -49,4 +50,21 @@ pub struct DailyReminderSettings {
     pub enabled: bool,
     pub hour: Option<u8>,
     pub minute: Option<u8>,
+}
+
+/// Outcome of a background new-menu check (03-features/notifications-new-menu §3.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuCheckOutcome {
+    NoCredentials,
+    DemoSkipped,
+    Notified,
+    NoNotification,
+    Failed,
+}
+
+/// Result of a background new-menu check: the outcome plus (when Notified) the command to fire.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MenuCheckResult {
+    pub outcome: MenuCheckOutcome,
+    pub notification: Option<NotificationCommand>,
 }
