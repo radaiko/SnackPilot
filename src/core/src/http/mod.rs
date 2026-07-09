@@ -8,6 +8,8 @@ pub mod cookie_jar;
 pub mod fake;
 pub mod reqwest_transport;
 
+pub use fake::CapturingTransport;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
     Get,
