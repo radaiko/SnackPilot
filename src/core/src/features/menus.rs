@@ -6,8 +6,9 @@
 //! the ban-critical writes and is implemented in its own focused pass; see the store fields
 //! (`pending_orders`, `pending_cancellations`, `order_progress`) it will use.
 use crate::datetime::{is_ordering_cutoff, local_date_key, Clock};
-use crate::domain::{MenuItem, MenuSnapshot};
+use crate::domain::{MenuItem, MenuSnapshot, OrderProgress, OrderedMenu};
 use crate::error::CoreResult;
+use crate::features::{AnalyticsSink, ProgressListener};
 use crate::gourmet::api::GourmetApi;
 use crate::storage::{cache, Kv};
 use std::collections::HashMap;
@@ -18,6 +19,10 @@ use std::time::Duration;
 const MENU_CACHE_VALIDITY_MS: i64 = 4 * 60 * 60 * 1000;
 /// Minimum "Aktualisiere…" banner visibility for the availability refresh (§3.3 step 5).
 const DEFAULT_MIN_REFRESH_MS: u64 = 800;
+/// Exact cutoff error (menus.md §6.2; v1 menuStore.ts:11).
+const ORDERING_CUTOFF_MESSAGE: &str = "Bestellung für heute geschlossen (Bestellschluss 9:00)";
+/// Submit-failure fallback (menus.md §6.5 step 11).
+const SUBMIT_FAILED_MESSAGE: &str = "Bestellung konnte nicht aufgegeben werden";
 
 pub struct MenuStore {
     gourmet: Arc<GourmetApi>,
@@ -26,6 +31,7 @@ pub struct MenuStore {
     inner: Mutex<State>,
     /// Configurable so tests can set 0 (§3.3 min-visibility timer lives in the core).
     min_refresh_ms: u64,
+    analytics: Option<Arc<dyn AnalyticsSink>>,
 }
 
 #[derive(Default)]
@@ -38,6 +44,7 @@ struct State {
     selected_date: Option<String>, // "YYYY-MM-DD" key
     pending_orders: Vec<String>,   // composite keys, insertion order
     pending_cancellations: Vec<String>,
+    order_progress: Option<OrderProgress>,
 }
 
 impl MenuStore {
@@ -48,7 +55,18 @@ impl MenuStore {
             clock,
             inner: Mutex::new(State::default()),
             min_refresh_ms: DEFAULT_MIN_REFRESH_MS,
+            analytics: None,
         }
+    }
+
+    /// Attach the analytics sink (order.submitted is emitted from `submit_orders`).
+    pub fn with_analytics(mut self, analytics: Arc<dyn AnalyticsSink>) -> Self {
+        self.analytics = Some(analytics);
+        self
+    }
+
+    pub fn order_progress(&self) -> Option<OrderProgress> {
+        self.inner.lock().unwrap().order_progress
     }
 
     #[cfg(test)]
@@ -227,6 +245,162 @@ impl MenuStore {
     pub fn is_ordering_cutoff(&self, date_key: &str) -> bool {
         is_ordering_cutoff(self.clock.as_ref(), date_key)
     }
+
+    /// §6.5 — the full submit pipeline. `current_orders` comes from the order store and is
+    /// used to resolve pending cancellations to position IDs. The order store is refreshed
+    /// by the caller after this returns (v1 does it in step 8; net end state is identical).
+    pub async fn submit_orders(
+        &self,
+        current_orders: &[OrderedMenu],
+        progress: Option<Arc<dyn ProgressListener>>,
+    ) -> CoreResult<MenuSnapshot> {
+        // 1. no-op if nothing pending.
+        let (pending_orders, pending_cancellations, items) = {
+            let s = self.inner.lock().unwrap();
+            (
+                s.pending_orders.clone(),
+                s.pending_cancellations.clone(),
+                s.items.clone(),
+            )
+        };
+        if pending_orders.is_empty() && pending_cancellations.is_empty() {
+            return Ok(self.snapshot());
+        }
+
+        // 2. resolve cancellations → position IDs (unresolvable are skipped).
+        let mut cancel_ids = Vec::new();
+        for key in &pending_cancellations {
+            let (menu_id, date_str) = split_key(key);
+            let Some(item) = items
+                .iter()
+                .find(|it| it.id == menu_id && it.day == date_str)
+            else {
+                continue;
+            };
+            let category = item.category.display();
+            if let Some(order) = current_orders
+                .iter()
+                .find(|o| o.title == category && local_date_key(o.date_epoch_ms) == date_str)
+            {
+                cancel_ids.push(order.position_id.clone());
+            }
+        }
+
+        // 3. resolve new orders + 4. cutoff filter.
+        let mut allowed: Vec<(String, String)> = Vec::new();
+        let mut has_cutoff_blocked = false;
+        for key in &pending_orders {
+            let (menu_id, date_str) = split_key(key);
+            if self.is_ordering_cutoff(&date_str) {
+                has_cutoff_blocked = true;
+            } else {
+                allowed.push((menu_id, date_str));
+            }
+        }
+        if has_cutoff_blocked && allowed.is_empty() && cancel_ids.is_empty() {
+            // everything blocked, nothing to do → error, pending NOT cleared.
+            self.inner.lock().unwrap().error = Some(ORDERING_CUTOFF_MESSAGE.to_string());
+            return Ok(self.snapshot());
+        }
+
+        // 5. optimistic update + clear pending.
+        {
+            let mut s = self.inner.lock().unwrap();
+            for it in s.items.iter_mut() {
+                let k = format!("{}|{}", it.id, it.day);
+                if pending_cancellations.contains(&k) {
+                    it.ordered = false;
+                }
+                if pending_orders.contains(&k) {
+                    it.ordered = true;
+                }
+            }
+            s.pending_orders.clear();
+            s.pending_cancellations.clear();
+            s.error = has_cutoff_blocked.then(|| ORDERING_CUTOFF_MESSAGE.to_string());
+        }
+
+        // 6-8. cancel → add+confirm → refresh. Only failures in 6-7 propagate (fetch_menus
+        // swallows its own errors).
+        if let Err(e) = self
+            .run_submit_pipeline(&cancel_ids, &allowed, &progress)
+            .await
+        {
+            // 11. revert on failure.
+            self.set_progress(None, &progress);
+            self.inner.lock().unwrap().error = Some(match e.to_string().as_str() {
+                "" => SUBMIT_FAILED_MESSAGE.to_string(),
+                m => m.to_string(),
+            });
+            if let Ok(fresh) = self.gourmet.get_menus().await {
+                let now = self.clock.now_epoch_ms();
+                {
+                    let mut s = self.inner.lock().unwrap();
+                    s.items = fresh.clone();
+                    s.last_fetched = Some(now);
+                }
+                let _ = cache::save_menus(self.kv.as_ref(), &fresh);
+            }
+            return Ok(self.snapshot());
+        }
+
+        // 9. analytics.
+        if let Some(a) = &self.analytics {
+            a.track(
+                "order.submitted",
+                vec![
+                    ("orderedCount".to_string(), allowed.len().to_string()),
+                    ("cancelledCount".to_string(), cancel_ids.len().to_string()),
+                ],
+            );
+        }
+
+        // 10. finish: clear progress; error = cutoff msg if anything was blocked, else None.
+        self.set_progress(None, &progress);
+        self.inner.lock().unwrap().error =
+            has_cutoff_blocked.then(|| ORDERING_CUTOFF_MESSAGE.to_string());
+        Ok(self.snapshot())
+    }
+
+    async fn run_submit_pipeline(
+        &self,
+        cancel_ids: &[String],
+        allowed: &[(String, String)],
+        progress: &Option<Arc<dyn ProgressListener>>,
+    ) -> CoreResult<()> {
+        if !cancel_ids.is_empty() {
+            self.set_progress(Some(OrderProgress::Cancelling), progress);
+            self.gourmet.cancel_orders(cancel_ids.to_vec()).await?;
+        }
+        if !allowed.is_empty() {
+            self.set_progress(Some(OrderProgress::Adding), progress);
+            self.gourmet.add_to_cart(allowed.to_vec()).await?;
+            self.set_progress(Some(OrderProgress::Confirming), progress);
+            self.gourmet.confirm_orders().await?;
+        }
+        self.set_progress(Some(OrderProgress::Refreshing), progress);
+        self.fetch_menus(true).await?; // swallows its own errors → never throws here
+        Ok(())
+    }
+
+    fn set_progress(
+        &self,
+        phase: Option<OrderProgress>,
+        progress: &Option<Arc<dyn ProgressListener>>,
+    ) {
+        self.inner.lock().unwrap().order_progress = phase;
+        if let Some(p) = progress {
+            p.on_progress(phase);
+        }
+    }
+}
+
+/// Split a composite key "menuId|YYYY-MM-DD" into its two parts.
+fn split_key(key: &str) -> (String, String) {
+    match key.split_once('|') {
+        Some((id, date)) => (id.to_string(), date.to_string()),
+        None => (key.to_string(), String::new()),
+    }
 }
 
 /// §3.2 step 6 — closest date on-or-after target, else closest before, else None.
@@ -280,6 +454,7 @@ mod tests {
     const G_LOGIN_OK: &str = include_str!("../../tests/fixtures/gourmet/login-success.html");
     const MENUS_0: &str = include_str!("../../tests/fixtures/gourmet/menus-page-0.html");
     const MENUS_1: &str = include_str!("../../tests/fixtures/gourmet/menus-page-1.html");
+    const ORDERS_PAGE: &str = include_str!("../../tests/fixtures/gourmet/orders-page.html");
 
     fn ok(body: &str) -> HttpResponse {
         HttpResponse {
@@ -416,5 +591,126 @@ mod tests {
         store.refresh_availability().await.unwrap();
         assert!(!store.snapshot().refreshing);
         assert!(!store.snapshot().items.is_empty());
+    }
+
+    // ---- submit_orders (§6.5) ----
+
+    use crate::features::{AnalyticsSink, ProgressListener};
+    use std::sync::Mutex as StdMutex;
+
+    type RecordedEvent = (String, Vec<(String, String)>);
+
+    #[derive(Default)]
+    struct RecordingAnalytics {
+        events: StdMutex<Vec<RecordedEvent>>,
+    }
+    impl AnalyticsSink for RecordingAnalytics {
+        fn track(&self, event: &str, props: Vec<(String, String)>) {
+            self.events.lock().unwrap().push((event.to_string(), props));
+        }
+    }
+
+    struct NoopProgress;
+    impl ProgressListener for NoopProgress {
+        fn on_progress(&self, _phase: Option<crate::domain::OrderProgress>) {}
+    }
+
+    fn vienna_ms(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> i64 {
+        use chrono::TimeZone;
+        chrono_tz::Europe::Vienna
+            .with_ymd_and_hms(y, mo, d, h, mi, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis()
+    }
+
+    #[tokio::test]
+    async fn submit_no_op_when_nothing_pending() {
+        let t = Arc::new(CapturingTransport::new());
+        let store = MenuStore::new(
+            Arc::new(GourmetApi::new(t.clone())),
+            Arc::new(MemoryKv::new()),
+            Arc::new(SystemClock),
+        );
+        store.submit_orders(&[], None).await.unwrap();
+        assert_eq!(t.requests().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn submit_all_cutoff_blocked_sets_error_and_keeps_pending() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = Arc::new(GourmetApi::new(t.clone()));
+        let store = MenuStore::new(
+            g,
+            Arc::new(MemoryKv::new()),
+            Arc::new(FixedClock {
+                epoch_ms: vienna_ms(2026, 2, 10, 10, 0),
+            }),
+        );
+        store.inner.lock().unwrap().pending_orders = vec!["menu-001|2026-02-10".into()];
+        let snap = store.submit_orders(&[], None).await.unwrap();
+        assert_eq!(snap.error.as_deref(), Some(ORDERING_CUTOFF_MESSAGE));
+        assert_eq!(snap.pending_orders, ["menu-001|2026-02-10"]); // NOT cleared
+        assert_eq!(t.requests().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn submit_new_order_adds_confirms_refreshes_and_emits_analytics() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = logged_in_gourmet(&t).await;
+        let analytics = Arc::new(RecordingAnalytics::default());
+        let store = MenuStore::new(
+            g,
+            Arc::new(MemoryKv::new()),
+            Arc::new(FixedClock {
+                epoch_ms: vienna_ms(2026, 2, 10, 8, 0),
+            }),
+        )
+        .with_analytics(analytics.clone());
+        store.inner.lock().unwrap().pending_orders = vec!["menu-001|2026-02-15".into()];
+
+        t.queue_response(ok(r#"{"success":true}"#)); // addToCart
+        t.queue_response(ok(ORDERS_PAGE)); // confirm GET (editMode="True" → no toggle)
+        t.queue_response(ok(MENUS_0));
+        t.queue_response(ok(MENUS_1));
+
+        let snap = store
+            .submit_orders(&[], Some(Arc::new(NoopProgress)))
+            .await
+            .unwrap();
+        assert!(snap.pending_orders.is_empty());
+        assert!(snap.error.is_none());
+        assert_eq!(store.order_progress(), None);
+
+        let events = analytics.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, "order.submitted");
+        let props: HashMap<_, _> = events[0].1.iter().cloned().collect();
+        assert_eq!(props.get("orderedCount").map(|s| s.as_str()), Some("1"));
+        assert_eq!(props.get("cancelledCount").map(|s| s.as_str()), Some("0"));
+    }
+
+    #[tokio::test]
+    async fn submit_failure_reverts_and_sets_error() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = logged_in_gourmet(&t).await;
+        let store = MenuStore::new(
+            g,
+            Arc::new(MemoryKv::new()),
+            Arc::new(FixedClock {
+                epoch_ms: vienna_ms(2026, 2, 10, 8, 0),
+            }),
+        );
+        store.inner.lock().unwrap().items = vec![item("menu-001", "2026-02-15", true, false)];
+        store.inner.lock().unwrap().pending_orders = vec!["menu-001|2026-02-15".into()];
+
+        t.queue_response(ok(r#"{"success":false,"message":"nope"}"#)); // addToCart fails
+        t.queue_response(ok(MENUS_0)); // revert get_menus page 0
+        t.queue_response(ok(MENUS_1)); // revert get_menus page 1
+
+        let snap = store.submit_orders(&[], None).await.unwrap();
+        assert_eq!(snap.error.as_deref(), Some("Add to cart failed: nope"));
+        assert!(snap.pending_orders.is_empty()); // cleared during optimistic update
+        assert_eq!(store.order_progress(), None);
     }
 }
