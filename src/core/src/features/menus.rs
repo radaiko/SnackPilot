@@ -1,10 +1,7 @@
 //! Menus feature service (03-features/menus.md). Menu state, composite keys, TTL fetch,
-//! availability-merge refresh, pending-order/cancellation toggles, and the ordering cutoff.
-//!
-//! NOTE: `submit_orders` (§6.5 — the pipeline that calls addToCart/cancelOrders/confirm,
-//! optimistic update + revert, analytics) is intentionally NOT in this file. It orchestrates
-//! the ban-critical writes and is implemented in its own focused pass; see the store fields
-//! (`pending_orders`, `pending_cancellations`, `order_progress`) it will use.
+//! availability-merge refresh, pending-order/cancellation toggles, the ordering cutoff, and
+//! the full `submit_orders` pipeline (§6.5: resolve cancellations, cutoff-filter, optimistic
+//! update, cancel→addToCart→confirm→refresh, analytics, revert on failure).
 use crate::datetime::{is_ordering_cutoff, local_date_key, Clock};
 use crate::domain::{MenuItem, MenuSnapshot, OrderProgress, OrderedMenu};
 use crate::error::CoreResult;
