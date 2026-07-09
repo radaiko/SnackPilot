@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BillingItem {
     pub id: String,
     pub article_id: String,
@@ -10,7 +12,7 @@ pub struct BillingItem {
     pub is_custom_menu: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bill {
     pub bill_nr: i64,
     pub bill_date_epoch_ms: i64,
@@ -31,7 +33,7 @@ pub struct GourmetMonthlyBilling {
     pub fetched_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VentopayTransaction {
     pub id: String,
     pub date_epoch_ms: i64,

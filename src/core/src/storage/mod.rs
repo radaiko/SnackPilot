@@ -3,6 +3,7 @@
 //! Absent key -> Ok(None), never an error (loadCached* no-op contract, caching.md §3.4).
 use crate::error::CoreResult;
 
+pub mod cache;
 pub mod file_kv;
 pub mod memory_kv;
 pub use file_kv::FileKv;
