@@ -39,6 +39,20 @@ final class AppModel: ObservableObject {
         } catch {
             fatalError("SnackPilotCore init failed: \(error)")
         }
+
+        NotificationService.shared.configure()
+        Task {
+            await NotificationService.shared.requestPermission()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-uiTestNotify") {
+                NotificationService.shared.execute(.fireNow(
+                    id: "test-menu", title: "Neues Menü verfügbar",
+                    body: "Das Menü für nächste Woche ist online.",
+                    channelId: nil, screen: nil))
+            }
+            #endif
+        }
+
         #if DEBUG
         // UI-test / preview hooks. Never compiled into release builds; only render demo data.
         let args = ProcessInfo.processInfo.arguments
