@@ -3,16 +3,22 @@ import SwiftUI
 /// The four-tab shell (docs/requirements 04-ui-ux §1). Only Menüs is wired in this vertical
 /// slice; the other three are placeholders until their stores get their screens.
 struct MainTabView: View {
+    @EnvironmentObject var model: AppModel
+
     var body: some View {
-        TabView {
+        TabView(selection: $model.selectedTab) {
             MenusView()
                 .tabItem { Label("Menüs", systemImage: "fork.knife") }
+                .tag(0)
             PlaceholderView(title: "Bestellungen", symbol: "checklist")
                 .tabItem { Label("Bestellungen", systemImage: "checklist") }
-            PlaceholderView(title: "Abrechnung", symbol: "eurosign.circle")
+                .tag(1)
+            BillingView()
                 .tabItem { Label("Abrechnung", systemImage: "eurosign.circle") }
+                .tag(2)
             SettingsView()
                 .tabItem { Label("Einstellungen", systemImage: "gearshape") }
+                .tag(3)
         }
     }
 }

@@ -30,11 +30,7 @@ struct LoginView: View {
                 Section {
                     Button {
                         let u = username, p = password
-                        if model.isDemoCredentials(user: u, pass: p) {
-                            model.loadDemo()
-                        } else {
-                            Task { await model.login(user: u, pass: p) }
-                        }
+                        Task { await model.login(user: u, pass: p) }
                     } label: {
                         HStack {
                             Spacer()

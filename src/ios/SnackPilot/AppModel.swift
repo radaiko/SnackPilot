@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 /// Thin SwiftUI shell state over the Rust core (`SnackPilotCore`). The core owns all
-/// scraping, caching and domain logic; this object just injects a storage directory,
+/// scraping, caching, demo-mode and domain logic; this object injects a storage directory,
 /// forwards credentials, and republishes the records the core returns.
 @MainActor
 final class AppModel: ObservableObject {
@@ -12,8 +12,15 @@ final class AppModel: ObservableObject {
     @Published var snapshot: MenuSnapshot?
     @Published var errorText: String?
     @Published var busy = false
-    /// True while showing offline demo data (no live session) — lets the UI badge the state.
+    /// True while showing offline demo data (magic credentials).
     @Published var demoMode = false
+    @Published var selectedTab = 0
+
+    // Billing (Abrechnung)
+    @Published var monthOptions: [MonthOption] = []
+    @Published var selectedOffset: UInt8 = 0
+    @Published var gourmetMonth: GourmetMonthlyBilling?
+    @Published var ventopayMonth: VentopayMonthlyBilling?
 
     /// Crate version — a cheap end-to-end proof the FFI is wired.
     let coreVersion: String = SnackPilot.coreVersion()
@@ -23,18 +30,19 @@ final class AppModel: ObservableObject {
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("snackpilot", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        // Constructing the core cannot fail in normal operation (only a transport-build
-        // error, which would mean a broken binary); surface it loudly if it ever does.
         do {
             core = try SnackPilotCore(config: CoreConfig(storageDir: base.path), analytics: nil)
         } catch {
             fatalError("SnackPilotCore init failed: \(error)")
         }
         #if DEBUG
-        // UI-test / preview hook: jump straight into offline demo data. Never compiled into
-        // release builds, and only ever renders canned data (no network).
-        if ProcessInfo.processInfo.arguments.contains("-uiTestDemo") {
-            loadDemo()
+        // UI-test / preview hooks. Never compiled into release builds; only render demo data.
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-uiTestDemo") {
+            if let i = args.firstIndex(of: "-uiTestTab"), i + 1 < args.count {
+                selectedTab = tabIndex(args[i + 1])
+            }
+            Task { await login(user: "demo", pass: "demo1234!") }
         }
         #endif
     }
@@ -43,34 +51,75 @@ final class AppModel: ObservableObject {
         SnackPilot.isDemoCredentials(username: user, password: pass)
     }
 
-    /// Real Gourmet login + first menu fetch. Never call with demo credentials — those must
-    /// never hit the live server (see `loadDemo`).
+    /// Log in and load the session. Demo credentials are intercepted by the core (it swaps to
+    /// offline data and never touches the live server); everything else performs live scraping.
     func login(user: String, pass: String) async {
         busy = true
         errorText = nil
+        let demo = isDemoCredentials(user: user, pass: pass)
         do {
             userInfo = try await core.gourmetLogin(creds: Credentials(username: user, password: pass))
-            snapshot = try await core.fetchMenus(force: false)
-            demoMode = false
+            demoMode = demo
+            // In demo mode also "log in" Ventopay so its transactions show; live users log in
+            // to the Automaten side separately (not yet wired).
+            if demo {
+                try? await core.ventopayLogin(creds: Credentials(username: user, password: pass))
+            }
+            await loadSession()
         } catch {
             errorText = String(describing: error)
         }
         busy = false
     }
 
-    /// Render the canned demo menus offline — no network. Used both for the magic demo
-    /// credentials and the on-device FFI preview.
+    /// Fetch menus + billing for the active session.
+    private func loadSession() async {
+        do { snapshot = try await core.fetchMenus(force: false) } catch {
+            errorText = String(describing: error)
+        }
+        monthOptions = core.billingMonthOptions()
+        await loadBilling(offset: selectedOffset)
+    }
+
+    func selectMonth(offset: UInt8) async {
+        selectedOffset = offset
+        await loadBilling(offset: offset)
+    }
+
+    private func loadBilling(offset: UInt8) async {
+        try? await core.fetchBilling(offset: offset)
+        try? await core.fetchVentopayBilling(offset: offset)
+        refreshBilling()
+    }
+
+    private func refreshBilling() {
+        guard let key = monthOptions.first(where: { $0.offset == selectedOffset })?.key else { return }
+        gourmetMonth = core.gourmetBillingMonth(monthKey: key)
+        ventopayMonth = core.ventopayBillingMonth(monthKey: key)
+    }
+
+    /// Offline demo session (button / debug hook) — routes through the same login path.
     func loadDemo() {
-        snapshot = core.demoMenuSnapshot()
-        userInfo = GourmetUserInfo(
-            username: "Demo", shopModelId: "", eaterId: "", staffGroupId: "")
-        demoMode = true
-        errorText = nil
+        Task { await login(user: "demo", pass: "demo1234!") }
     }
 
     func logout() {
         userInfo = nil
         snapshot = nil
         demoMode = false
+        monthOptions = []
+        gourmetMonth = nil
+        ventopayMonth = nil
+        selectedOffset = 0
+        selectedTab = 0
+    }
+
+    private func tabIndex(_ name: String) -> Int {
+        switch name {
+        case "orders": return 1
+        case "billing": return 2
+        case "settings": return 3
+        default: return 0
+        }
     }
 }

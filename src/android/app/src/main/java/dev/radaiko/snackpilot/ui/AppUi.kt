@@ -18,6 +18,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,8 +51,18 @@ import java.util.Locale
 
 /** Login gate → tabs. */
 @Composable
-fun RootScreen(vm: AppViewModel, autoDemo: Boolean = false) {
-    LaunchedEffect(autoDemo) { if (autoDemo) vm.loadDemo() }
+fun RootScreen(vm: AppViewModel, autoDemo: Boolean = false, initialTab: String? = null) {
+    LaunchedEffect(autoDemo) {
+        if (autoDemo) {
+            vm.selectedTab = when (initialTab) {
+                "orders" -> 1
+                "billing" -> 2
+                "settings" -> 3
+                else -> 0
+            }
+            vm.loadDemo()
+        }
+    }
     if (vm.userInfo == null) LoginScreen(vm) else MainScaffold(vm)
 }
 
@@ -123,34 +134,33 @@ private fun LoginScreen(vm: AppViewModel) {
 
 @Composable
 private fun MainScaffold(vm: AppViewModel) {
-    var tab by remember { mutableIntStateOf(0) }
     Scaffold(
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
-                    selected = tab == 0, onClick = { tab = 0 },
+                    selected = vm.selectedTab == 0, onClick = { vm.selectedTab = 0 },
                     icon = { Icon(Icons.Filled.Home, null) }, label = { Text("Menüs") }
                 )
                 NavigationBarItem(
-                    selected = tab == 1, onClick = { tab = 1 },
+                    selected = vm.selectedTab == 1, onClick = { vm.selectedTab = 1 },
                     icon = { Icon(Icons.AutoMirrored.Filled.List, null) }, label = { Text("Bestellungen") }
                 )
                 NavigationBarItem(
-                    selected = tab == 2, onClick = { tab = 2 },
+                    selected = vm.selectedTab == 2, onClick = { vm.selectedTab = 2 },
                     icon = { Icon(Icons.Filled.DateRange, null) }, label = { Text("Abrechnung") }
                 )
                 NavigationBarItem(
-                    selected = tab == 3, onClick = { tab = 3 },
+                    selected = vm.selectedTab == 3, onClick = { vm.selectedTab = 3 },
                     icon = { Icon(Icons.Filled.Settings, null) }, label = { Text("Einstellungen") }
                 )
             }
         }
     ) { inner ->
         Column(modifier = Modifier.padding(inner)) {
-            when (tab) {
+            when (vm.selectedTab) {
                 0 -> MenusScreen(vm)
                 1 -> Placeholder("Bestellungen")
-                2 -> Placeholder("Abrechnung")
+                2 -> BillingScreen(vm)
                 3 -> SettingsScreen(vm)
             }
         }
@@ -221,6 +231,100 @@ private fun MenuRow(item: MenuItem) {
             Text(item.price, style = MaterialTheme.typography.titleSmall)
         }
     }
+}
+
+@Composable
+private fun BillingScreen(vm: AppViewModel) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Abrechnung", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            if (vm.demoMode) {
+                Text("DEMO", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.tertiary)
+            }
+        }
+        if (vm.monthOptions.isEmpty()) {
+            Text("Nach der Anmeldung verfügbar.", modifier = Modifier.padding(16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            vm.monthOptions.forEach { m ->
+                FilterChip(
+                    selected = m.offset == vm.selectedOffset,
+                    onClick = { vm.selectMonth(m.offset) },
+                    label = { Text(m.label) }
+                )
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+        ) {
+            val g = vm.gourmetMonth
+            if (g != null && g.bills.isNotEmpty()) {
+                item(key = "kh") { SectionHeader("Kantine") }
+                items(g.bills, key = { "k-${it.billNr}" }) { bill ->
+                    BillingRow(billDateLabel(bill.billDateEpochMs), bill.items.firstOrNull()?.description ?: "", bill.billing)
+                    HorizontalDivider()
+                }
+                item(key = "kt") { TotalRow("Summe (Kantine)", g.totalBilling) }
+            }
+            val v = vm.ventopayMonth
+            if (v != null && v.transactions.isNotEmpty()) {
+                item(key = "vh") { SectionHeader("Automaten") }
+                items(v.transactions, key = { "v-${it.id}" }) { tx ->
+                    BillingRow(billDateLabel(tx.dateEpochMs), tx.restaurant, tx.amount)
+                    HorizontalDivider()
+                }
+                item(key = "vt") { TotalRow("Summe (Automaten)", v.total) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(vertical = 8.dp))
+}
+
+@Composable
+private fun BillingRow(date: String, detail: String, value: Double) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(date, style = MaterialTheme.typography.bodyMedium)
+            if (detail.isNotEmpty()) {
+                Text(detail, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Text(euro(value), style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+private fun TotalRow(label: String, value: Double) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(label, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(euro(value), fontWeight = FontWeight.Bold)
+    }
+}
+
+private fun euro(v: Double): String = String.format(Locale.GERMANY, "%.2f €", v)
+
+private fun billDateLabel(epochMs: Long): String = try {
+    java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+        .format(DateTimeFormatter.ofPattern("EEE, d. MMM", Locale.GERMAN))
+} catch (e: Exception) {
+    ""
 }
 
 @Composable
