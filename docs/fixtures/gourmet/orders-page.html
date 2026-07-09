@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head><title>AlaClick - Bestellungen</title></head>
+<body>
+<nav class="navbar">
+  <span class="loginname">TestUser</span>
+  <a href="https://alaclickneu.gourmet.at/einstellungen/" class="navbar-link">Einstellungen</a>
+  <form method="post" action="/start/" enctype="multipart/form-data">
+    <input type="hidden" name="ufprt" value="CSRF-TOKEN-LOGOUT-ORD-111" />
+    <input type="hidden" name="__ncforminfo" value="NCFORM-TOKEN-LOGOUT-ORD-222" />
+    <button type="submit" id="btnHeaderLogout">Logout</button>
+  </form>
+</nav>
+<div class="container">
+  <input type="hidden" id="shopModel" value="SM-TEST-123" />
+  <input type="hidden" id="eater" value="EATER-TEST-456" />
+  <input type="hidden" id="staffGroup" value="SG-TEST-789" />
+
+  <!-- Main order form -->
+  <form method="post" action="/bestellungen/" enctype="multipart/form-data">
+    <input type="hidden" name="ufprt" value="CSRF-TOKEN-ORDERS-MAIN-333" />
+    <input type="hidden" name="__ncforminfo" value="NCFORM-TOKEN-ORDERS-MAIN-444" />
+  </form>
+
+  <!-- Edit mode toggle form -->
+  <form class="form-toggleEditMode" method="post" action="/bestellungen/" enctype="multipart/form-data">
+    <input type="hidden" name="editMode" value="True" />
+    <input type="hidden" name="ufprt" value="CSRF-TOKEN-EDITMODE-555" />
+    <input type="hidden" name="__ncforminfo" value="NCFORM-TOKEN-EDITMODE-666" />
+    <button type="submit">Bearbeiten</button>
+  </form>
+
+  <!-- Order item 1: confirmed -->
+  <div class="order-item">
+    <input type="hidden" name="cp_PositionId" value="POS-001" />
+    <input type="hidden" name="cp_EatingCycleId_POS-001" value="EC-001" />
+    <input type="hidden" name="cp_Date_POS-001" value="10.02.2026 00:00:00" />
+    <div class="title">
+      MENÜ I
+      <div class="subtitle">Wiener Schnitzel mit Kartoffelsalat</div>
+    </div>
+    <span class="fa fa-check"></span>
+  </div>
+
+  <!-- Order item 2: not confirmed -->
+  <div class="order-item">
+    <input type="hidden" name="cp_PositionId" value="POS-002" />
+    <input type="hidden" name="cp_EatingCycleId_POS-002" value="EC-002" />
+    <input type="hidden" name="cp_Date_POS-002" value="11.02.2026 00:00:00" />
+    <div class="title">
+      MENÜ I
+      <div class="subtitle">Schweinsbraten mit Knödel</div>
+    </div>
+  </div>
+
+  <!-- Order item 3: confirmed with checkmark class -->
+  <div class="order-item">
+    <input type="hidden" name="cp_PositionId" value="POS-003" />
+    <input type="hidden" name="cp_EatingCycleId_POS-003" value="EC-003" />
+    <input type="hidden" name="cp_Date_POS-003" value="12.02.2026 00:00:00" />
+    <div class="title">
+      SUPPE & SALAT
+      <div class="subtitle">Kürbiscremesuppe, Caesar Salad</div>
+    </div>
+    <span class="checkmark"></span>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,16 @@
+.env
+.DS_Store
+
+# Rust
+src/core/target/
+
+# iOS
+src/ios/build/
+*.xcuserdatad/
+src/ios/DerivedData/
+
+# Android
+src/android/.gradle/
+src/android/build/
+src/android/app/build/
+src/android/local.properties
