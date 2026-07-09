@@ -1,5 +1,6 @@
 package dev.radaiko.snackpilot.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,9 +12,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,19 +44,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.radaiko.snackpilot.AppViewModel
 import uniffi.snackpilot_core.MenuCategory
 import uniffi.snackpilot_core.MenuItem
+import uniffi.snackpilot_core.MenuSnapshot
+import uniffi.snackpilot_core.OrderedMenu
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** Login gate → tabs. */
 @Composable
-fun RootScreen(vm: AppViewModel, autoDemo: Boolean = false, initialTab: String? = null) {
+fun RootScreen(
+    vm: AppViewModel,
+    autoDemo: Boolean = false,
+    initialTab: String? = null,
+    autoOrder: Boolean = false
+) {
     LaunchedEffect(autoDemo) {
         if (autoDemo) {
             vm.selectedTab = when (initialTab) {
@@ -60,6 +73,7 @@ fun RootScreen(vm: AppViewModel, autoDemo: Boolean = false, initialTab: String? 
                 "settings" -> 3
                 else -> 0
             }
+            vm.debugAutoOrder = autoOrder
             vm.loadDemo()
         }
     }
@@ -159,7 +173,7 @@ private fun MainScaffold(vm: AppViewModel) {
         Column(modifier = Modifier.padding(inner)) {
             when (vm.selectedTab) {
                 0 -> MenusScreen(vm)
-                1 -> Placeholder("Bestellungen")
+                1 -> OrdersScreen(vm)
                 2 -> BillingScreen(vm)
                 3 -> SettingsScreen(vm)
             }
@@ -191,7 +205,10 @@ private fun MenusScreen(vm: AppViewModel) {
             )
             return
         }
-        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+        ) {
             snapshot.availableDates.forEach { day ->
                 item(key = "h-$day") {
                     Text(
@@ -202,17 +219,52 @@ private fun MenusScreen(vm: AppViewModel) {
                     )
                 }
                 items(snapshot.items.filter { it.day == day }, key = { "${it.day}-${it.id}-${it.category}" }) { item ->
-                    MenuRow(item)
+                    MenuRow(item, orderState(item, snapshot)) { vm.toggle(item) }
                     HorizontalDivider()
                 }
+            }
+        }
+        if (vm.hasPendingChanges) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(onClick = { vm.clearPending() }) { Text("Verwerfen") }
+                Button(
+                    onClick = { vm.submitOrdersAsync() },
+                    enabled = !vm.busy,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Bestellen") }
             }
         }
     }
 }
 
+private enum class OrderState { NONE, ORDERED, PENDING_ORDER, PENDING_CANCEL }
+
+private fun orderState(item: MenuItem, s: MenuSnapshot): OrderState {
+    val key = "${item.id}|${item.day}"
+    return when {
+        s.pendingOrders.contains(key) -> OrderState.PENDING_ORDER
+        s.pendingCancellations.contains(key) -> OrderState.PENDING_CANCEL
+        item.ordered -> OrderState.ORDERED
+        else -> OrderState.NONE
+    }
+}
+
 @Composable
-private fun MenuRow(item: MenuItem) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+private fun MenuRow(item: MenuItem, state: OrderState, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        val (icon, tint) = when (state) {
+            OrderState.ORDERED -> Icons.Filled.CheckCircle to Color(0xFF4CAF50)
+            OrderState.PENDING_ORDER -> Icons.Filled.AddCircle to Color(0xFF2196F3)
+            OrderState.PENDING_CANCEL -> Icons.Filled.RemoveCircle to Color(0xFFFF9800)
+            OrderState.NONE -> Icons.Outlined.Circle to MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        Icon(icon, null, tint = tint, modifier = Modifier.padding(end = 12.dp, top = 2.dp))
         Column(modifier = Modifier.weight(1f)) {
             val cat = categoryLabel(item.category)
             if (cat.isNotEmpty()) {
@@ -229,6 +281,53 @@ private fun MenuRow(item: MenuItem) {
         }
         if (item.price.isNotEmpty()) {
             Text(item.price, style = MaterialTheme.typography.titleSmall)
+        }
+    }
+}
+
+@Composable
+private fun OrdersScreen(vm: AppViewModel) {
+    Column {
+        Text("Bestellungen", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(16.dp))
+        val split = vm.ordersSplit
+        if (split == null || (split.upcoming.isEmpty() && split.past.isEmpty())) {
+            Text("Bestelle ein Menü im Menüs-Tab.", modifier = Modifier.padding(16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+        ) {
+            if (split.upcoming.isNotEmpty()) {
+                item(key = "uh") { SectionHeader("Anstehend") }
+                items(split.upcoming, key = { "u-${it.positionId}" }) { o -> OrderRow(o, cancellable = true, vm) }
+            }
+            if (split.past.isNotEmpty()) {
+                item(key = "ph") { SectionHeader("Vergangen") }
+                items(split.past, key = { "p-${it.positionId}" }) { o -> OrderRow(o, cancellable = false, vm) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrderRow(order: OrderedMenu, cancellable: Boolean, vm: AppViewModel) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(order.title, style = MaterialTheme.typography.bodyLarge)
+            if (order.subtitle.isNotEmpty()) {
+                Text(order.subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(billDateLabel(order.dateEpochMs), style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        when {
+            order.approved -> Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF4CAF50))
+            cancellable -> TextButton(onClick = { vm.cancelOrder(order.positionId) }) {
+                Text("Stornieren", color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 }

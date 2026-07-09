@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Menu list grouped by day (docs/requirements 04-ui-ux §2). Renders whatever `MenuSnapshot`
-/// the core produced — live-fetched after login, or the offline demo set.
+/// Menu list grouped by day (docs/requirements 04-ui-ux §2). Tapping a menu toggles a pending
+/// order/cancellation; a submit bar commits them through the core.
 struct MenusView: View {
     @EnvironmentObject var model: AppModel
 
@@ -13,7 +13,12 @@ struct MenusView: View {
                         ForEach(snapshot.availableDates, id: \.self) { day in
                             Section(Self.dayLabel(day)) {
                                 ForEach(items(for: day, in: snapshot), id: \.id) { item in
-                                    MenuRow(item: item)
+                                    Button {
+                                        model.toggle(item: item)
+                                    } label: {
+                                        MenuRow(item: item, state: state(item, snapshot))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
@@ -37,11 +42,45 @@ struct MenusView: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                if model.hasPendingChanges {
+                    submitBar
+                }
+            }
         }
+    }
+
+    private var submitBar: some View {
+        HStack(spacing: 12) {
+            Button("Verwerfen") { model.clearPending() }
+                .buttonStyle(.bordered)
+            Button {
+                Task { await model.submitOrders() }
+            } label: {
+                if model.busy {
+                    ProgressView()
+                } else {
+                    Text("Bestellen").bold().frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(model.busy)
+        }
+        .padding()
+        .background(.regularMaterial)
     }
 
     private func items(for day: String, in snapshot: MenuSnapshot) -> [MenuItem] {
         snapshot.items.filter { $0.day == day }
+    }
+
+    /// Effective order state for a row, combining the fetched `ordered` flag with pending edits.
+    private func state(_ item: MenuItem, _ s: MenuSnapshot) -> OrderRowState {
+        let key = "\(item.id)|\(item.day)"
+        if s.pendingOrders.contains(key) { return .pendingOrder }
+        if s.pendingCancellations.contains(key) { return .pendingCancel }
+        if item.ordered { return .ordered }
+        return .none
     }
 
     /// `YYYY-MM-DD` (the core's normalized day key) → localized weekday + date, falling back
@@ -58,11 +97,17 @@ struct MenusView: View {
     }
 }
 
+enum OrderRowState {
+    case none, ordered, pendingOrder, pendingCancel
+}
+
 private struct MenuRow: View {
     let item: MenuItem
+    let state: OrderRowState
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
+            icon
             VStack(alignment: .leading, spacing: 2) {
                 Text(categoryLabel).font(.caption2).foregroundStyle(.secondary)
                 Text(item.title).font(.body)
@@ -75,18 +120,24 @@ private struct MenuRow: View {
                 }
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                if !item.price.isEmpty {
-                    Text(item.price).font(.callout).monospacedDigit()
-                }
-                if item.ordered {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                } else if !item.available {
-                    Image(systemName: "lock.fill").foregroundStyle(.secondary)
-                }
+            if !item.price.isEmpty {
+                Text(item.price).font(.callout).monospacedDigit()
             }
         }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder private var icon: some View {
+        switch state {
+        case .ordered:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .pendingOrder:
+            Image(systemName: "plus.circle.fill").foregroundStyle(.blue)
+        case .pendingCancel:
+            Image(systemName: "minus.circle.fill").foregroundStyle(.orange)
+        case .none:
+            Image(systemName: "circle").foregroundStyle(.secondary)
+        }
     }
 
     private var categoryLabel: String {

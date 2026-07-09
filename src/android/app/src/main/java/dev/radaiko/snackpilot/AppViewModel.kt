@@ -12,8 +12,10 @@ import uniffi.snackpilot_core.CoreConfig
 import uniffi.snackpilot_core.Credentials
 import uniffi.snackpilot_core.GourmetMonthlyBilling
 import uniffi.snackpilot_core.GourmetUserInfo
+import uniffi.snackpilot_core.MenuItem
 import uniffi.snackpilot_core.MenuSnapshot
 import uniffi.snackpilot_core.MonthOption
+import uniffi.snackpilot_core.OrdersSplit
 import uniffi.snackpilot_core.SnackPilotCore
 import uniffi.snackpilot_core.VentopayMonthlyBilling
 import uniffi.snackpilot_core.coreVersion
@@ -39,6 +41,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var demoMode by mutableStateOf(false)
         private set
     var selectedTab by mutableIntStateOf(0)
+
+    // Orders (Bestellungen)
+    var ordersSplit by mutableStateOf<OrdersSplit?>(null)
+        private set
+    var ordersError by mutableStateOf<String?>(null)
+        private set
+
+    /** DEBUG headless hook: place a demo order during loadSession (set before loadDemo). */
+    var debugAutoOrder = false
 
     // Billing (Abrechnung)
     var monthOptions by mutableStateOf<List<MonthOption>>(emptyList())
@@ -87,8 +98,60 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             errorText = e.toString()
         }
+        loadOrders()
         monthOptions = core.billingMonthOptions()
         loadBilling(selectedOffset)
+        if (BuildConfig.DEBUG && debugAutoOrder) {
+            val s = snapshot
+            val lastDay = s?.availableDates?.lastOrNull()
+            val item = s?.items?.firstOrNull { it.day == lastDay }
+            if (item != null) {
+                toggle(item)
+                submitOrders()
+            }
+        }
+    }
+
+    // MARK: Orders
+
+    suspend fun loadOrders() {
+        runCatching { core.fetchOrders() }
+        ordersSplit = core.splitOrders()
+        ordersError = core.ordersError()
+    }
+
+    fun toggle(item: MenuItem) {
+        snapshot = core.togglePending(menuId = item.id, dateKey = item.day)
+    }
+
+    val hasPendingChanges: Boolean
+        get() = snapshot?.let { it.pendingOrders.isNotEmpty() || it.pendingCancellations.isNotEmpty() } ?: false
+
+    suspend fun submitOrders() {
+        busy = true
+        errorText = null
+        try {
+            snapshot = core.submitOrders(progress = null)
+            loadOrders()
+        } catch (e: Exception) {
+            errorText = e.toString()
+        }
+        busy = false
+    }
+
+    fun submitOrdersAsync() {
+        viewModelScope.launch { submitOrders() }
+    }
+
+    fun clearPending() {
+        snapshot = core.clearPendingChanges()
+    }
+
+    fun cancelOrder(positionId: String) {
+        viewModelScope.launch {
+            runCatching { core.cancelOrder(positionId) }
+            loadOrders()
+        }
     }
 
     fun selectMonth(offset: UByte) {
@@ -111,6 +174,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         userInfo = null
         snapshot = null
         demoMode = false
+        ordersSplit = null
+        ordersError = null
         monthOptions = emptyList()
         gourmetMonth = null
         ventopayMonth = null

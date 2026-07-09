@@ -16,6 +16,10 @@ final class AppModel: ObservableObject {
     @Published var demoMode = false
     @Published var selectedTab = 0
 
+    // Orders (Bestellungen)
+    @Published var ordersSplit: OrdersSplit?
+    @Published var ordersError: String?
+
     // Billing (Abrechnung)
     @Published var monthOptions: [MonthOption] = []
     @Published var selectedOffset: UInt8 = 0
@@ -77,8 +81,63 @@ final class AppModel: ObservableObject {
         do { snapshot = try await core.fetchMenus(force: false) } catch {
             errorText = String(describing: error)
         }
+        await loadOrders()
         monthOptions = core.billingMonthOptions()
         await loadBilling(offset: selectedOffset)
+        #if DEBUG
+        // Headless order-flow check: order the furthest-out menu and submit, so screenshots
+        // can show a placed order in Bestellungen.
+        if ProcessInfo.processInfo.arguments.contains("-uiTestOrder"),
+           let s = snapshot, let lastDay = s.availableDates.last,
+           let item = s.items.first(where: { $0.day == lastDay }) {
+            toggle(item: item)
+            await submitOrders()
+        }
+        #endif
+    }
+
+    // MARK: Orders
+
+    func loadOrders() async {
+        try? await core.fetchOrders()
+        ordersSplit = core.splitOrders()
+        ordersError = core.ordersError()
+    }
+
+    /// Toggle a pending order/cancellation for a menu item (composite key handled in the core).
+    func toggle(item: MenuItem) {
+        snapshot = core.togglePending(menuId: item.id, dateKey: item.day)
+    }
+
+    var hasPendingChanges: Bool {
+        guard let s = snapshot else { return false }
+        return !s.pendingOrders.isEmpty || !s.pendingCancellations.isEmpty
+    }
+
+    func submitOrders() async {
+        busy = true
+        errorText = nil
+        do {
+            snapshot = try await core.submitOrders(progress: nil)
+            await loadOrders()
+        } catch {
+            errorText = String(describing: error)
+        }
+        busy = false
+    }
+
+    func clearPending() {
+        snapshot = core.clearPendingChanges()
+    }
+
+    func confirmOrders() async {
+        try? await core.confirmOrders()
+        await loadOrders()
+    }
+
+    func cancelOrder(_ positionId: String) async {
+        try? await core.cancelOrder(positionId: positionId)
+        await loadOrders()
     }
 
     func selectMonth(offset: UInt8) async {
@@ -107,6 +166,8 @@ final class AppModel: ObservableObject {
         userInfo = nil
         snapshot = nil
         demoMode = false
+        ordersSplit = nil
+        ordersError = nil
         monthOptions = []
         gourmetMonth = nil
         ventopayMonth = nil

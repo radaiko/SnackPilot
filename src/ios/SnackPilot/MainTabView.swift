@@ -10,7 +10,7 @@ struct MainTabView: View {
             MenusView()
                 .tabItem { Label("Menüs", systemImage: "fork.knife") }
                 .tag(0)
-            PlaceholderView(title: "Bestellungen", symbol: "checklist")
+            OrdersView()
                 .tabItem { Label("Bestellungen", systemImage: "checklist") }
                 .tag(1)
             BillingView()

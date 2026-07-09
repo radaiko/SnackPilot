@@ -16,10 +16,11 @@ class MainActivity : ComponentActivity() {
         // DEBUG-only headless hook: launch with `-e uiTestDemo true` to jump into offline
         // demo data. Never renders anything that touches the live server.
         val autoDemo = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestDemo", false)
+        val autoOrder = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestOrder", false)
         val initialTab = intent.getStringExtra("uiTestTab")
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                RootScreen(viewModel(), autoDemo = autoDemo, initialTab = initialTab)
+                RootScreen(viewModel(), autoDemo = autoDemo, initialTab = initialTab, autoOrder = autoOrder)
             }
         }
     }
