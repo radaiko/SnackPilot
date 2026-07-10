@@ -61,7 +61,6 @@ struct OrdersView: View {
                 Task { await model.confirmOrders() }
             }
             .buttonStyle(.borderedProminent)
-            .tint(.brand)
             .disabled(model.busy)
         }
     }

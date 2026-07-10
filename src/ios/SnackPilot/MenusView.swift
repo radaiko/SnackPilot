@@ -32,16 +32,6 @@ struct MenusView: View {
                 }
             }
             .navigationTitle("Menüs")
-            .toolbar {
-                if model.demoMode {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Text("DEMO")
-                            .font(.caption2).bold()
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(.yellow.opacity(0.3), in: Capsule())
-                    }
-                }
-            }
             .safeAreaInset(edge: .bottom) {
                 if model.hasPendingChanges {
                     submitBar
@@ -90,11 +80,10 @@ struct MenusView: View {
                 .disabled(nextDisabled)
                 .opacity(nextDisabled ? 0.3 : 1)
             }
-            .tint(.brand)
 
             if !onNearest {
                 Button("Heute") { model.goToToday() }
-                    .font(.caption).tint(.brand)
+                    .font(.caption)
             }
         }
         .padding(.horizontal)
@@ -270,7 +259,7 @@ private struct MenuRow: View {
         if isPendingCancel {
             Image(systemName: "minus.circle.fill").foregroundStyle(.orange)
         } else if isPendingOrder {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.brand)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint)
         } else if item.ordered {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         } else {

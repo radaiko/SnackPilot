@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Thin SwiftUI shell state over the Rust core (`SnackPilotCore`). The core owns all
 /// scraping, caching, demo-mode and domain logic; this object injects a storage directory,
@@ -32,6 +33,13 @@ final class AppModel: ObservableObject {
     // Orders (Bestellungen)
     @Published var ordersSplit: OrdersSplit?
     @Published var ordersError: String?
+
+    // Appearance (themes §1). Two independent, persisted settings; changing one never changes the
+    // other. Both drive an immediate, restart-free re-render (applied at RootView, §2/§4).
+    @Published var themePreference: ThemePreference =
+        ThemePreference(rawValue: UserDefaults.standard.string(forKey: "theme_preference") ?? "") ?? .system
+    @Published var accent: AccentColor =
+        AccentColor(rawValue: UserDefaults.standard.string(forKey: "accent_color") ?? "") ?? .orange
 
     // Notification preferences (shell-owned; fed to the core's decision fns)
     @Published var dailyReminderEnabled = UserDefaults.standard.bool(forKey: "daily_reminder_enabled")
@@ -376,6 +384,60 @@ final class AppModel: ObservableObject {
     /// Offline demo session (button / debug hook) — routes through the same login path.
     func loadDemo() {
         Task { await login(user: "demo", pass: "demo1234!") }
+    }
+
+    // MARK: Appearance (themes §1–§4)
+
+    /// The scheme to force at the root via `.preferredColorScheme` (themes §4): `nil` follows the
+    /// OS (SYSTEM), otherwise the explicit preference.
+    var preferredColorScheme: ColorScheme? {
+        switch themePreference {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
+    /// Whether the *resolved* scheme is dark (themes §1.1). For SYSTEM this reads the current OS
+    /// trait; if the OS reports unspecified it falls back to light.
+    private var isDark: Bool {
+        switch themePreference {
+        case .light: return false
+        case .dark: return true
+        case .system: return UITraitCollection.current.userInterfaceStyle == .dark
+        }
+    }
+
+    /// The effective accent tint: the selected accent's primary for the resolved scheme (themes §3).
+    var accentColor: Color { accent.primary(isDark: isDark) }
+
+    /// Effective accent when the caller already knows the OS scheme (RootView reads it from the
+    /// environment so the tint re-resolves the instant the system flips light/dark; themes §1.1).
+    func accentColor(systemDark: Bool) -> Color {
+        let dark: Bool
+        switch themePreference {
+        case .light: dark = false
+        case .dark: dark = true
+        case .system: dark = systemDark
+        }
+        return accent.primary(isDark: dark)
+    }
+
+    /// Change the light/dark/system preference and persist it (themes §1.2). Independent of the
+    /// accent. Republishing re-renders the whole UI immediately (no restart).
+    func setThemePreference(_ preference: ThemePreference) {
+        themePreference = preference
+        UserDefaults.standard.set(preference.rawValue, forKey: "theme_preference")
+    }
+
+    /// Change the accent color and persist it (themes §1.2). Independent of the preference.
+    func setAccent(_ newAccent: AccentColor) {
+        accent = newAccent
+        UserDefaults.standard.set(newAccent.rawValue, forKey: "accent_color")
+        // TODO(themes §6): switch the alternate home-screen app icon to match the accent
+        // (UIApplication.shared.setAlternateIconName("AppIcon-<accent>") / nil for orange).
+        // Deferred — requires 5 sets of binary icon assets (AppIcon-emerald/berry/golden/ocean)
+        // that are not yet in the repo.
     }
 
     // MARK: Notification preferences

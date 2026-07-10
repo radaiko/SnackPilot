@@ -30,6 +30,25 @@ import java.io.File
 /** Source filter for the unified Abrechnung list (billing §6.1). */
 enum class BillingSource { ALL, GOURMET, VENTOPAY }
 
+/** Color-scheme preference (themes §1). Independent of [AccentColor]. */
+enum class ThemePreference { SYSTEM, LIGHT, DARK }
+
+/**
+ * Selectable accent theme (themes §3). Each carries its German label and the exact light/dark
+ * `primary` hex from the spec. The effective tint is [lightPrimary] in light mode, [darkPrimary]
+ * in dark mode; swatches in the picker always render [lightPrimary] regardless of scheme (§5).
+ */
+enum class AccentColor(val label: String, val lightPrimary: Long, val darkPrimary: Long) {
+    ORANGE("Orange", 0xFFD4501A, 0xFFFF6B35),
+    EMERALD("Smaragd", 0xFF2E7D4F, 0xFF4CAF7D),
+    BERRY("Beere", 0xFFA62547, 0xFFE04868),
+    GOLDEN("Gold", 0xFFC08B1A, 0xFFE8B03E),
+    OCEAN("Ozean", 0xFF2563A8, 0xFF4A90D9);
+
+    /** The effective primary ARGB for the resolved scheme (themes §3). */
+    fun primary(isDark: Boolean): Long = if (isDark) darkPrimary else lightPrimary
+}
+
 /**
  * Thin Compose shell state over the Rust core (`SnackPilotCore`). The core owns all scraping,
  * caching, demo-mode and domain logic; this holds a storage dir, forwards credentials, and
@@ -57,6 +76,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var demoMode by mutableStateOf(false)
         private set
     var selectedTab by mutableIntStateOf(0)
+
+    // Appearance (themes §1) — two independent, persisted settings. Held as observable state so a
+    // change recomposes the whole UI (theme is rebuilt from these in MainActivity's setContent).
+    var themePreference by mutableStateOf(ThemePreference.SYSTEM)
+        private set
+    var accentColor by mutableStateOf(AccentColor.ORANGE)
+        private set
 
     // Auth flags (settings §3.7 / §3.1) — drive the per-tab empty states and Settings hints.
     var gourmetAuthenticated by mutableStateOf(false)
@@ -119,6 +145,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         dailyReminderEnabled = prefs.getBoolean("daily_reminder_enabled", false)
         reminderHour = prefs.getInt("daily_reminder_hour", 8)
         reminderMinute = prefs.getInt("daily_reminder_minute", 0)
+        themePreference = prefs.getString("theme_preference", null)
+            ?.let { runCatching { ThemePreference.valueOf(it) }.getOrNull() } ?: ThemePreference.SYSTEM
+        accentColor = prefs.getString("accent_color", null)
+            ?.let { runCatching { AccentColor.valueOf(it) }.getOrNull() } ?: AccentColor.ORANGE
         loadCachedData()
     }
 
@@ -203,6 +233,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (BuildConfig.DEBUG && debugAutoReminder) {
             setDailyReminder(enabled = true, hour = 8, minute = 30)
         }
+    }
+
+    // Appearance (themes §1) — persist each setting independently; changing one never touches the
+    // other. Both are observable state, so the change re-renders the whole UI immediately.
+
+    fun setPreference(pref: ThemePreference) {
+        themePreference = pref
+        prefs.edit().putString("theme_preference", pref.name).apply()
+    }
+
+    fun setAccent(accent: AccentColor) {
+        accentColor = accent
+        prefs.edit().putString("accent_color", accent.name).apply()
+        // TODO(themes §6): switch the alternate app icon to match the accent (orange = default icon,
+        // others = per-accent activity-alias via PackageManager.setComponentEnabledSetting). Deferred:
+        // needs 5 sets of adaptive-icon assets that are not yet in the repo.
     }
 
     // Notification preferences

@@ -33,9 +33,12 @@ class MainActivity : ComponentActivity() {
         val autoReminder = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestReminder", false)
         val initialTab = intent.getStringExtra("uiTestTab")
         setContent {
-            SnackPilotTheme {
+            // Hoist the vm above the theme so the appearance settings it holds (preference + accent)
+            // rebuild the color scheme on change — reading them here re-runs setContent's composition.
+            val vm: AppViewModel = viewModel()
+            SnackPilotTheme(preference = vm.themePreference, accent = vm.accentColor) {
                 RootScreen(
-                    viewModel(),
+                    vm,
                     autoDemo = autoDemo,
                     initialTab = initialTab,
                     autoOrder = autoOrder,

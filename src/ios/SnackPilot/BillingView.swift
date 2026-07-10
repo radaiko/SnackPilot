@@ -126,7 +126,7 @@ struct BillingView: View {
     private func sourceBadge(_ source: Source) -> some View {
         let (text, color): (String, Color)
         switch source {
-        case .gourmet: (text, color) = ("Kantine", Color.brand)
+        case .gourmet: (text, color) = ("Kantine", model.accentColor)
         case .ventopay: (text, color) = ("Automaten", .green)
         }
         return Text(text.uppercased())

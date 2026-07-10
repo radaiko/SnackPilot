@@ -1,25 +1,38 @@
 package dev.radaiko.snackpilot.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Circle
@@ -50,14 +63,18 @@ import android.app.TimePickerDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import dev.radaiko.snackpilot.AccentColor
 import dev.radaiko.snackpilot.AppViewModel
 import dev.radaiko.snackpilot.BillingSource
+import dev.radaiko.snackpilot.ThemePreference
 import uniffi.snackpilot_core.LogSubsystem
 import uniffi.snackpilot_core.MenuCategory
 import uniffi.snackpilot_core.MenuItem
@@ -148,11 +165,6 @@ private fun MenusScreen(vm: AppViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("Menüs", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
-            if (vm.demoMode) {
-                Text("DEMO", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.tertiary)
-            }
         }
         val snapshot = vm.snapshot
         if (snapshot == null || snapshot.items.isEmpty()) {
@@ -422,11 +434,6 @@ private fun BillingScreen(vm: AppViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("Abrechnung", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
-            if (vm.demoMode) {
-                Text("DEMO", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.tertiary)
-            }
         }
         // Gate on auth, not monthOptions (which is always 3 static offsets). Un-authenticated →
         // "Anmeldung erforderlich" (settings §3.7).
@@ -602,7 +609,7 @@ private fun billTime(epochMs: Long): String = try {
     ""
 }
 
-private enum class SettingsRoute { ROOT, KANTINE, AUTOMATEN }
+private enum class SettingsRoute { ROOT, KANTINE, AUTOMATEN, APPEARANCE }
 
 @Composable
 private fun SettingsScreen(vm: AppViewModel) {
@@ -613,7 +620,15 @@ private fun SettingsScreen(vm: AppViewModel) {
         SettingsRoute.ROOT -> SettingsRootList(vm) { route = it }
         SettingsRoute.KANTINE -> KantineLoginScreen(vm) { route = SettingsRoute.ROOT }
         SettingsRoute.AUTOMATEN -> AutomatenLoginScreen(vm) { route = SettingsRoute.ROOT }
+        SettingsRoute.APPEARANCE -> AppearanceScreen(vm) { route = SettingsRoute.ROOT }
     }
+}
+
+/** Current color-scheme preference mapped to its German hint label (settings §2.3). */
+private fun themePreferenceLabel(pref: ThemePreference): String = when (pref) {
+    ThemePreference.SYSTEM -> "System"
+    ThemePreference.LIGHT -> "Hell"
+    ThemePreference.DARK -> "Dunkel"
 }
 
 @Composable
@@ -640,6 +655,11 @@ private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Un
                 title = "Automaten-Zugangsdaten",
                 hint = if (vm.ventopayAuthenticated) "Sitzung aktiv" else "Nicht angemeldet",
                 onClick = { onNavigate(SettingsRoute.AUTOMATEN) }
+            )
+            SettingsNavRow(
+                title = "Darstellung",
+                hint = themePreferenceLabel(vm.themePreference),
+                onClick = { onNavigate(SettingsRoute.APPEARANCE) }
             )
 
             Spacer(Modifier.padding(8.dp))
@@ -830,6 +850,122 @@ private fun AutomatenLoginScreen(vm: AppViewModel, onBack: () -> Unit) {
         ) {
             if (vm.ventopayBusy) CircularProgressIndicator(modifier = Modifier.padding(2.dp)) else Text("Speichern")
         }
+    }
+}
+
+/** Appearance sub-screen ("Darstellung", themes §5). Two cards — the color-scheme preference and
+ *  the accent picker. Every tap applies and persists immediately; there is no save button. */
+@Composable
+private fun AppearanceScreen(vm: AppViewModel, onBack: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
+    ) {
+        SettingsBackControl(onBack)
+        Text("Darstellung", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.padding(8.dp))
+
+        // Card "Design": System / Hell / Dunkel — icon over label, selected highlighted with the accent.
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Design", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.padding(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    DesignOption(
+                        "System", Icons.Filled.PhoneAndroid,
+                        vm.themePreference == ThemePreference.SYSTEM, Modifier.weight(1f)
+                    ) { vm.setPreference(ThemePreference.SYSTEM) }
+                    DesignOption(
+                        "Hell", Icons.Filled.LightMode,
+                        vm.themePreference == ThemePreference.LIGHT, Modifier.weight(1f)
+                    ) { vm.setPreference(ThemePreference.LIGHT) }
+                    DesignOption(
+                        "Dunkel", Icons.Filled.DarkMode,
+                        vm.themePreference == ThemePreference.DARK, Modifier.weight(1f)
+                    ) { vm.setPreference(ThemePreference.DARK) }
+                }
+            }
+        }
+        Spacer(Modifier.padding(8.dp))
+
+        // Card "Akzentfarbe": 5 circular swatches in fixed order, each in its LIGHT-mode primary.
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Akzentfarbe", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.padding(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    AccentColor.entries.forEach { accent ->
+                        AccentSwatch(accent, vm.accentColor == accent) { vm.setAccent(accent) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One segment of the "Design" card: an icon above a label; selected → accent-tinted surface,
+ *  accent border, accent icon/label; otherwise a neutral outline and secondary content. */
+@Composable
+private fun DesignOption(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    val content = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant
+    val shape = RoundedCornerShape(12.dp)
+    val border = if (selected) BorderStroke(1.dp, accent)
+                 else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .border(border, shape)
+            .background(if (selected) accent.copy(alpha = 0.12f) else Color.Transparent)
+            .clickable { onClick() }
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(icon, null, tint = content)
+        Spacer(Modifier.padding(2.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = content)
+    }
+}
+
+/** One accent swatch (themes §5): a 40dp circle filled with the accent's LIGHT-mode primary (even
+ *  in dark mode), the German label beneath. Selected → 3dp same-color border + white checkmark. */
+@Composable
+private fun AccentSwatch(accent: AccentColor, selected: Boolean, onClick: () -> Unit) {
+    val fill = Color(accent.lightPrimary)
+    val labelColor = if (selected) MaterialTheme.colorScheme.primary
+                     else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(fill)
+                .border(
+                    if (selected) BorderStroke(3.dp, fill) else BorderStroke(2.dp, Color.Transparent),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(20.dp))
+            }
+        }
+        Spacer(Modifier.padding(2.dp))
+        Text(accent.label, style = MaterialTheme.typography.labelSmall, color = labelColor)
     }
 }
 

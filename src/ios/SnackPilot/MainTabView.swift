@@ -57,6 +57,14 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    NavigationLink {
+                        AppearanceView()
+                    } label: {
+                        settingsRow(title: "Darstellung", hint: model.themePreference.label)
+                    }
+                }
+
                 Section("Benachrichtigungen") {
                     Toggle("Tägliche Bestell-Erinnerung", isOn: Binding(
                         get: { model.dailyReminderEnabled },
