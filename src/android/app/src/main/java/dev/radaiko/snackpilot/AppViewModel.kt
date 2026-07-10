@@ -276,9 +276,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             selectedDay = null
             return
         }
-        val current = selectedDay ?: core.selectedDate()
-        selectedDay = if (current != null && dates.contains(current)) current else dates.first()
+        // Prefer the core's tracked day when valid (post-fetch = §3.2 nearest, or the user's pick);
+        // otherwise fall back to the NEAREST day (on-or-after today, else last) — NOT the oldest —
+        // without writing it back, so a later fetch_menus can still run its own nearest-selection.
+        val coreSel = core.selectedDate()
+        selectedDay = if (coreSel != null && dates.contains(coreSel)) coreSel else nearestDay(dates)
     }
+
+    /** Nearest available day to today: first date on-or-after today, else the last (menus §3.2/§4.1).
+     *  `dates` are ascending "YYYY-MM-DD" keys. */
+    private fun nearestDay(dates: List<String>): String {
+        val today = todayKey()
+        return dates.firstOrNull { it >= today } ?: dates.last()
+    }
+
+    private fun todayKey(): String = java.time.LocalDate.now().toString() // ISO yyyy-MM-dd
 
     /** Navigate to a specific menu day (arrow/Heute affordance); mirrors into the core. */
     fun selectDay(dateKey: String) {

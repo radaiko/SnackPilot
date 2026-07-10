@@ -218,6 +218,9 @@ private fun DayNavigator(dates: List<String>, selected: String?, onSelect: (Stri
     val index = dates.indexOf(selected)
     val total = dates.size
     val todayKey = LocalDate.now().toString()
+    // Nearest menu day (on-or-after today, else last) — the target of the center-tap / "Heute"
+    // (menus §4.1), reachable even on a weekend when today itself has no menu.
+    val nearest = dates.firstOrNull { it >= todayKey } ?: dates.last()
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -225,7 +228,7 @@ private fun DayNavigator(dates: List<String>, selected: String?, onSelect: (Stri
         val prevEnabled = index > 0
         NavArrow("‹", prevEnabled) { if (prevEnabled) onSelect(dates[index - 1]) }
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).clickable { onSelect(nearest) },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -241,9 +244,9 @@ private fun DayNavigator(dates: List<String>, selected: String?, onSelect: (Stri
             if (index < 0) onSelect(dates[0]) else if (nextEnabled) onSelect(dates[index + 1])
         }
     }
-    if (dates.contains(todayKey) && selected != todayKey) {
+    if (selected != nearest) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            TextButton(onClick = { onSelect(todayKey) }) { Text("Heute") }
+            TextButton(onClick = { onSelect(nearest) }) { Text("Heute") }
         }
     }
 }

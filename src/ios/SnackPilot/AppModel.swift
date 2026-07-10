@@ -245,14 +245,26 @@ final class AppModel: ObservableObject {
     /// first available date (also written back so the core tracks it). Called after every fetch
     /// that can change `availableDates`.
     private func syncSelectedDay() {
-        if let sel = core.selectedDate() {
-            selectedDay = sel
-        } else if let first = snapshot?.availableDates.first {
-            core.setSelectedDate(dateKey: first)
-            selectedDay = first
-        } else {
+        guard let dates = snapshot?.availableDates, !dates.isEmpty else {
             selectedDay = nil
+            return
         }
+        // Prefer the core's tracked day when it's valid (after a fetch this is the §3.2 nearest
+        // selection, or the user's pick). Otherwise fall back to the NEAREST day (on-or-after
+        // today, else last) — NOT the oldest — and do NOT write it back, so a later fetch_menus
+        // can still run its own nearest-selection.
+        if let sel = core.selectedDate(), dates.contains(sel) {
+            selectedDay = sel
+        } else {
+            selectedDay = Self.nearestDay(in: dates)
+        }
+    }
+
+    /// Nearest available day to today: first date on-or-after today, else the last date. Mirrors
+    /// the core's `find_nearest_date` (menus §3.2 / §4.1). `dates` are sorted ascending "YYYY-MM-DD".
+    static func nearestDay(in dates: [String]) -> String {
+        let today = todayKey()
+        return dates.first(where: { $0 >= today }) ?? dates[dates.count - 1]
     }
 
     /// Select a specific day (writes through to the core so it survives refreshes).
@@ -280,12 +292,11 @@ final class AppModel: ObservableObject {
         selectDay(dates[idx + 1])
     }
 
-    /// Jump to today's date if it is one of the available days (menus §4.1 "Heute").
+    /// Jump to the nearest menu day — today, or the nearest upcoming day when today has no menu
+    /// (menus §4.1 center-tap → findNearestDate).
     func goToToday() {
-        let key = Self.todayKey()
-        if let dates = snapshot?.availableDates, dates.contains(key) {
-            selectDay(key)
-        }
+        guard let dates = snapshot?.availableDates, !dates.isEmpty else { return }
+        selectDay(Self.nearestDay(in: dates))
     }
 
     /// Whether ordering is closed for a day (menus §6.2 — 09:00 Europe/Vienna cutoff, computed
