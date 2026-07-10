@@ -10,6 +10,10 @@ final class AppModel: ObservableObject {
 
     @Published var userInfo: GourmetUserInfo?
     @Published var snapshot: MenuSnapshot?
+    /// The day currently shown in the Menüs tab (menus §4). Mirrors `core.selectedDate()`;
+    /// falls back to the first available date when the core has none. May be a day that is
+    /// not in `availableDates` (menus §4: navigator then shows index 0).
+    @Published var selectedDay: String?
     @Published var errorText: String?
     @Published var busy = false
     /// True while showing offline demo data (magic credentials).
@@ -114,6 +118,7 @@ final class AppModel: ObservableObject {
         core.loadCachedOrders()
         core.loadCachedBillingMonths()
         snapshot = core.menuSnapshot()
+        syncSelectedDay()
         ordersSplit = core.splitOrders()
         monthOptions = core.billingMonthOptions()
         refreshBilling()
@@ -195,7 +200,7 @@ final class AppModel: ObservableObject {
 
     /// Fetch menus + billing for the active session.
     private func loadSession() async {
-        do { snapshot = try await core.fetchMenus(force: false) } catch {
+        do { snapshot = try await core.fetchMenus(force: false); syncSelectedDay() } catch {
             errorText = String(describing: error)
         }
         await loadOrders()
@@ -234,6 +239,69 @@ final class AppModel: ObservableObject {
         snapshot = core.togglePending(menuId: item.id, dateKey: item.day)
     }
 
+    // MARK: Day navigation (menus §4)
+
+    /// Resolve the day to display: the core's tracked selection, or — when it has none — the
+    /// first available date (also written back so the core tracks it). Called after every fetch
+    /// that can change `availableDates`.
+    private func syncSelectedDay() {
+        if let sel = core.selectedDate() {
+            selectedDay = sel
+        } else if let first = snapshot?.availableDates.first {
+            core.setSelectedDate(dateKey: first)
+            selectedDay = first
+        } else {
+            selectedDay = nil
+        }
+    }
+
+    /// Select a specific day (writes through to the core so it survives refreshes).
+    func selectDay(_ dateKey: String) {
+        core.setSelectedDate(dateKey: dateKey)
+        selectedDay = dateKey
+    }
+
+    /// Step to the previous available day. No-op at the first day (or when the current day is
+    /// not in the list — menus §4: back arrow is disabled there).
+    func prevDay() {
+        guard let dates = snapshot?.availableDates, let cur = selectedDay,
+              let idx = dates.firstIndex(of: cur), idx > 0 else { return }
+        selectDay(dates[idx - 1])
+    }
+
+    /// Step to the next available day. When the current day is absent from the list
+    /// (menus §4), the forward arrow selects the first date.
+    func nextDay() {
+        guard let dates = snapshot?.availableDates, !dates.isEmpty else { return }
+        guard let cur = selectedDay, let idx = dates.firstIndex(of: cur) else {
+            selectDay(dates[0]); return
+        }
+        guard idx < dates.count - 1 else { return }
+        selectDay(dates[idx + 1])
+    }
+
+    /// Jump to today's date if it is one of the available days (menus §4.1 "Heute").
+    func goToToday() {
+        let key = Self.todayKey()
+        if let dates = snapshot?.availableDates, dates.contains(key) {
+            selectDay(key)
+        }
+    }
+
+    /// Whether ordering is closed for a day (menus §6.2 — 09:00 Europe/Vienna cutoff, computed
+    /// in the core).
+    func isCutoff(_ dateKey: String) -> Bool {
+        core.isOrderingCutoff(dateKey: dateKey)
+    }
+
+    /// Today's local date as the core's `YYYY-MM-DD` day key.
+    static func todayKey() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
+    }
+
     var hasPendingChanges: Bool {
         guard let s = snapshot else { return false }
         return !s.pendingOrders.isEmpty || !s.pendingCancellations.isEmpty
@@ -244,6 +312,7 @@ final class AppModel: ObservableObject {
         errorText = nil
         do {
             snapshot = try await core.submitOrders(progress: nil)
+            syncSelectedDay()
             await loadOrders()
         } catch {
             errorText = String(describing: error)

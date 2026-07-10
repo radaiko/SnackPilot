@@ -1,27 +1,22 @@
 import SwiftUI
 
-/// Menu list grouped by day (docs/requirements 04-ui-ux §2). Tapping a menu toggles a pending
-/// order/cancellation; a submit bar commits them through the core.
+/// Menüs tab (menus §4–§6). Shows exactly one day at a time behind a day navigator; the day's
+/// items are grouped by category (menus §5) and rendered as cards whose interactivity respects
+/// the 09:00 ordering cutoff and availability (menus §6.1). Tapping an orderable card toggles a
+/// pending order/cancellation; the submit bar commits all pending changes through the core.
 struct MenusView: View {
     @EnvironmentObject var model: AppModel
+
+    /// Fixed category display order (menus §5).
+    private static let categoryOrder: [MenuCategory] = [.menu1, .menu2, .menu3, .soupAndSalad, .unknown]
 
     var body: some View {
         NavigationStack {
             Group {
                 if let snapshot = model.snapshot, !snapshot.items.isEmpty {
-                    List {
-                        ForEach(snapshot.availableDates, id: \.self) { day in
-                            Section(Self.dayLabel(day)) {
-                                ForEach(items(for: day, in: snapshot), id: \.id) { item in
-                                    Button {
-                                        model.toggle(item: item)
-                                    } label: {
-                                        MenuRow(item: item, state: state(item, snapshot))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
+                    VStack(spacing: 0) {
+                        dayNavigator(snapshot)
+                        dayList(snapshot)
                     }
                 } else if model.busy {
                     ProgressView("Menüs werden geladen …")
@@ -55,6 +50,96 @@ struct MenusView: View {
         }
     }
 
+    // MARK: Day navigator (menus §4)
+
+    @ViewBuilder private func dayNavigator(_ s: MenuSnapshot) -> some View {
+        let dates = s.availableDates
+        let idx = model.selectedDay.flatMap { dates.firstIndex(of: $0) }
+        let position = idx.map { $0 + 1 } ?? 0
+        let prevDisabled = (idx ?? 0) <= 0
+        let nextDisabled = idx.map { $0 >= dates.count - 1 } ?? false
+        let todayAvailable = dates.contains(AppModel.todayKey())
+
+        VStack(spacing: 4) {
+            HStack {
+                Button { model.prevDay() } label: {
+                    Image(systemName: "chevron.left").font(.title3.weight(.semibold))
+                }
+                .disabled(prevDisabled)
+                .opacity(prevDisabled ? 0.3 : 1)
+
+                Spacer()
+
+                VStack(spacing: 2) {
+                    Text(Self.dayLabel(model.selectedDay ?? "")).font(.headline)
+                    Text("\(position) / \(dates.count)")
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+
+                Spacer()
+
+                Button { model.nextDay() } label: {
+                    Image(systemName: "chevron.right").font(.title3.weight(.semibold))
+                }
+                .disabled(nextDisabled)
+                .opacity(nextDisabled ? 0.3 : 1)
+            }
+            .tint(.brand)
+
+            if todayAvailable && model.selectedDay != AppModel.todayKey() {
+                Button("Heute") { model.goToToday() }
+                    .font(.caption).tint(.brand)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .glassBar()
+    }
+
+    // MARK: Day list (menus §5 grouping)
+
+    @ViewBuilder private func dayList(_ s: MenuSnapshot) -> some View {
+        let day = model.selectedDay
+        let dayItems = day.map { d in s.items.filter { $0.day == d } } ?? []
+        List {
+            ForEach(Self.categoryOrder, id: \.self) { cat in
+                let group = dayItems.filter { $0.category == cat }
+                if !group.isEmpty {
+                    Section {
+                        ForEach(group, id: \.id) { item in
+                            menuButton(item, s)
+                        }
+                    } header: {
+                        if let heading = Self.categoryHeading(cat) {
+                            Text(heading)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func menuButton(_ item: MenuItem, _ s: MenuSnapshot) -> some View {
+        let key = "\(item.id)|\(item.day)"
+        let isPendingOrder = s.pendingOrders.contains(key)
+        let isPendingCancel = s.pendingCancellations.contains(key)
+        let cutoff = model.isCutoff(item.day)
+        // menus §6.1: an ordered item stays tappable (to cancel) even past cutoff; a
+        // not-yet-ordered item is tappable only while available and before cutoff.
+        let canInteract = item.ordered || (item.available && !cutoff)
+
+        Button {
+            model.toggle(item: item)
+        } label: {
+            MenuRow(item: item,
+                    isPendingOrder: isPendingOrder,
+                    isPendingCancel: isPendingCancel,
+                    cutoff: cutoff)
+        }
+        .buttonStyle(.plain)
+        .disabled(!canInteract)
+    }
+
     private var submitBar: some View {
         HStack(spacing: 12) {
             Button("Verwerfen") { model.clearPending() }
@@ -75,17 +160,15 @@ struct MenusView: View {
         .glassBar()
     }
 
-    private func items(for day: String, in snapshot: MenuSnapshot) -> [MenuItem] {
-        snapshot.items.filter { $0.day == day }
-    }
-
-    /// Effective order state for a row, combining the fetched `ordered` flag with pending edits.
-    private func state(_ item: MenuItem, _ s: MenuSnapshot) -> OrderRowState {
-        let key = "\(item.id)|\(item.day)"
-        if s.pendingOrders.contains(key) { return .pendingOrder }
-        if s.pendingCancellations.contains(key) { return .pendingCancel }
-        if item.ordered { return .ordered }
-        return .none
+    /// Category heading (menus §5): uppercase display strings, with SUPPE & SALAT suppressed.
+    static func categoryHeading(_ cat: MenuCategory) -> String? {
+        switch cat {
+        case .menu1: return "MENÜ I"
+        case .menu2: return "MENÜ II"
+        case .menu3: return "MENÜ III"
+        case .soupAndSalad: return nil // heading suppressed (menus §5)
+        case .unknown: return "UNKNOWN"
+        }
     }
 
     /// `YYYY-MM-DD` (the core's normalized day key) → localized weekday + date, falling back
@@ -102,26 +185,49 @@ struct MenusView: View {
     }
 }
 
-enum OrderRowState {
-    case none, ordered, pendingOrder, pendingCancel
-}
-
 private struct MenuRow: View {
     let item: MenuItem
-    let state: OrderRowState
+    let isPendingOrder: Bool
+    let isPendingCancel: Bool
+    let cutoff: Bool
+
+    /// Card state badge (menus §6.1), evaluated in priority order.
+    private var badge: (text: String, color: Color)? {
+        if isPendingCancel { return ("Wird storniert", .orange) }
+        if item.ordered { return ("Bestellt", .green) }
+        if !item.available { return ("Ausverkauft", .secondary) }
+        if cutoff { return ("Geschlossen", .secondary) }
+        return nil
+    }
+
+    /// Dim non-orderable / to-be-cancelled cards (menus §6.1).
+    private var dim: Double {
+        if isPendingCancel { return 0.55 }
+        if !item.ordered && (!item.available || cutoff) { return 0.5 }
+        return 1
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             icon
             VStack(alignment: .leading, spacing: 2) {
-                Text(categoryLabel).font(.caption2).foregroundStyle(.secondary)
-                Text(item.title).font(.body)
+                HStack {
+                    Text(item.title).font(.body)
+                    if let badge {
+                        Text(badge.text)
+                            .font(.caption2).bold()
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(badge.color.opacity(0.18), in: Capsule())
+                            .foregroundStyle(badge.color)
+                    }
+                }
                 if !item.subtitle.isEmpty {
                     Text(item.subtitle).font(.footnote).foregroundStyle(.secondary)
+                        .lineLimit(4)
                 }
                 if !item.allergens.isEmpty {
                     Text("Allergene: \(item.allergens.joined(separator: ", "))")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                 }
             }
             Spacer()
@@ -130,28 +236,19 @@ private struct MenuRow: View {
             }
         }
         .padding(.vertical, 2)
+        .opacity(dim)
+        .strikethrough(isPendingCancel)
     }
 
     @ViewBuilder private var icon: some View {
-        switch state {
-        case .ordered:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .pendingOrder:
-            Image(systemName: "plus.circle.fill").foregroundStyle(.blue)
-        case .pendingCancel:
+        if isPendingCancel {
             Image(systemName: "minus.circle.fill").foregroundStyle(.orange)
-        case .none:
+        } else if isPendingOrder {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.brand)
+        } else if item.ordered {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        } else {
             Image(systemName: "circle").foregroundStyle(.secondary)
-        }
-    }
-
-    private var categoryLabel: String {
-        switch item.category {
-        case .menu1: return "Menü I"
-        case .menu2: return "Menü II"
-        case .menu3: return "Menü III"
-        case .soupAndSalad: return "Suppe & Salat"
-        case .unknown: return ""
         }
     }
 }

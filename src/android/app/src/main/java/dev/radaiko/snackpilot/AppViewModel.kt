@@ -25,6 +25,9 @@ import uniffi.snackpilot_core.coreVersion
 import uniffi.snackpilot_core.isDemoCredentials
 import java.io.File
 
+/** Source filter for the unified Abrechnung list (billing §6.1). */
+enum class BillingSource { ALL, GOURMET, VENTOPAY }
+
 /**
  * Thin Compose shell state over the Rust core (`SnackPilotCore`). The core owns all scraping,
  * caching, demo-mode and domain logic; this holds a storage dir, forwards credentials, and
@@ -39,6 +42,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var userInfo by mutableStateOf<GourmetUserInfo?>(null)
         private set
     var snapshot by mutableStateOf<MenuSnapshot?>(null)
+        private set
+
+    /** Currently displayed menu day (menus §4). "YYYY-MM-DD" key; the core tracks the same
+     *  value via selectedDate()/setSelectedDate(). Null only when there are no available days. */
+    var selectedDay by mutableStateOf<String?>(null)
         private set
     var errorText by mutableStateOf<String?>(null)
         private set
@@ -93,6 +101,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var ventopayMonth by mutableStateOf<VentopayMonthlyBilling?>(null)
         private set
 
+    /** Source filter for the unified billing list (billing §6.1). Presentation-only; never
+     *  suppresses fetching/caching. Not persisted — resets to ALL on restart. */
+    var billingSourceFilter by mutableStateOf(BillingSource.ALL)
+        private set
+
     val coreVersion: String = coreVersion()
 
     init {
@@ -112,6 +125,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             core.loadCachedOrders()
             core.loadCachedBillingMonths()
             snapshot = core.menuSnapshot()
+            syncSelectedDay()
             ordersSplit = core.splitOrders()
             monthOptions = core.billingMonthOptions()
             userInfo = core.gourmetUserInfo()
@@ -163,6 +177,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             errorText = e.toString()
         }
+        syncSelectedDay()
         loadOrders()
         monthOptions = core.billingMonthOptions()
         loadBilling(selectedOffset)
@@ -253,6 +268,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         snapshot = core.togglePending(menuId = item.id, dateKey = item.day)
     }
 
+    /** Reconcile the displayed day with the current snapshot (menus §4): keep a still-valid
+     *  selection across refreshes, otherwise seed from the core's selectedDate() or the first day. */
+    private fun syncSelectedDay() {
+        val dates = snapshot?.availableDates.orEmpty()
+        if (dates.isEmpty()) {
+            selectedDay = null
+            return
+        }
+        val current = selectedDay ?: core.selectedDate()
+        selectedDay = if (current != null && dates.contains(current)) current else dates.first()
+    }
+
+    /** Navigate to a specific menu day (arrow/Heute affordance); mirrors into the core. */
+    fun selectDay(dateKey: String) {
+        core.setSelectedDate(dateKey)
+        selectedDay = dateKey
+    }
+
+    /** Ordering-cutoff flag for a day (menus §6.1): past cutoff → rows non-tappable. */
+    fun isOrderingCutoff(dateKey: String): Boolean = core.isOrderingCutoff(dateKey)
+
     val hasPendingChanges: Boolean
         get() = snapshot?.let { it.pendingOrders.isNotEmpty() || it.pendingCancellations.isNotEmpty() } ?: false
 
@@ -261,6 +297,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         errorText = null
         try {
             snapshot = core.submitOrders(progress = null)
+            syncSelectedDay()
             loadOrders()
         } catch (e: Exception) {
             errorText = e.toString()
@@ -304,6 +341,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { loadBilling(offset) }
     }
 
+    /** Set the unified-billing source filter (billing §6.1). Presentation-only. */
+    fun setBillingSource(source: BillingSource) {
+        billingSourceFilter = source
+    }
+
     private suspend fun loadBilling(offset: UByte) {
         runCatching { core.fetchBilling(offset) }
         runCatching { core.fetchVentopayBilling(offset) }
@@ -341,6 +383,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             runCatching { core.gourmetLogout() }
             userInfo = null
             snapshot = null
+            selectedDay = null
             demoMode = false
             ordersSplit = null
             ordersError = null

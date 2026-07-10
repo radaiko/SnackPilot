@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -47,12 +48,15 @@ import androidx.compose.runtime.setValue
 import android.app.TimePickerDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import dev.radaiko.snackpilot.AppViewModel
+import dev.radaiko.snackpilot.BillingSource
 import uniffi.snackpilot_core.LogSubsystem
 import uniffi.snackpilot_core.MenuCategory
 import uniffi.snackpilot_core.MenuItem
@@ -127,6 +131,12 @@ private fun MainScaffold(vm: AppViewModel) {
     }
 }
 
+/** Fixed category order for grouping within a day (menus §5). */
+private val CATEGORY_ORDER = listOf(
+    MenuCategory.MENU1, MenuCategory.MENU2, MenuCategory.MENU3,
+    MenuCategory.SOUP_AND_SALAD, MenuCategory.UNKNOWN
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MenusScreen(vm: AppViewModel) {
@@ -155,22 +165,32 @@ private fun MenusScreen(vm: AppViewModel) {
             }
             return
         }
+        val dates = snapshot.availableDates
+        val selected = vm.selectedDay
+        DayNavigator(dates, selected, onSelect = { vm.selectDay(it) })
+        val dayItems = snapshot.items.filter { it.day == selected }
+        val cutoff = selected?.let { vm.isOrderingCutoff(it) } ?: false
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
         ) {
-            snapshot.availableDates.forEach { day ->
-                item(key = "h-$day") {
-                    Text(
-                        dayLabel(day),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
+            CATEGORY_ORDER.forEach { cat ->
+                val group = dayItems.filter { it.category == cat }
+                if (group.isNotEmpty()) {
+                    // Suppress the SUPPE & SALAT heading (menus §5); other groups show their heading.
+                    if (cat != MenuCategory.SOUP_AND_SALAD) {
+                        item(key = "h-$selected-$cat") { SectionHeader(categoryHeading(cat)) }
+                    }
+                    itemsIndexed(group, key = { i, _ -> "$selected-$cat-$i" }) { _, item ->
+                        MenuRow(item, orderState(item, snapshot), cutoff) { vm.toggle(item) }
+                        HorizontalDivider()
+                    }
                 }
-                items(snapshot.items.filter { it.day == day }, key = { "${it.day}-${it.id}-${it.category}" }) { item ->
-                    MenuRow(item, orderState(item, snapshot)) { vm.toggle(item) }
-                    HorizontalDivider()
+            }
+            if (dayItems.isEmpty()) {
+                item(key = "empty-day") {
+                    Text("Keine Menüs verfügbar", modifier = Modifier.padding(vertical = 16.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -190,6 +210,53 @@ private fun MenusScreen(vm: AppViewModel) {
     }
 }
 
+/** Single-day navigator (menus §4.1): prev/next arrows, localized day label + position
+ *  indicator, and a "Heute" affordance when today has menus. */
+@Composable
+private fun DayNavigator(dates: List<String>, selected: String?, onSelect: (String) -> Unit) {
+    if (dates.isEmpty()) return
+    val index = dates.indexOf(selected)
+    val total = dates.size
+    val todayKey = LocalDate.now().toString()
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val prevEnabled = index > 0
+        NavArrow("‹", prevEnabled) { if (prevEnabled) onSelect(dates[index - 1]) }
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                selected?.let { dayNavLabel(it) } ?: "—",
+                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold
+            )
+            Text("${index + 1} / $total", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        // At index -1 (selected day fell out of the list) the forward arrow jumps to the first day.
+        val nextEnabled = index < total - 1
+        NavArrow("›", nextEnabled) {
+            if (index < 0) onSelect(dates[0]) else if (nextEnabled) onSelect(dates[index + 1])
+        }
+    }
+    if (dates.contains(todayKey) && selected != todayKey) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            TextButton(onClick = { onSelect(todayKey) }) { Text("Heute") }
+        }
+    }
+}
+
+@Composable
+private fun NavArrow(glyph: String, enabled: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick, enabled = enabled) {
+        Text(glyph, style = MaterialTheme.typography.headlineSmall,
+            color = if (enabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+    }
+}
+
 private enum class OrderState { NONE, ORDERED, PENDING_ORDER, PENDING_CANCEL }
 
 private fun orderState(item: MenuItem, s: MenuSnapshot): OrderState {
@@ -203,11 +270,27 @@ private fun orderState(item: MenuItem, s: MenuSnapshot): OrderState {
 }
 
 @Composable
-private fun MenuRow(item: MenuItem, state: OrderState, onToggle: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 8.dp),
-        verticalAlignment = Alignment.Top
-    ) {
+private fun MenuRow(item: MenuItem, state: OrderState, cutoff: Boolean, onToggle: () -> Unit) {
+    // Tappability + card state (menus §6.1). Ordered items stay tappable (to cancel); everything
+    // else needs an available item before cutoff.
+    val canInteract = item.ordered || (item.available && !cutoff)
+    val badge: String? = when {
+        state == OrderState.PENDING_CANCEL -> "Wird storniert"
+        item.ordered -> "Bestellt"
+        !item.available -> "Ausverkauft"
+        cutoff -> "Geschlossen"
+        else -> null
+    }
+    val rowAlpha = when {
+        state == OrderState.PENDING_CANCEL -> 0.55f
+        !canInteract -> 0.5f
+        else -> 1f
+    }
+    val base = Modifier.fillMaxWidth()
+    val rowModifier = (if (canInteract) base.clickable { onToggle() } else base)
+        .alpha(rowAlpha)
+        .padding(vertical = 8.dp)
+    Row(modifier = rowModifier, verticalAlignment = Alignment.Top) {
         val (icon, tint) = when (state) {
             OrderState.ORDERED -> Icons.Filled.CheckCircle to Color(0xFF4CAF50)
             OrderState.PENDING_ORDER -> Icons.Filled.AddCircle to Color(0xFF2196F3)
@@ -216,17 +299,23 @@ private fun MenuRow(item: MenuItem, state: OrderState, onToggle: () -> Unit) {
         }
         Icon(icon, null, tint = tint, modifier = Modifier.padding(end = 12.dp, top = 2.dp))
         Column(modifier = Modifier.weight(1f)) {
-            val cat = categoryLabel(item.category)
-            if (cat.isNotEmpty()) {
-                Text(cat, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text(item.title, style = MaterialTheme.typography.bodyLarge)
+            val strike = if (state == OrderState.PENDING_CANCEL) TextDecoration.LineThrough else null
+            Text(item.title, style = MaterialTheme.typography.bodyLarge, textDecoration = strike)
             if (item.subtitle.isNotEmpty()) {
-                Text(item.subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(item.subtitle, style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, textDecoration = strike)
             }
             if (item.allergens.isNotEmpty()) {
                 Text("Allergene: ${item.allergens.joinToString(", ")}",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (badge != null) {
+                Text(badge, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
+                    color = when (badge) {
+                        "Bestellt" -> Color(0xFF4CAF50)
+                        "Wird storniert" -> Color(0xFFFF9800)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    })
             }
         }
         if (item.price.isNotEmpty()) {
@@ -339,30 +428,48 @@ private fun BillingScreen(vm: AppViewModel) {
                 )
             }
         }
+        // Source filter (billing §6.1): Alle / Kantine / Automaten. Presentation-only.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SourceChip("Alle", vm.billingSourceFilter == BillingSource.ALL) { vm.setBillingSource(BillingSource.ALL) }
+            SourceChip("Kantine", vm.billingSourceFilter == BillingSource.GOURMET) { vm.setBillingSource(BillingSource.GOURMET) }
+            SourceChip("Automaten", vm.billingSourceFilter == BillingSource.VENTOPAY) { vm.setBillingSource(BillingSource.VENTOPAY) }
+        }
         // Auth-gate each section so a logged-out account's still-cached billing can't reappear.
-        val g = vm.gourmetMonth?.takeIf { vm.gourmetAuthenticated && it.bills.isNotEmpty() }
-        val v = vm.ventopayMonth?.takeIf { vm.ventopayAuthenticated && it.transactions.isNotEmpty() }
+        val filter = vm.billingSourceFilter
+        val g = vm.gourmetMonth?.takeIf { vm.gourmetAuthenticated && it.bills.isNotEmpty() && filter != BillingSource.VENTOPAY }
+        val v = vm.ventopayMonth?.takeIf { vm.ventopayAuthenticated && it.transactions.isNotEmpty() && filter != BillingSource.GOURMET }
+
+        // Merge both sources into one list, newest first (billing §6.2). Gourmet is appended before
+        // Ventopay so the stable sort keeps that order on equal timestamps.
+        val entries = buildList {
+            g?.bills?.forEach { bill ->
+                add(BillingEntry("g-${bill.billNr}", bill.billDateEpochMs, BillingSource.GOURMET,
+                    bill.items.firstOrNull()?.description ?: "", bill.billing))
+            }
+            v?.transactions?.forEach { tx ->
+                add(BillingEntry("v-${tx.id}", tx.dateEpochMs, BillingSource.VENTOPAY, tx.restaurant, tx.amount))
+            }
+        }.sortedByDescending { it.dateEpochMs }
+
+        val gourmetTotal = g?.totalBilling ?: 0.0
+        val ventopayTotal = v?.total ?: 0.0
+        val total = gourmetTotal + ventopayTotal
+        val subsidy = g?.totalSubsidy ?: 0.0
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
         ) {
-            if (g != null) {
-                item(key = "kh") { SectionHeader("Kantine") }
-                items(g.bills, key = { "k-${it.billNr}" }) { bill ->
-                    BillingRow(billDateLabel(bill.billDateEpochMs), bill.items.firstOrNull()?.description ?: "", bill.billing)
+            if (entries.isNotEmpty()) {
+                item(key = "summary") { BillingSummary(total, entries.size, subsidy) }
+                items(entries, key = { it.id }) { e ->
+                    BillingEntryRow(e)
                     HorizontalDivider()
                 }
-                item(key = "kt") { TotalRow("Summe (Kantine)", g.totalBilling) }
-            }
-            if (v != null) {
-                item(key = "vh") { SectionHeader("Automaten") }
-                items(v.transactions, key = { "v-${it.id}" }) { tx ->
-                    BillingRow(billDateLabel(tx.dateEpochMs), tx.restaurant, tx.amount)
-                    HorizontalDivider()
-                }
-                item(key = "vt") { TotalRow("Summe (Automaten)", v.total) }
-            }
-            if (g == null && v == null) {
+            } else {
                 item(key = "nodata") {
                     Text("Keine Abrechnungsdaten für diesen Monat",
                         modifier = Modifier.padding(vertical = 16.dp),
@@ -373,39 +480,105 @@ private fun BillingScreen(vm: AppViewModel) {
     }
 }
 
+/** One unified billing entry from either source (billing §6.2). */
+private data class BillingEntry(
+    val id: String,
+    val dateEpochMs: Long,
+    val source: BillingSource,
+    val description: String,
+    val amount: Double
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SourceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
+}
+
+/** Summary bar (billing §6.3 / §8.1): Gesamt, Belege, and Zuschuss (only when > 0). */
+@Composable
+private fun BillingSummary(total: Double, count: Int, subsidy: Double) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        SummaryCell("Gesamt", euro(total), MaterialTheme.colorScheme.onSurface)
+        SummaryCell("Belege", count.toString(), MaterialTheme.colorScheme.onSurface)
+        if (subsidy > 0.0) {
+            SummaryCell("Zuschuss", euro(subsidy), Color(0xFF4CAF50))
+        }
+    }
+    HorizontalDivider()
+}
+
+@Composable
+private fun SummaryCell(label: String, value: String, valueColor: Color) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+            color = valueColor)
+    }
+}
+
+/** One row in the merged list: date/time on the left, source badge + amount on the right
+ *  (billing §8.3). */
+@Composable
+private fun BillingEntryRow(e: BillingEntry) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(billDateFull(e.dateEpochMs), style = MaterialTheme.typography.bodyMedium)
+            val time = billTime(e.dateEpochMs)
+            if (time.isNotEmpty()) {
+                Text(time, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (e.description.isNotEmpty()) {
+                Text(e.description, style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            val (badgeText, badgeColor) = when (e.source) {
+                BillingSource.VENTOPAY -> "AUTOMATEN" to Color(0xFF4CAF50)
+                else -> "KANTINE" to MaterialTheme.colorScheme.primary
+            }
+            Text(badgeText, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                color = badgeColor)
+            Text(euro(e.amount), style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
 @Composable
 private fun SectionHeader(text: String) {
     Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(vertical = 8.dp))
 }
 
-@Composable
-private fun BillingRow(date: String, detail: String, value: Double) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(date, style = MaterialTheme.typography.bodyMedium)
-            if (detail.isNotEmpty()) {
-                Text(detail, style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Text(euro(value), style = MaterialTheme.typography.bodyLarge)
-    }
-}
-
-@Composable
-private fun TotalRow(label: String, value: Double) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Text(label, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text(euro(value), fontWeight = FontWeight.Bold)
-    }
-}
-
-private fun euro(v: Double): String = String.format(Locale.GERMANY, "%.2f €", v)
+/** Currency in the Austrian-German locale (billing §8.3), e.g. "€ 3,00". */
+private fun euro(v: Double): String =
+    java.text.NumberFormat.getCurrencyInstance(DE_AT).format(v)
 
 private fun billDateLabel(epochMs: Long): String = try {
     java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
-        .format(DateTimeFormatter.ofPattern("EEE, d. MMM", Locale.GERMAN))
+        .format(DateTimeFormatter.ofPattern("EEE, d. MMM", DE_AT))
+} catch (e: Exception) {
+    ""
+}
+
+/** Full receipt date (billing §8.3): short weekday, day, month, year in de-AT. */
+private fun billDateFull(epochMs: Long): String = try {
+    java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+        .format(DateTimeFormatter.ofPattern("EEE, d. MMM yyyy", DE_AT))
+} catch (e: Exception) {
+    ""
+}
+
+private fun billTime(epochMs: Long): String = try {
+    java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("HH:mm", DE_AT))
 } catch (e: Exception) {
     ""
 }
@@ -672,17 +845,22 @@ private fun Placeholder(title: String) {
     }
 }
 
-/** `YYYY-MM-DD` (the core's normalized day key) → localized weekday + date, else the raw key. */
-private fun dayLabel(key: String): String = try {
-    LocalDate.parse(key).format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN))
+private val DE_AT = Locale("de", "AT")
+
+/** `YYYY-MM-DD` day key → short localized weekday + date for the navigator (menus §4.1),
+ *  e.g. "Mo., 10. Feb."; falls back to the raw key on a parse error. */
+private fun dayNavLabel(key: String): String = try {
+    LocalDate.parse(key).format(DateTimeFormatter.ofPattern("EEE, d. MMM", DE_AT))
 } catch (e: Exception) {
     key
 }
 
-private fun categoryLabel(c: MenuCategory): String = when (c) {
-    MenuCategory.MENU1 -> "Menü I"
-    MenuCategory.MENU2 -> "Menü II"
-    MenuCategory.MENU3 -> "Menü III"
-    MenuCategory.SOUP_AND_SALAD -> "Suppe & Salat"
-    MenuCategory.UNKNOWN -> ""
+/** Uppercase category heading (menus §5). Matches the enum display strings; UNKNOWN renders
+ *  a literal "UNKNOWN" (SUPPE & SALAT's heading is suppressed by the caller). */
+private fun categoryHeading(c: MenuCategory): String = when (c) {
+    MenuCategory.MENU1 -> "MENÜ I"
+    MenuCategory.MENU2 -> "MENÜ II"
+    MenuCategory.MENU3 -> "MENÜ III"
+    MenuCategory.SOUP_AND_SALAD -> "SUPPE & SALAT"
+    MenuCategory.UNKNOWN -> "UNKNOWN"
 }
