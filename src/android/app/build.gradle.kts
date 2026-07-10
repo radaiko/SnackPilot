@@ -51,4 +51,6 @@ dependencies {
     // UniFFI Kotlin runtime deps.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("net.java.dev.jna:jna:5.14.0@aar")
+    // Geofencing + one-shot location fix (notifications-location).
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 }

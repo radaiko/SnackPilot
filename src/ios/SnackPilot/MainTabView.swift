@@ -85,6 +85,28 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    if model.companyLocation == nil {
+                        Button {
+                            Task { await model.setCompanyLocationFromCurrentPosition() }
+                        } label: {
+                            Text(model.locationBusy
+                                ? "Standort wird ermittelt..."
+                                : "Aktuellen Standort als Firmenstandort setzen")
+                        }
+                        .disabled(model.locationBusy)
+                    } else {
+                        Text("Firmenstandort gesetzt").foregroundStyle(.secondary)
+                        Button("Standort entfernen", role: .destructive) {
+                            model.clearCompanyLocation()
+                        }
+                    }
+                } header: {
+                    Text("Standort-Benachrichtigungen")
+                } footer: {
+                    Text("Erinnerung um 8:45 basierend auf deinem Standort")
+                }
+
+                Section {
                     LabeledContent("Core-Version", value: model.coreVersion)
                 }
 
@@ -115,6 +137,10 @@ struct SettingsView: View {
 
             }
             .toolbar(.hidden, for: .navigationBar)
+            .alert(item: $model.locationAlert) { alert in
+                Alert(title: Text(alert.title), message: Text(alert.message),
+                      dismissButton: .default(Text("OK")))
+            }
             .onAppear { model.refreshLog() }
         }
     }

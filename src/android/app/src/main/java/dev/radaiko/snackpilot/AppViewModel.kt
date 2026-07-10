@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
+import uniffi.snackpilot_core.CompanyLocation
 import uniffi.snackpilot_core.CoreConfig
 import uniffi.snackpilot_core.Credentials
 import uniffi.snackpilot_core.DailyReminderSettings
@@ -29,6 +30,9 @@ import java.io.File
 
 /** Source filter for the unified Abrechnung list (billing §6.1). */
 enum class BillingSource { ALL, GOURMET, VENTOPAY }
+
+/** A one-off dialog (title + message) for the location setup flow (notifications-location §7). */
+data class LocationDialog(val title: String, val message: String)
 
 /** Color-scheme preference (themes §1). Independent of [AccentColor]. */
 enum class ThemePreference { SYSTEM, LIGHT, DARK }
@@ -58,6 +62,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val core: SnackPilotCore
     private val creds = SecureCredentialStore(app)
     private val notifications = NotificationService(app)
+    private val locationService = LocationService(app)
     private val prefs = app.getSharedPreferences("settings", Application.MODE_PRIVATE)
 
     var userInfo by mutableStateOf<GourmetUserInfo?>(null)
@@ -116,6 +121,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var reminderMinute by mutableStateOf(0)
         private set
 
+    // Location notifications (notifications-location). `companyLocation != null` is the on/off
+    // state (§1); the geofence lives in [LocationService]. `locationBusy` drives the "wird
+    // ermittelt" button (§8); `locationDialog` surfaces the §7 permission/result messages.
+    var companyLocation by mutableStateOf<CompanyLocation?>(null)
+        private set
+    var locationBusy by mutableStateOf(false)
+        private set
+    var locationDialog by mutableStateOf<LocationDialog?>(null)
+        private set
+
     // Diagnostics (Einstellungen → Diagnose)
     var logActive by mutableStateOf(false)
         private set
@@ -150,6 +165,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         accentColor = prefs.getString("accent_color", null)
             ?.let { runCatching { AccentColor.valueOf(it) }.getOrNull() } ?: AccentColor.ORANGE
         loadCachedData()
+        // Restore the company geofence on every launch (§9). Idempotent-ish: re-adds without an
+        // initial Enter trigger so a restart never re-fires a spurious in-zone notification (§3.2).
+        companyLocation = runCatching { core.companyLocation() }.getOrNull()
+        startGeofencingIfSaved()
     }
 
     /** Cache-first display (caching §4): publish any cached menus/orders/billing + auth state
@@ -275,6 +294,57 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             notifications.execute(NotificationCommand.CancelPending("daily-order-reminder"))
         }
+    }
+
+    // MARK: Location notifications (notifications-location §7–§9)
+
+    /** Setup flow (§7.3): capture a one-shot fix → persist it in the core → start the geofence.
+     *  The Compose layer has already secured location + notification permission. GPS failure aborts
+     *  with the exact v1 error. The saved location is the on/off switch (§1) — there is no toggle. */
+    fun captureAndSaveCompanyLocation() {
+        locationBusy = true
+        locationService.currentLocation { loc ->
+            if (loc == null) {
+                locationDialog = LocationDialog("Fehler", "Standort konnte nicht ermittelt werden.")
+            } else {
+                core.setCompanyLocation(loc.latitude, loc.longitude)
+                companyLocation = core.companyLocation()
+                locationService.startGeofence(loc.latitude, loc.longitude, triggerOnEntry = true)
+                locationDialog = LocationDialog(
+                    "Gespeichert",
+                    "Firmenstandort gesetzt. Du wirst um 8:45 benachrichtigt, wenn du im Büro " +
+                        "bist und nicht bestellt hast."
+                )
+            }
+            locationBusy = false
+        }
+    }
+
+    /** Location permission denied (§7.1). Region monitoring needs background ("Immer") location. */
+    fun onLocationPermissionDenied() {
+        locationDialog = LocationDialog(
+            "Berechtigung fehlt",
+            "Für Standort-Benachrichtigungen wird der Standortzugriff „Immer erlauben\" benötigt. " +
+                "Bitte in den Einstellungen aktivieren."
+        )
+    }
+
+    /** "Standort entfernen" (§8): stop the geofence and clear the saved location (also resets
+     *  `is_at_company` in the core, §1). No confirmation dialog, matching v1. */
+    fun clearCompanyLocation() {
+        locationService.stopGeofence()
+        core.clearCompanyLocation()
+        companyLocation = null
+    }
+
+    fun dismissLocationDialog() {
+        locationDialog = null
+    }
+
+    /** Re-register the geofence at launch if a location is saved (§9), without an initial Enter. */
+    private fun startGeofencingIfSaved() {
+        val loc = runCatching { core.companyLocation() }.getOrNull() ?: return
+        locationService.startGeofence(loc.latitude, loc.longitude, triggerOnEntry = false)
     }
 
     // MARK: Diagnostics

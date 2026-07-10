@@ -17,6 +17,11 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
     }
 
+    /// Request notification permission and report whether it was granted (location flow §7.2).
+    func requestPermissionGranted() async -> Bool {
+        (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+    }
+
     func execute(_ command: NotificationCommand) {
         switch command {
         case let .fireNow(id, title, body, _, _):

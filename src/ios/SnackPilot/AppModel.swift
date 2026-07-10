@@ -46,6 +46,13 @@ final class AppModel: ObservableObject {
     @Published var reminderHour = UserDefaults.standard.object(forKey: "daily_reminder_hour") as? Int ?? 8
     @Published var reminderMinute = UserDefaults.standard.object(forKey: "daily_reminder_minute") as? Int ?? 0
 
+    // Location notifications (notifications-location). `companyLocation != nil` is the on/off state
+    // (§1); the geofence itself lives in `LocationService`. `locationBusy` drives the "wird
+    // ermittelt" button state (§8); `locationAlert` surfaces the §7 permission/result alerts.
+    @Published var companyLocation: CompanyLocation?
+    @Published var locationBusy = false
+    @Published var locationAlert: LocationAlert?
+
     // Diagnostics (Einstellungen → Diagnose)
     @Published var logActive = false
     @Published var logEntries: [LogEntry] = []
@@ -87,12 +94,27 @@ final class AppModel: ObservableObject {
             #endif
         }
 
+        // Restore the company geofence on every launch (§3/§9): install the region handler and,
+        // when a location is saved, re-register monitoring (idempotent — the skip-if-active guard
+        // makes it safe to call each launch, including background relaunches for region crossings).
+        companyLocation = core.companyLocation()
+        LocationService.shared.onRegionEvent = { [weak self] event in
+            Task { @MainActor in self?.handleGeofence(event) }
+        }
+        startGeofencingIfSaved()
+
         #if DEBUG
         // UI-test / preview hooks. Never compiled into release builds; only render demo data.
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-uiTestAccent"), i + 1 < args.count,
            let accent = AccentColor(rawValue: args[i + 1]) {
             setAccent(accent)
+        }
+        if args.contains("-uiTestSavedLocation") {
+            // Persist a location without the GPS/permission flow so the saved-state UI (§8) is
+            // screenshot-verifiable in the Simulator (real geofencing needs a device).
+            core.setCompanyLocation(latitude: 48.21, longitude: 16.37)
+            companyLocation = core.companyLocation()
         }
         if args.contains("-uiTestDemo") {
             if let i = args.firstIndex(of: "-uiTestTab"), i + 1 < args.count {
@@ -472,6 +494,80 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: Location notifications (notifications-location §7–§9)
+
+    /// Setup flow (§7): request "Always" location, then notifications, then capture a one-shot GPS
+    /// fix → persist it in the core → start the geofence. Each failure aborts with the exact v1
+    /// German alert. The saved location itself is the on/off switch (§1) — there is no toggle.
+    func setCompanyLocationFromCurrentPosition() async {
+        locationBusy = true
+        defer { locationBusy = false }
+
+        // 1. Location — region monitoring needs "Always". WhenInUse-only (or denied) → tell the
+        //    user to set "Immer" in Settings, and abort (§7.1).
+        let status = await LocationService.shared.requestAlwaysAuthorization()
+        guard status == .authorizedAlways else {
+            locationAlert = LocationAlert(
+                title: "Standort „Immer\" erforderlich",
+                message: "Für Standort-Benachrichtigungen muss der Standortzugriff auf „Immer\" "
+                    + "gesetzt werden.\n\nBitte öffne die Einstellungen und wähle unter Standort "
+                    + "„Immer\" aus.")
+            return
+        }
+
+        // 2. Notifications (§7.2).
+        guard await NotificationService.shared.requestPermissionGranted() else {
+            locationAlert = LocationAlert(
+                title: "Berechtigung fehlt",
+                message: "Benachrichtigungen werden für diese Funktion benötigt. "
+                    + "Bitte in den Einstellungen aktivieren.")
+            return
+        }
+
+        // 3. One-shot fix → persist → geofence (§7.3).
+        do {
+            let loc = try await LocationService.shared.requestOneShotLocation()
+            core.setCompanyLocation(
+                latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude)
+            companyLocation = core.companyLocation()
+            LocationService.shared.startMonitoring(
+                latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude)
+            locationAlert = LocationAlert(
+                title: "Gespeichert",
+                message: "Firmenstandort gesetzt. Du wirst um 8:45 benachrichtigt, wenn du im Büro "
+                    + "bist und nicht bestellt hast.")
+        } catch {
+            locationAlert = LocationAlert(
+                title: "Fehler", message: "Standort konnte nicht ermittelt werden.")
+        }
+    }
+
+    /// "Standort entfernen" (§8): stop the geofence and clear the saved location (which also resets
+    /// `is_at_company` in the core, §1). No confirmation dialog, matching v1.
+    func clearCompanyLocation() {
+        LocationService.shared.stopMonitoring()
+        core.clearCompanyLocation()
+        companyLocation = nil
+    }
+
+    /// Region Enter/Exit handler (§4): record the flag, then deliver whatever the core decides
+    /// (Enter cancels any pending cancel-reminder and — if nothing is ordered today — fires the
+    /// 08:45 "im Büro, nicht bestellt" reminder; Exit re-evaluates the cancel-reminder).
+    func handleGeofence(_ event: GeofenceEvent) {
+        core.setIsAtCompany(value: event == .enter)
+        for command in core.geofenceCommands(event: event) {
+            NotificationService.shared.execute(command)
+        }
+        refreshLog()
+    }
+
+    /// Re-register the geofence at launch if a location is saved (§9). Idempotent via the
+    /// skip-if-active guard, so re-running it never re-fires the initial Enter.
+    private func startGeofencingIfSaved() {
+        guard let loc = core.companyLocation() else { return }
+        LocationService.shared.startMonitoring(latitude: loc.latitude, longitude: loc.longitude)
+    }
+
     // MARK: Diagnostics
 
     func refreshLog() {
@@ -507,6 +603,13 @@ final class AppModel: ObservableObject {
         default: return 0
         }
     }
+}
+
+/// A one-off alert (title + message) for the location setup flow (notifications-location §7).
+struct LocationAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
 }
 
 /// Bridges the core's `ProgressListener` callback (invoked off the main thread by the tokio

@@ -1,6 +1,10 @@
 package dev.radaiko.snackpilot.ui
 
+import android.Manifest
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -620,6 +624,14 @@ private fun themePreferenceLabel(pref: ThemePreference): String = when (pref) {
 @Composable
 private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Unit) {
     LaunchedEffect(Unit) { vm.refreshLog() }
+    vm.locationDialog?.let { dialog ->
+        AlertDialog(
+            onDismissRequest = { vm.dismissLocationDialog() },
+            confirmButton = { TextButton(onClick = { vm.dismissLocationDialog() }) { Text("OK") } },
+            title = { Text(dialog.title) },
+            text = { Text(dialog.message) }
+        )
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
@@ -664,6 +676,45 @@ private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Un
                     ).show()
                 }) {
                     Text("Uhrzeit: %02d:%02d".format(vm.reminderHour, vm.reminderMinute))
+                }
+            }
+
+            Spacer(Modifier.padding(8.dp))
+            Text("Standort-Benachrichtigungen", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Erinnerung um 8:45 basierend auf deinem Standort",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (vm.companyLocation == null) {
+                val locationPermission = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestMultiplePermissions()
+                ) { grants ->
+                    if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                        grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+                        vm.captureAndSaveCompanyLocation()
+                    } else {
+                        vm.onLocationPermissionDenied()
+                    }
+                }
+                TextButton(
+                    enabled = !vm.locationBusy,
+                    onClick = {
+                        locationPermission.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
+                    }
+                ) {
+                    Text(
+                        if (vm.locationBusy) "Standort wird ermittelt..."
+                        else "Aktuellen Standort als Firmenstandort setzen"
+                    )
+                }
+            } else {
+                Text("Firmenstandort gesetzt",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { vm.clearCompanyLocation() }) {
+                    Text("Standort entfernen", color = MaterialTheme.colorScheme.error)
                 }
             }
 
