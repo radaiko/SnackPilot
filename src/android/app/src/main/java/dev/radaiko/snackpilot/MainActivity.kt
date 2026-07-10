@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
         val autoDemo = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestDemo", false)
         val autoOrder = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestOrder", false)
         val autoLog = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestLog", false)
+        val autoReminder = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestReminder", false)
         val initialTab = intent.getStringExtra("uiTestTab")
         setContent {
             SnackPilotTheme {
@@ -38,7 +39,8 @@ class MainActivity : ComponentActivity() {
                     autoDemo = autoDemo,
                     initialTab = initialTab,
                     autoOrder = autoOrder,
-                    autoLog = autoLog
+                    autoLog = autoLog,
+                    autoReminder = autoReminder
                 )
             }
         }

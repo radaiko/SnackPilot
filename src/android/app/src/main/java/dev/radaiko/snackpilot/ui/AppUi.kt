@@ -33,6 +33,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,9 +43,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.app.TimePickerDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -65,7 +68,8 @@ fun RootScreen(
     autoDemo: Boolean = false,
     initialTab: String? = null,
     autoOrder: Boolean = false,
-    autoLog: Boolean = false
+    autoLog: Boolean = false,
+    autoReminder: Boolean = false
 ) {
     LaunchedEffect(Unit) {
         if (autoDemo) {
@@ -77,6 +81,7 @@ fun RootScreen(
             }
             vm.debugAutoOrder = autoOrder
             vm.debugAutoLog = autoLog
+            vm.debugAutoReminder = autoReminder
             vm.loadDemo()
         } else {
             vm.attemptAutoLogin()
@@ -451,6 +456,28 @@ private fun SettingsScreen(vm: AppViewModel) {
             }
             Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Text("Core-Version: ${vm.coreVersion}", modifier = Modifier.padding(16.dp))
+            }
+
+            Spacer(Modifier.padding(8.dp))
+            Text("Benachrichtigungen", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Tägliche Bestell-Erinnerung", modifier = Modifier.weight(1f))
+                Switch(
+                    checked = vm.dailyReminderEnabled,
+                    onCheckedChange = { vm.setDailyReminder(it, vm.reminderHour, vm.reminderMinute) }
+                )
+            }
+            if (vm.dailyReminderEnabled) {
+                val ctx = LocalContext.current
+                TextButton(onClick = {
+                    TimePickerDialog(
+                        ctx,
+                        { _, h, m -> vm.setDailyReminder(true, h, m) },
+                        vm.reminderHour, vm.reminderMinute, true
+                    ).show()
+                }) {
+                    Text("Uhrzeit: %02d:%02d".format(vm.reminderHour, vm.reminderMinute))
+                }
             }
 
             Spacer(Modifier.padding(8.dp))

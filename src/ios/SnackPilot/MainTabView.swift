@@ -52,6 +52,25 @@ struct SettingsView: View {
                         }
                     }
                 }
+                Section("Benachrichtigungen") {
+                    Toggle("Tägliche Bestell-Erinnerung", isOn: Binding(
+                        get: { model.dailyReminderEnabled },
+                        set: { model.setDailyReminder(enabled: $0, hour: model.reminderHour, minute: model.reminderMinute) }
+                    ))
+                    if model.dailyReminderEnabled {
+                        DatePicker("Uhrzeit", selection: Binding(
+                            get: {
+                                Calendar.current.date(from: DateComponents(
+                                    hour: model.reminderHour, minute: model.reminderMinute)) ?? Date()
+                            },
+                            set: {
+                                let c = Calendar.current.dateComponents([.hour, .minute], from: $0)
+                                model.setDailyReminder(enabled: true, hour: c.hour ?? 8, minute: c.minute ?? 0)
+                            }
+                        ), displayedComponents: .hourAndMinute)
+                    }
+                }
+
                 Section {
                     LabeledContent("Core-Version", value: model.coreVersion)
                 }

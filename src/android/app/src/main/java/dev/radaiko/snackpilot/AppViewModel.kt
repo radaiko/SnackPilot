@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import uniffi.snackpilot_core.CoreConfig
 import uniffi.snackpilot_core.Credentials
+import uniffi.snackpilot_core.DailyReminderSettings
+import uniffi.snackpilot_core.NotificationCommand
 import uniffi.snackpilot_core.GourmetMonthlyBilling
 import uniffi.snackpilot_core.GourmetUserInfo
 import uniffi.snackpilot_core.LogEntry
@@ -31,6 +33,8 @@ import java.io.File
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val core: SnackPilotCore
     private val creds = SecureCredentialStore(app)
+    private val notifications = NotificationService(app)
+    private val prefs = app.getSharedPreferences("settings", Application.MODE_PRIVATE)
 
     var userInfo by mutableStateOf<GourmetUserInfo?>(null)
         private set
@@ -53,6 +57,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** DEBUG headless hooks (set before loadDemo). */
     var debugAutoOrder = false
     var debugAutoLog = false
+    var debugAutoReminder = false
+
+    // Notification preferences (shell-owned; fed to the core's decision fns)
+    var dailyReminderEnabled by mutableStateOf(false)
+        private set
+    var reminderHour by mutableStateOf(8)
+        private set
+    var reminderMinute by mutableStateOf(0)
+        private set
 
     // Diagnostics (Einstellungen → Diagnose)
     var logActive by mutableStateOf(false)
@@ -75,6 +88,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     init {
         val dir = File(app.filesDir, "snackpilot").apply { mkdirs() }
         core = SnackPilotCore(CoreConfig(storageDir = dir.absolutePath), analytics = null)
+        dailyReminderEnabled = prefs.getBoolean("daily_reminder_enabled", false)
+        reminderHour = prefs.getInt("daily_reminder_hour", 8)
+        reminderMinute = prefs.getInt("daily_reminder_minute", 0)
     }
 
     fun isDemoCreds(user: String, pass: String): Boolean =
@@ -112,6 +128,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         loadOrders()
         monthOptions = core.billingMonthOptions()
         loadBilling(selectedOffset)
+        applyDailyReminder()
         if (BuildConfig.DEBUG && debugAutoOrder) {
             val s = snapshot
             val lastDay = s?.availableDates?.lastOrNull()
@@ -124,6 +141,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (BuildConfig.DEBUG && debugAutoLog) {
             activateLog()
             runMenuCheck()
+        }
+        if (BuildConfig.DEBUG && debugAutoReminder) {
+            setDailyReminder(enabled = true, hour = 8, minute = 30)
+        }
+    }
+
+    // Notification preferences
+
+    fun setDailyReminder(enabled: Boolean, hour: Int, minute: Int) {
+        dailyReminderEnabled = enabled
+        reminderHour = hour
+        reminderMinute = minute
+        prefs.edit()
+            .putBoolean("daily_reminder_enabled", enabled)
+            .putInt("daily_reminder_hour", hour)
+            .putInt("daily_reminder_minute", minute)
+            .apply()
+        applyDailyReminder()
+    }
+
+    /** Ask the core for the daily-reminder command and deliver it; cancel when disabled. */
+    fun applyDailyReminder() {
+        if (dailyReminderEnabled) {
+            val settings = DailyReminderSettings(
+                enabled = true, hour = reminderHour.toUByte(), minute = reminderMinute.toUByte()
+            )
+            core.dailyReminderCommand(settings)?.let { notifications.execute(it) }
+        } else {
+            notifications.execute(NotificationCommand.CancelPending("daily-order-reminder"))
         }
     }
 

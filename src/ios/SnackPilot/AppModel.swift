@@ -20,6 +20,11 @@ final class AppModel: ObservableObject {
     @Published var ordersSplit: OrdersSplit?
     @Published var ordersError: String?
 
+    // Notification preferences (shell-owned; fed to the core's decision fns)
+    @Published var dailyReminderEnabled = UserDefaults.standard.bool(forKey: "daily_reminder_enabled")
+    @Published var reminderHour = UserDefaults.standard.object(forKey: "daily_reminder_hour") as? Int ?? 8
+    @Published var reminderMinute = UserDefaults.standard.object(forKey: "daily_reminder_minute") as? Int ?? 0
+
     // Diagnostics (Einstellungen → Diagnose)
     @Published var logActive = false
     @Published var logEntries: [LogEntry] = []
@@ -113,6 +118,7 @@ final class AppModel: ObservableObject {
         await loadOrders()
         monthOptions = core.billingMonthOptions()
         await loadBilling(offset: selectedOffset)
+        applyDailyReminder()
         #if DEBUG
         // Headless order-flow check: order the furthest-out menu and submit, so screenshots
         // can show a placed order in Bestellungen.
@@ -125,6 +131,9 @@ final class AppModel: ObservableObject {
         if ProcessInfo.processInfo.arguments.contains("-uiTestLog") {
             activateLog()
             await runMenuCheck()
+        }
+        if ProcessInfo.processInfo.arguments.contains("-uiTestReminder") {
+            setDailyReminder(enabled: true, hour: 8, minute: 30)
         }
         #endif
     }
@@ -193,6 +202,34 @@ final class AppModel: ObservableObject {
     /// Offline demo session (button / debug hook) — routes through the same login path.
     func loadDemo() {
         Task { await login(user: "demo", pass: "demo1234!") }
+    }
+
+    // MARK: Notification preferences
+
+    /// Persist the daily-reminder preference and (re)apply it through the core decision fn.
+    func setDailyReminder(enabled: Bool, hour: Int, minute: Int) {
+        dailyReminderEnabled = enabled
+        reminderHour = hour
+        reminderMinute = minute
+        let d = UserDefaults.standard
+        d.set(enabled, forKey: "daily_reminder_enabled")
+        d.set(hour, forKey: "daily_reminder_hour")
+        d.set(minute, forKey: "daily_reminder_minute")
+        applyDailyReminder()
+    }
+
+    /// Ask the core for the daily-reminder command given the current orders/time and deliver it.
+    /// When disabled, cancel any previously scheduled reminder (the core returns nil when off).
+    func applyDailyReminder() {
+        if dailyReminderEnabled {
+            let settings = DailyReminderSettings(
+                enabled: true, hour: UInt8(reminderHour), minute: UInt8(reminderMinute))
+            if let command = core.dailyReminderCommand(settings: settings) {
+                NotificationService.shared.execute(command)
+            }
+        } else {
+            NotificationService.shared.execute(.cancelPending(id: "daily-order-reminder"))
+        }
     }
 
     // MARK: Diagnostics
