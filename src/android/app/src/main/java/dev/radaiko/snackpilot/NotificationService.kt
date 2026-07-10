@@ -1,8 +1,11 @@
 package dev.radaiko.snackpilot
 
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import uniffi.snackpilot_core.NotificationCommand
@@ -12,8 +15,8 @@ import uniffi.snackpilot_core.NotificationCommand
  * (05-platform-services §3). The core decides *what/when*; this shell delivers. Channels mirror
  * the core's ids (order-reminders / menu-updates).
  *
- * Scope: immediate delivery (FireNow) + cancellation are wired and verifiable now. ScheduleAt
- * (timed reminders) needs AlarmManager/WorkManager and is handled in the background-tasks phase.
+ * FireNow delivers immediately; ScheduleAt registers an inexact AlarmManager alarm (guideline-
+ * recommended for reminders — no exact-alarm permission); CancelPending cancels both.
  */
 class NotificationService(private val context: Context) {
     private val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -27,20 +30,26 @@ class NotificationService(private val context: Context) {
         manager.createNotificationChannel(NotificationChannel(id, name, importance))
     }
 
-    /** Deliver/cancel a command. Returns false for the not-yet-wired ScheduleAt path. */
     fun execute(command: NotificationCommand): Boolean = when (command) {
         is NotificationCommand.FireNow -> {
-            fire(command.id, command.title, command.body, command.channelId)
+            deliver(command.id, command.title, command.body, command.channelId)
+            true
+        }
+        is NotificationCommand.ScheduleAt -> {
+            schedule(command.id, command.title, command.body, command.channelId, command.fireAtEpochMs)
             true
         }
         is NotificationCommand.CancelPending -> {
             NotificationManagerCompat.from(context).cancel(command.id.hashCode())
+            alarmPendingIntent(command.id)?.let {
+                (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(it)
+            }
             true
         }
-        is NotificationCommand.ScheduleAt -> false // TODO(background phase): AlarmManager/WorkManager
     }
 
-    private fun fire(id: String, title: String, body: String, channelId: String?) {
+    /** Post a notification now (also called from AlarmReceiver when a scheduled alarm fires). */
+    fun deliver(id: String, title: String, body: String, channelId: String?) {
         val channel = channelId ?: CHANNEL_MENU_UPDATES
         val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -51,6 +60,31 @@ class NotificationService(private val context: Context) {
             .build()
         // POST_NOTIFICATIONS is checked by the caller; NotificationManagerCompat no-ops if denied.
         NotificationManagerCompat.from(context).notify(id.hashCode(), notification)
+    }
+
+    private fun schedule(id: String, title: String, body: String, channelId: String?, fireAtEpochMs: Long) {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra(AlarmReceiver.EXTRA_ID, id)
+            putExtra(AlarmReceiver.EXTRA_TITLE, title)
+            putExtra(AlarmReceiver.EXTRA_BODY, body)
+            putExtra(AlarmReceiver.EXTRA_CHANNEL, channelId)
+        }
+        val pending = PendingIntent.getBroadcast(
+            context, id.hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        // Inexact alarm: no SCHEDULE_EXACT_ALARM permission needed; a few minutes of slack is
+        // acceptable for order/menu reminders (Android guidance discourages exact alarms).
+        (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
+            .set(AlarmManager.RTC_WAKEUP, fireAtEpochMs, pending)
+    }
+
+    private fun alarmPendingIntent(id: String): PendingIntent? {
+        val intent = Intent(context, AlarmReceiver::class.java)
+        return PendingIntent.getBroadcast(
+            context, id.hashCode(), intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     companion object {

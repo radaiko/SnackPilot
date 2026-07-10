@@ -55,5 +55,19 @@ class MainActivity : ComponentActivity() {
                 )
             )
         }
+
+        // DEBUG headless hook: schedule a reminder ~3 s out to exercise the AlarmManager path.
+        if (BuildConfig.DEBUG && intent.getBooleanExtra("uiTestSchedule", false)) {
+            notifications.execute(
+                NotificationCommand.ScheduleAt(
+                    id = "test-reminder",
+                    title = "Bestell-Erinnerung",
+                    body = "Vergiss nicht, dein Menü zu bestellen.",
+                    channelId = NotificationService.CHANNEL_ORDER_REMINDERS,
+                    fireAtEpochMs = System.currentTimeMillis() + 3000,
+                    screen = null
+                )
+            )
+        }
     }
 }
