@@ -22,6 +22,7 @@ import uniffi.snackpilot_core.MenuItem
 import uniffi.snackpilot_core.MenuSnapshot
 import uniffi.snackpilot_core.MonthOption
 import uniffi.snackpilot_core.OrderProgress
+import uniffi.snackpilot_core.OrderedMenu
 import uniffi.snackpilot_core.OrdersSplit
 import uniffi.snackpilot_core.ProgressListener
 import uniffi.snackpilot_core.SnackPilotCore
@@ -434,6 +435,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         snapshot = core.togglePending(menuId = item.id, dateKey = item.day)
     }
 
+    // Order ↔ menu cross-reference (the order page carries only category + weekday, and the menu
+    // HTML doesn't always mark confirmed orders — match by category title + date).
+    private fun dayKeyFromEpoch(ms: Long): String =
+        java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+
+    /** The actual dish for an order: the matching menu item's subtitle, or null if not loaded. */
+    fun dishFor(order: OrderedMenu): String? {
+        val key = dayKeyFromEpoch(order.dateEpochMs)
+        return snapshot?.items?.firstOrNull { it.title == order.title && it.day == key }
+            ?.subtitle?.takeIf { it.isNotEmpty() }
+    }
+
+    /** Ordered = the parsed flag OR a matching entry in the orders list. */
+    fun isOrdered(item: MenuItem): Boolean {
+        if (item.ordered) return true
+        val split = ordersSplit ?: return false
+        return (split.upcoming + split.past).any {
+            it.title == item.title && dayKeyFromEpoch(it.dateEpochMs) == item.day
+        }
+    }
+
     /** Reconcile the displayed day with the current snapshot (menus §4): keep a still-valid
      *  selection across refreshes, otherwise seed from the core's selectedDate() or the first day. */
     private fun syncSelectedDay() {
@@ -481,6 +503,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun submitOrders() {
         busy = true
         errorText = null
+        // Keep the user on their current day: persist it so the post-submit menu refetch preserves
+        // it instead of snapping back to the nearest day.
+        selectedDay?.let { core.setSelectedDate(it) }
         try {
             snapshot = core.submitOrders(progress = ProgressBridge())
             syncSelectedDay()

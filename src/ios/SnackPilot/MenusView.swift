@@ -122,9 +122,12 @@ struct MenusView: View {
         let isPendingOrder = s.pendingOrders.contains(key)
         let isPendingCancel = s.pendingCancellations.contains(key)
         let cutoff = model.isCutoff(item.day)
-        // menus §6.1: an ordered item stays tappable (to cancel) even past cutoff; a
-        // not-yet-ordered item is tappable only while available and before cutoff.
-        let canInteract = item.ordered || (item.available && !cutoff)
+        let ordered = model.isOrdered(item) // display state (includes the orders cross-reference)
+        // menus §6.1: a menu-marked ordered item stays tappable (to cancel) even past cutoff; an
+        // un-ordered item is tappable only while available and before cutoff. A cross-ref-only
+        // ordered item (present in the orders list but not flagged by the menu HTML) is NOT tappable
+        // — cancel it in Bestellungen — so a tap can't create a duplicate order.
+        let canInteract = item.ordered || (item.available && !cutoff && !ordered)
 
         Button {
             model.toggle(item: item)
@@ -132,7 +135,8 @@ struct MenusView: View {
             MenuRow(item: item,
                     isPendingOrder: isPendingOrder,
                     isPendingCancel: isPendingCancel,
-                    cutoff: cutoff)
+                    cutoff: cutoff,
+                    isOrdered: ordered)
         }
         .buttonStyle(.plain)
         .disabled(!canInteract)
@@ -208,11 +212,13 @@ private struct MenuRow: View {
     let isPendingOrder: Bool
     let isPendingCancel: Bool
     let cutoff: Bool
+    /// Ordered state resolved against the orders list too (the menu HTML doesn't always mark it).
+    let isOrdered: Bool
 
     /// Card state badge (menus §6.1), evaluated in priority order.
     private var badge: (text: String, color: Color)? {
         if isPendingCancel { return ("Wird storniert", .orange) }
-        if item.ordered { return ("Bestellt", .green) }
+        if isOrdered { return ("Bestellt", .green) }
         if !item.available { return ("Ausverkauft", .secondary) }
         if cutoff { return ("Geschlossen", .secondary) }
         return nil
@@ -221,7 +227,7 @@ private struct MenuRow: View {
     /// Dim non-orderable / to-be-cancelled cards (menus §6.1).
     private var dim: Double {
         if isPendingCancel { return 0.55 }
-        if !item.ordered && (!item.available || cutoff) { return 0.5 }
+        if !isOrdered && (!item.available || cutoff) { return 0.5 }
         return 1
     }
 
@@ -263,7 +269,7 @@ private struct MenuRow: View {
             Image(systemName: "minus.circle.fill").foregroundStyle(.orange)
         } else if isPendingOrder {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint)
-        } else if item.ordered {
+        } else if isOrdered {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         } else {
             Image(systemName: "circle").foregroundStyle(.secondary)

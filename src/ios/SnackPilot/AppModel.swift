@@ -343,10 +343,40 @@ final class AppModel: ObservableObject {
 
     /// Today's local date as the core's `YYYY-MM-DD` day key.
     static func todayKey() -> String {
+        dayKey(from: Date())
+    }
+
+    /// Local `YYYY-MM-DD` for a date (matches `MenuItem.day`, which is device-local).
+    static func dayKey(from date: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: Date())
+        return f.string(from: date)
+    }
+
+    static func dayKey(fromEpochMs ms: Int64) -> String {
+        dayKey(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+    }
+
+    // MARK: Order ↔ menu cross-reference (the order page carries only category + weekday, and the
+    // menu HTML doesn't always mark confirmed orders — so we match by category title + date).
+
+    /// The actual dish for an order: the matching menu item's subtitle. `nil` when the menu for
+    /// that day isn't loaded (then the caller falls back to the order's own subtitle).
+    func dish(for order: OrderedMenu) -> String? {
+        let key = Self.dayKey(fromEpochMs: order.dateEpochMs)
+        guard let sub = snapshot?.items.first(where: { $0.title == order.title && $0.day == key })?
+            .subtitle, !sub.isEmpty else { return nil }
+        return sub
+    }
+
+    /// Whether a menu item is ordered — the parsed flag OR a matching entry in the orders list.
+    func isOrdered(_ item: MenuItem) -> Bool {
+        if item.ordered { return true }
+        guard let split = ordersSplit else { return false }
+        return (split.upcoming + split.past).contains {
+            $0.title == item.title && Self.dayKey(fromEpochMs: $0.dateEpochMs) == item.day
+        }
     }
 
     var hasPendingChanges: Bool {
@@ -357,6 +387,9 @@ final class AppModel: ObservableObject {
     func submitOrders() async {
         busy = true
         errorText = nil
+        // Keep the user on their current day: persist it so the post-submit menu refetch preserves
+        // it instead of snapping back to the nearest day (the submit pipeline re-fetches menus).
+        if let day = selectedDay { core.setSelectedDate(dateKey: day) }
         // Pass a progress listener so the submit bar can show the live pipeline phase (§6.6).
         let bridge = ProgressBridge { [weak self] phase in self?.orderProgress = phase }
         do {

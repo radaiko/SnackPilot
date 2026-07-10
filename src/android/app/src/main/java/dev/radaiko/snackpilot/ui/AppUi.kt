@@ -199,7 +199,8 @@ private fun MenusScreen(vm: AppViewModel) {
                         item(key = "h-$selected-$cat") { SectionHeader(categoryHeading(cat)) }
                     }
                     itemsIndexed(group, key = { i, _ -> "$selected-$cat-$i" }) { _, item ->
-                        MenuRow(item, orderState(item, snapshot), cutoff) { vm.toggle(item) }
+                        val ordered = vm.isOrdered(item)
+                        MenuRow(item, orderState(item, snapshot, ordered), cutoff, ordered) { vm.toggle(item) }
                         HorizontalDivider()
                     }
                 }
@@ -296,24 +297,26 @@ private fun NavArrow(glyph: String, enabled: Boolean, onClick: () -> Unit) {
 
 private enum class OrderState { NONE, ORDERED, PENDING_ORDER, PENDING_CANCEL }
 
-private fun orderState(item: MenuItem, s: MenuSnapshot): OrderState {
+private fun orderState(item: MenuItem, s: MenuSnapshot, isOrdered: Boolean): OrderState {
     val key = "${item.id}|${item.day}"
     return when {
         s.pendingOrders.contains(key) -> OrderState.PENDING_ORDER
         s.pendingCancellations.contains(key) -> OrderState.PENDING_CANCEL
-        item.ordered -> OrderState.ORDERED
+        isOrdered -> OrderState.ORDERED
         else -> OrderState.NONE
     }
 }
 
 @Composable
-private fun MenuRow(item: MenuItem, state: OrderState, cutoff: Boolean, onToggle: () -> Unit) {
-    // Tappability + card state (menus §6.1). Ordered items stay tappable (to cancel); everything
-    // else needs an available item before cutoff.
-    val canInteract = item.ordered || (item.available && !cutoff)
+private fun MenuRow(item: MenuItem, state: OrderState, cutoff: Boolean, isOrdered: Boolean, onToggle: () -> Unit) {
+    // Tappability + card state (menus §6.1). A menu-marked ordered item stays tappable (to cancel);
+    // an un-ordered item needs to be available before cutoff. A cross-ref-only ordered item (in the
+    // orders list but not flagged by the menu HTML) is NOT tappable — cancel it in Bestellungen —
+    // so a tap can't create a duplicate order.
+    val canInteract = item.ordered || (item.available && !cutoff && !isOrdered)
     val badge: String? = when {
         state == OrderState.PENDING_CANCEL -> "Wird storniert"
-        item.ordered -> "Bestellt"
+        isOrdered -> "Bestellt"
         !item.available -> "Ausverkauft"
         cutoff -> "Geschlossen"
         else -> null
@@ -415,7 +418,12 @@ private fun OrderRow(order: OrderedMenu, cancellable: Boolean, vm: AppViewModel)
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(order.title, style = MaterialTheme.typography.bodyLarge)
-            if (order.subtitle.isNotEmpty()) {
+            // Show the actual dish (looked up from the menu); fall back to the order's own
+            // subtitle (the weekday) when the menu for that day isn't loaded.
+            val dish = vm.dishFor(order)
+            if (dish != null) {
+                Text(dish, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (order.subtitle.isNotEmpty()) {
                 Text(order.subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(billDateLabel(order.dateEpochMs), style = MaterialTheme.typography.labelSmall,

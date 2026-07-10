@@ -75,7 +75,11 @@ private struct OrderRow: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(order.title).font(.body)
-                if !order.subtitle.isEmpty {
+                // Show the actual dish (looked up from the menu); fall back to the order's own
+                // subtitle (the weekday) when the menu for that day isn't loaded.
+                if let dish = model.dish(for: order) {
+                    Text(dish).font(.footnote).foregroundStyle(.secondary)
+                } else if !order.subtitle.isEmpty {
                     Text(order.subtitle).font(.footnote).foregroundStyle(.secondary)
                 }
                 Text(Self.dateLabel(order.dateEpochMs)).font(.caption2).foregroundStyle(.secondary)
