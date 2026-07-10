@@ -46,7 +46,7 @@ struct OrdersView: View {
                                            description: Text("Bestelle ein Menü im Menüs-Tab."))
                 }
             }
-            .navigationTitle("Bestellungen")
+            .toolbar(.hidden, for: .navigationBar)
         }
     }
 

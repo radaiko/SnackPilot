@@ -114,7 +114,7 @@ struct SettingsView: View {
                 }
 
             }
-            .navigationTitle("Einstellungen")
+            .toolbar(.hidden, for: .navigationBar)
             .onAppear { model.refreshLog() }
         }
     }

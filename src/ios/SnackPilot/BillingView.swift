@@ -41,7 +41,7 @@ struct BillingView: View {
                     }
                 }
             }
-            .navigationTitle("Abrechnung")
+            .toolbar(.hidden, for: .navigationBar)
         }
     }
 

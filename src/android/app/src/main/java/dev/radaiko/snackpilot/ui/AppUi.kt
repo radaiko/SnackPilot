@@ -160,12 +160,6 @@ private val CATEGORY_ORDER = listOf(
 @Composable
 private fun MenusScreen(vm: AppViewModel) {
     Column {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Menüs", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        }
         val snapshot = vm.snapshot
         if (snapshot == null || snapshot.items.isEmpty()) {
             if (!vm.gourmetAuthenticated) {
@@ -358,8 +352,6 @@ private fun MenuRow(item: MenuItem, state: OrderState, cutoff: Boolean, onToggle
 @Composable
 private fun OrdersScreen(vm: AppViewModel) {
     Column {
-        Text("Bestellungen", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(16.dp))
         val split = vm.ordersSplit
         if (split == null || (split.upcoming.isEmpty() && split.past.isEmpty())) {
             if (!vm.gourmetAuthenticated) {
@@ -429,12 +421,6 @@ private fun OrderRow(order: OrderedMenu, cancellable: Boolean, vm: AppViewModel)
 @Composable
 private fun BillingScreen(vm: AppViewModel) {
     Column {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Abrechnung", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        }
         // Gate on auth, not monthOptions (which is always 3 static offsets). Un-authenticated →
         // "Anmeldung erforderlich" (settings §3.7).
         if (!vm.gourmetAuthenticated && !vm.ventopayAuthenticated) {
@@ -639,9 +625,6 @@ private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Un
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
     ) {
         item {
-            Text("Einstellungen", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.padding(8.dp))
-
             // Section: Konto
             Text("Konto", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.padding(2.dp))

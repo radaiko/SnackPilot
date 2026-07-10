@@ -31,7 +31,7 @@ struct MenusView: View {
                                            description: Text("Für diesen Zeitraum liegen keine Menüs vor."))
                 }
             }
-            .navigationTitle("Menüs")
+            .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom) {
                 if model.hasPendingChanges {
                     submitBar
