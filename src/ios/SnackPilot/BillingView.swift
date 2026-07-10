@@ -27,13 +27,27 @@ struct BillingView: View {
             }
             .navigationTitle("Abrechnung")
             .overlay {
-                if model.monthOptions.isEmpty {
-                    ContentUnavailableView("Keine Abrechnung",
-                                           systemImage: "eurosign.circle",
-                                           description: Text("Nach der Anmeldung verfügbar."))
+                if !hasData {
+                    if !model.gourmetAuthenticated && !model.ventopayAuthenticated {
+                        // Neither source authenticated and nothing cached (settings §3.7).
+                        ContentUnavailableView("Anmeldung erforderlich",
+                                               systemImage: "person.crop.circle.badge.xmark",
+                                               description: Text("Melde dich in den Einstellungen an."))
+                    } else {
+                        ContentUnavailableView("Keine Abrechnung",
+                                               systemImage: "eurosign.circle",
+                                               description: Text("Für diesen Zeitraum liegen keine Buchungen vor."))
+                    }
                 }
             }
         }
+    }
+
+    /// True when either billing source has rows to show for the selected month.
+    private var hasData: Bool {
+        let gourmet = model.gourmetMonth.map { !$0.bills.isEmpty } ?? false
+        let ventopay = model.ventopayMonth.map { !$0.transactions.isEmpty } ?? false
+        return gourmet || ventopay
     }
 
     @ViewBuilder private var gourmetSection: some View {

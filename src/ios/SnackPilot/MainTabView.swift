@@ -44,14 +44,19 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let user = model.userInfo {
-                    Section("Konto") {
-                        LabeledContent("Benutzer", value: user.username)
-                        if model.demoMode {
-                            LabeledContent("Modus", value: "Demo")
-                        }
+                Section("Konto") {
+                    NavigationLink {
+                        KantineLoginView()
+                    } label: {
+                        settingsRow(title: "Kantine-Zugangsdaten", hint: kantineHint)
+                    }
+                    NavigationLink {
+                        AutomatenLoginView()
+                    } label: {
+                        settingsRow(title: "Automaten-Zugangsdaten", hint: automatenHint)
                     }
                 }
+
                 Section("Benachrichtigungen") {
                     Toggle("Tägliche Bestell-Erinnerung", isOn: Binding(
                         get: { model.dailyReminderEnabled },
@@ -100,12 +105,29 @@ struct SettingsView: View {
                     }
                 }
 
-                Section {
-                    Button("Abmelden", role: .destructive) { model.logout() }
-                }
             }
             .navigationTitle("Einstellungen")
             .onAppear { model.refreshLog() }
+        }
+    }
+
+    /// Gourmet auth hint (settings §2.1): "Angemeldet als {username}" or "Nicht angemeldet".
+    private var kantineHint: String {
+        if model.gourmetAuthenticated {
+            return "Angemeldet als \(model.userInfo?.username ?? "")"
+        }
+        return "Nicht angemeldet"
+    }
+
+    /// Ventopay auth hint (settings §2.2): "Sitzung aktiv" or "Nicht angemeldet" (no username).
+    private var automatenHint: String {
+        model.ventopayAuthenticated ? "Sitzung aktiv" : "Nicht angemeldet"
+    }
+
+    private func settingsRow(title: String, hint: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+            Text(hint).font(.footnote).foregroundStyle(.secondary)
         }
     }
 

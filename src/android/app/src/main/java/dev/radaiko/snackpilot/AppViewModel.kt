@@ -48,6 +48,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var selectedTab by mutableIntStateOf(0)
 
+    // Auth flags (settings §3.7 / §3.1) — drive the per-tab empty states and Settings hints.
+    var gourmetAuthenticated by mutableStateOf(false)
+        private set
+    var ventopayAuthenticated by mutableStateOf(false)
+        private set
+    var ventopayBusy by mutableStateOf(false)
+        private set
+    var ventopayError by mutableStateOf<String?>(null)
+        private set
+
     // Orders (Bestellungen)
     var ordersSplit by mutableStateOf<OrdersSplit?>(null)
         private set
@@ -91,6 +101,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         dailyReminderEnabled = prefs.getBoolean("daily_reminder_enabled", false)
         reminderHour = prefs.getInt("daily_reminder_hour", 8)
         reminderMinute = prefs.getInt("daily_reminder_minute", 0)
+        loadCachedData()
+    }
+
+    /** Cache-first display (caching §4): publish any cached menus/orders/billing + auth state
+     *  synchronously at startup so returning users see content instantly, before network fetches. */
+    private fun loadCachedData() {
+        runCatching {
+            core.loadCachedMenus()
+            core.loadCachedOrders()
+            core.loadCachedBillingMonths()
+            snapshot = core.menuSnapshot()
+            ordersSplit = core.splitOrders()
+            monthOptions = core.billingMonthOptions()
+            userInfo = core.gourmetUserInfo()
+            gourmetAuthenticated = core.gourmetIsAuthenticated()
+            ventopayAuthenticated = core.ventopayIsAuthenticated()
+            val key = monthOptions.firstOrNull { it.offset == selectedOffset }?.key
+            if (key != null) {
+                gourmetMonth = core.gourmetBillingMonth(key)
+                ventopayMonth = core.ventopayBillingMonth(key)
+            }
+        }
     }
 
     fun isDemoCreds(user: String, pass: String): Boolean =
@@ -107,9 +139,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             errorText = null
             try {
                 userInfo = core.gourmetLogin(Credentials(username = user, password = pass))
+                gourmetAuthenticated = core.gourmetIsAuthenticated()
                 demoMode = demo
                 if (demo) {
-                    runCatching { core.ventopayLogin(Credentials(username = user, password = pass)) }
+                    runCatching {
+                        core.ventopayLogin(Credentials(username = user, password = pass))
+                        ventopayAuthenticated = core.ventopayIsAuthenticated()
+                    }
                 }
                 loadSession()
             } catch (e: Exception) {
@@ -245,6 +281,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Confirm all unconfirmed upcoming orders (orders §5.3), then refresh. */
+    suspend fun confirmOrders() {
+        busy = true
+        try {
+            core.confirmOrders()
+            loadOrders()
+        } catch (e: Exception) {
+            ordersError = e.toString()
+        }
+        busy = false
+    }
+
+    fun confirmOrdersAsync() {
+        viewModelScope.launch { confirmOrders() }
+    }
+
     fun selectMonth(offset: UByte) {
         selectedOffset = offset
         viewModelScope.launch { loadBilling(offset) }
@@ -261,23 +313,58 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Offline demo session (button / debug hook) — routes through the same login path. */
     fun loadDemo() = login("demo", "demo1234!")
 
-    /** Startup auto-login (settings §3.7): log in from saved credentials (this install's, or a
-     *  v1 install's — same store format). No login wall for returning users. */
+    /** Startup auto-login (settings §3.7): fire-and-forget login from saved credentials for BOTH
+     *  services (this install's, or a v1 install's — same store format). No login wall. */
     fun attemptAutoLogin() {
-        val saved = creds.savedGourmet() ?: return
-        login(saved.first, saved.second)
+        creds.savedGourmet()?.let { login(it.first, it.second) }
+        creds.savedVentopay()?.let { ventopayLogin(it.first, it.second) }
     }
 
-    fun logout() {
-        userInfo = null
-        snapshot = null
-        demoMode = false
-        ordersSplit = null
-        ordersError = null
-        monthOptions = emptyList()
-        gourmetMonth = null
-        ventopayMonth = null
-        selectedOffset = 0u
-        selectedTab = 0
+    /** Kantine (Gourmet) logout: end the session and clear session state; saved credentials are
+     *  NOT deleted (settings §3.4). */
+    fun gourmetLogout() {
+        viewModelScope.launch {
+            runCatching { core.gourmetLogout() }
+            userInfo = null
+            snapshot = null
+            demoMode = false
+            ordersSplit = null
+            ordersError = null
+            monthOptions = emptyList()
+            gourmetMonth = null
+            ventopayMonth = null
+            selectedOffset = 0u
+            gourmetAuthenticated = false
+        }
+    }
+
+    // MARK: Ventopay (Automaten) auth
+
+    fun savedGourmetCreds(): Pair<String, String>? = creds.savedGourmet()
+    fun savedVentopayCreds(): Pair<String, String>? = creds.savedVentopay()
+
+    /** Persist Ventopay credentials (§3.6: persist-before-validate), then log in. */
+    fun ventopayLogin(user: String, pass: String) {
+        creds.saveVentopay(user, pass)
+        viewModelScope.launch {
+            ventopayBusy = true
+            ventopayError = null
+            try {
+                core.ventopayLogin(Credentials(username = user, password = pass))
+                ventopayAuthenticated = core.ventopayIsAuthenticated()
+            } catch (e: Exception) {
+                ventopayError = e.toString()
+            }
+            ventopayBusy = false
+        }
+    }
+
+    /** Ventopay logout: end the session; saved credentials are NOT deleted (settings §3.4). */
+    fun ventopayLogout() {
+        viewModelScope.launch {
+            runCatching { core.ventopayLogout() }
+            ventopayAuthenticated = false
+            ventopayError = null
+        }
     }
 }

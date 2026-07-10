@@ -16,6 +16,13 @@ final class AppModel: ObservableObject {
     @Published var demoMode = false
     @Published var selectedTab = 0
 
+    /// Live auth flags mirrored from the core (settings §3.7 no-wall navigation). Per-tab empty
+    /// states key off these; the root never gates on them.
+    @Published var gourmetAuthenticated = false
+    @Published var ventopayAuthenticated = false
+    @Published var ventopayError: String?
+    @Published var ventopayBusy = false
+
     // Orders (Bestellungen)
     @Published var ordersSplit: OrdersSplit?
     @Published var ordersError: String?
@@ -49,6 +56,10 @@ final class AppModel: ObservableObject {
             fatalError("SnackPilotCore init failed: \(error)")
         }
 
+        // Cache-first display (caching §4): publish any cached menus/orders/billing before the
+        // network fetches so returning users see content instantly.
+        loadCached()
+
         NotificationService.shared.configure()
         Task {
             await NotificationService.shared.requestPermission()
@@ -77,10 +88,28 @@ final class AppModel: ObservableObject {
     }
 
     /// Startup auto-login (settings §3.7): if credentials are saved (this install's, or a v1
-    /// install's — same Keychain coordinates), log straight in. No login wall for returning users.
+    /// install's — same Keychain coordinates), log straight in for both services (Gourmet first,
+    /// then Ventopay), fire-and-forget. No login wall for returning users.
     private func attemptAutoLogin() {
-        guard let creds = KeychainStore.savedGourmet() else { return }
-        Task { await login(user: creds.username, pass: creds.password) }
+        if let creds = KeychainStore.savedGourmet() {
+            Task { await login(user: creds.username, pass: creds.password) }
+        }
+        if let vcreds = KeychainStore.savedVentopay() {
+            Task { await ventopayLogin(user: vcreds.username, pass: vcreds.password) }
+        }
+    }
+
+    /// Read the core's cached menus/orders/billing into the published state (caching §4).
+    private func loadCached() {
+        core.loadCachedMenus()
+        core.loadCachedOrders()
+        core.loadCachedBillingMonths()
+        snapshot = core.menuSnapshot()
+        ordersSplit = core.splitOrders()
+        monthOptions = core.billingMonthOptions()
+        refreshBilling()
+        gourmetAuthenticated = core.gourmetIsAuthenticated()
+        ventopayAuthenticated = core.ventopayIsAuthenticated()
     }
 
     func isDemoCredentials(user: String, pass: String) -> Bool {
@@ -97,17 +126,58 @@ final class AppModel: ObservableObject {
         KeychainStore.saveGourmet(username: user, password: pass)
         do {
             userInfo = try await core.gourmetLogin(creds: Credentials(username: user, password: pass))
+            gourmetAuthenticated = core.gourmetIsAuthenticated()
             demoMode = demo
             // In demo mode also "log in" Ventopay so its transactions show; live users log in
-            // to the Automaten side separately (not yet wired).
+            // to the Automaten side separately (Settings → Automaten-Zugangsdaten).
             if demo {
                 try? await core.ventopayLogin(creds: Credentials(username: user, password: pass))
+                ventopayAuthenticated = core.ventopayIsAuthenticated()
             }
             await loadSession()
         } catch {
             errorText = String(describing: error)
         }
         busy = false
+    }
+
+    // MARK: Ventopay (Automaten) session
+
+    /// Persist Automaten credentials first (settings §3.6), then log in against the core.
+    /// Publishes `ventopayAuthenticated`; refreshes billing so Automaten transactions appear.
+    func ventopayLogin(user: String, pass: String) async {
+        ventopayBusy = true
+        ventopayError = nil
+        KeychainStore.saveVentopay(username: user, password: pass)
+        do {
+            try await core.ventopayLogin(creds: Credentials(username: user, password: pass))
+            ventopayAuthenticated = core.ventopayIsAuthenticated()
+            monthOptions = core.billingMonthOptions()
+            await loadBilling(offset: selectedOffset)
+        } catch {
+            ventopayError = String(describing: error)
+        }
+        ventopayBusy = false
+    }
+
+    /// End the Automaten session (core.ventopayLogout). Saved credentials are kept (settings §3.4).
+    func ventopayLogout() async {
+        try? await core.ventopayLogout()
+        ventopayAuthenticated = core.ventopayIsAuthenticated()
+        ventopayMonth = nil
+    }
+
+    /// End the Kantine session (core.gourmetLogout). Saved credentials are kept (settings §3.4);
+    /// clears the session-scoped state so the tabs fall back to their empty states.
+    func gourmetLogout() async {
+        try? await core.gourmetLogout()
+        userInfo = nil
+        gourmetAuthenticated = core.gourmetIsAuthenticated()
+        demoMode = false
+        snapshot = nil
+        ordersSplit = nil
+        ordersError = nil
+        gourmetMonth = nil
     }
 
     /// Fetch menus + billing for the active session.
@@ -257,19 +327,6 @@ final class AppModel: ObservableObject {
         }
         _ = try? await core.runMenuCheck(creds: creds)
         refreshLog()
-    }
-
-    func logout() {
-        userInfo = nil
-        snapshot = nil
-        demoMode = false
-        ordersSplit = nil
-        ordersError = nil
-        monthOptions = []
-        gourmetMonth = nil
-        ventopayMonth = nil
-        selectedOffset = 0
-        selectedTab = 0
     }
 
     private func tabIndex(_ name: String) -> Int {

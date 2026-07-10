@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CheckCircle
@@ -32,7 +34,6 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,7 +62,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/** Login gate → tabs. */
+/** Always the 4-tab shell — no login wall (settings §3.7). Un-authenticated users see per-tab
+ *  empty states and sign in from the Einstellungen tab. */
 @Composable
 fun RootScreen(
     vm: AppViewModel,
@@ -87,73 +89,7 @@ fun RootScreen(
             vm.attemptAutoLogin()
         }
     }
-    if (vm.userInfo == null) LoginScreen(vm) else MainScaffold(vm)
-}
-
-@Composable
-private fun LoginScreen(vm: AppViewModel) {
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text("SnackPilot", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            Text("Kantine-Login", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.padding(8.dp))
-
-            OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text("Benutzername") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.padding(4.dp))
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Passwort") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            vm.errorText?.let {
-                Spacer(Modifier.padding(4.dp))
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
-
-            Spacer(Modifier.padding(8.dp))
-            Button(
-                onClick = { vm.login(username, password) },
-                enabled = !vm.busy && username.isNotEmpty() && password.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (vm.busy) CircularProgressIndicator(modifier = Modifier.padding(2.dp)) else Text("Anmelden")
-            }
-            Spacer(Modifier.padding(4.dp))
-            OutlinedButton(onClick = { vm.loadDemo() }, modifier = Modifier.fillMaxWidth()) {
-                Text("Demo-Menüs anzeigen")
-            }
-            Text(
-                "Offline-Vorschau mit Beispieldaten — keine Verbindung zum Server.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(Modifier.padding(16.dp))
-            Text(
-                "Core ${vm.coreVersion}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
+    MainScaffold(vm)
 }
 
 @Composable
@@ -208,11 +144,15 @@ private fun MenusScreen(vm: AppViewModel) {
         }
         val snapshot = vm.snapshot
         if (snapshot == null || snapshot.items.isEmpty()) {
-            Text(
-                "Keine Menüs für diesen Zeitraum.",
-                modifier = Modifier.padding(16.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (!vm.gourmetAuthenticated) {
+                NotSignedInState()
+            } else {
+                Text(
+                    "Keine Menüs für diesen Zeitraum.",
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             return
         }
         LazyColumn(
@@ -302,9 +242,33 @@ private fun OrdersScreen(vm: AppViewModel) {
             modifier = Modifier.padding(16.dp))
         val split = vm.ordersSplit
         if (split == null || (split.upcoming.isEmpty() && split.past.isEmpty())) {
-            Text("Bestelle ein Menü im Menüs-Tab.", modifier = Modifier.padding(16.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!vm.gourmetAuthenticated) {
+                NotSignedInState()
+            } else {
+                Text("Bestelle ein Menü im Menüs-Tab.", modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             return
+        }
+        val unconfirmed = split.upcoming.count { !it.approved }
+        if (unconfirmed > 0) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "$unconfirmed unbestätigte Bestellung(en)",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Button(onClick = { vm.confirmOrdersAsync() }, enabled = !vm.busy) {
+                        Text("Bestätigen")
+                    }
+                }
+            }
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -357,7 +321,9 @@ private fun BillingScreen(vm: AppViewModel) {
             }
         }
         if (vm.monthOptions.isEmpty()) {
-            Text("Nach der Anmeldung verfügbar.", modifier = Modifier.padding(16.dp),
+            val msg = if (!vm.gourmetAuthenticated && !vm.ventopayAuthenticated)
+                "Anmeldung erforderlich" else "Nach der Anmeldung verfügbar."
+            Text(msg, modifier = Modifier.padding(16.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             return
         }
@@ -436,8 +402,20 @@ private fun billDateLabel(epochMs: Long): String = try {
     ""
 }
 
+private enum class SettingsRoute { ROOT, KANTINE, AUTOMATEN }
+
 @Composable
 private fun SettingsScreen(vm: AppViewModel) {
+    var route by remember { mutableStateOf(SettingsRoute.ROOT) }
+    when (route) {
+        SettingsRoute.ROOT -> SettingsRootList(vm) { route = it }
+        SettingsRoute.KANTINE -> KantineLoginScreen(vm) { route = SettingsRoute.ROOT }
+        SettingsRoute.AUTOMATEN -> AutomatenLoginScreen(vm) { route = SettingsRoute.ROOT }
+    }
+}
+
+@Composable
+private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Unit) {
     LaunchedEffect(Unit) { vm.refreshLog() }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -446,17 +424,21 @@ private fun SettingsScreen(vm: AppViewModel) {
         item {
             Text("Einstellungen", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.padding(8.dp))
-            vm.userInfo?.let {
-                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Benutzer: ${it.username}")
-                        if (vm.demoMode) Text("Modus: Demo")
-                    }
-                }
-            }
-            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Text("Core-Version: ${vm.coreVersion}", modifier = Modifier.padding(16.dp))
-            }
+
+            // Section: Konto
+            Text("Konto", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.padding(2.dp))
+            SettingsNavRow(
+                title = "Kantine-Zugangsdaten",
+                hint = if (vm.gourmetAuthenticated)
+                    "Angemeldet als ${vm.userInfo?.username ?: ""}" else "Nicht angemeldet",
+                onClick = { onNavigate(SettingsRoute.KANTINE) }
+            )
+            SettingsNavRow(
+                title = "Automaten-Zugangsdaten",
+                hint = if (vm.ventopayAuthenticated) "Sitzung aktiv" else "Nicht angemeldet",
+                onClick = { onNavigate(SettingsRoute.AUTOMATEN) }
+            )
 
             Spacer(Modifier.padding(8.dp))
             Text("Benachrichtigungen", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -509,11 +491,157 @@ private fun SettingsScreen(vm: AppViewModel) {
             }
         }
         item {
+            Spacer(Modifier.padding(16.dp))
+            Text("Core-Version: ${vm.coreVersion}",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun SettingsNavRow(title: String, hint: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    HorizontalDivider()
+}
+
+/** Back control shared by the settings sub-screens (settings §1): chevron + "Einstellungen". */
+@Composable
+private fun SettingsBackControl(onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onBack() }.padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary)
+        Text("Einstellungen", color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp))
+    }
+}
+
+/** Kantine (Gourmet) credentials sub-screen (settings §4). Reuses the former login form. */
+@Composable
+private fun KantineLoginScreen(vm: AppViewModel, onBack: () -> Unit) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        vm.savedGourmetCreds()?.let { username = it.first; password = it.second }
+    }
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        SettingsBackControl(onBack)
+        Text("Kantine-Zugangsdaten", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.padding(8.dp))
+
+        if (vm.gourmetAuthenticated) {
+            Text("Angemeldet als: ${vm.userInfo?.username ?: ""}", style = MaterialTheme.typography.bodyLarge)
+            if (vm.demoMode) Text("Modus: Demo", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.padding(8.dp))
-            TextButton(onClick = { vm.logout() }) {
+            OutlinedButton(onClick = { vm.gourmetLogout() }, modifier = Modifier.fillMaxWidth()) {
                 Text("Abmelden", color = MaterialTheme.colorScheme.error)
             }
+            return
         }
+
+        OutlinedTextField(
+            value = username, onValueChange = { username = it },
+            label = { Text("Benutzername") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.padding(4.dp))
+        OutlinedTextField(
+            value = password, onValueChange = { password = it },
+            label = { Text("Passwort") }, singleLine = true,
+            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
+        )
+        vm.errorText?.let {
+            Spacer(Modifier.padding(4.dp))
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        Spacer(Modifier.padding(8.dp))
+        Button(
+            onClick = { vm.login(username, password) },
+            enabled = !vm.busy && username.isNotEmpty() && password.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (vm.busy) CircularProgressIndicator(modifier = Modifier.padding(2.dp)) else Text("Speichern")
+        }
+        Spacer(Modifier.padding(4.dp))
+        OutlinedButton(onClick = { vm.loadDemo() }, modifier = Modifier.fillMaxWidth()) {
+            Text("Demo-Menüs anzeigen")
+        }
+        Text(
+            "Offline-Vorschau mit Beispieldaten — keine Verbindung zum Server.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Automaten (Ventopay) credentials sub-screen (settings §5, 04-ui-ux §3.6). */
+@Composable
+private fun AutomatenLoginScreen(vm: AppViewModel, onBack: () -> Unit) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        vm.savedVentopayCreds()?.let { username = it.first; password = it.second }
+    }
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        SettingsBackControl(onBack)
+        Text("Automaten-Zugangsdaten", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Für Automaten und Kassenabrechnungen",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.padding(8.dp))
+
+        if (vm.ventopayAuthenticated) {
+            Text("Automaten-Sitzung aktiv", style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.padding(8.dp))
+            OutlinedButton(onClick = { vm.ventopayLogout() }, modifier = Modifier.fillMaxWidth()) {
+                Text("Abmelden", color = MaterialTheme.colorScheme.error)
+            }
+            return
+        }
+
+        OutlinedTextField(
+            value = username, onValueChange = { username = it },
+            label = { Text("Benutzername") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.padding(4.dp))
+        OutlinedTextField(
+            value = password, onValueChange = { password = it },
+            label = { Text("Passwort") }, singleLine = true,
+            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
+        )
+        vm.ventopayError?.let {
+            Spacer(Modifier.padding(4.dp))
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        Spacer(Modifier.padding(8.dp))
+        Button(
+            onClick = { vm.ventopayLogin(username, password) },
+            enabled = !vm.ventopayBusy && username.isNotEmpty() && password.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (vm.ventopayBusy) CircularProgressIndicator(modifier = Modifier.padding(2.dp)) else Text("Speichern")
+        }
+    }
+}
+
+/** Per-tab "not signed in" empty state (settings §3.7). */
+@Composable
+private fun NotSignedInState() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Nicht angemeldet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text("Melde dich in den Einstellungen an.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
     }
 }
 

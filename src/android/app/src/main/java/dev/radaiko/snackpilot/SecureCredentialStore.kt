@@ -71,6 +71,19 @@ class SecureCredentialStore(context: Context) {
         return if (!u.isNullOrEmpty() && !p.isNullOrEmpty()) u to p else null
     }
 
+    // Ventopay credential pair (settings §3.6).
+    fun saveVentopay(username: String, password: String) {
+        set(VENTOPAY_USERNAME, username)
+        set(VENTOPAY_PASSWORD, password)
+    }
+
+    /** `null` unless BOTH keys are present and non-empty (settings §3.6). */
+    fun savedVentopay(): Pair<String, String>? {
+        val u = get(VENTOPAY_USERNAME)
+        val p = get(VENTOPAY_PASSWORD)
+        return if (!u.isNullOrEmpty() && !p.isNullOrEmpty()) u to p else null
+    }
+
     private fun getOrCreateKey(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }

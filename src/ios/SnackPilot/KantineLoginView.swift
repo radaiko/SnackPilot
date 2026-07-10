@@ -1,16 +1,27 @@
 import SwiftUI
 
-/// Gourmet (Kantine) login. The demo credentials render canned data offline and are never
-/// sent to the live server; any other credentials perform the real scraping login.
-struct LoginView: View {
+/// Kantine (Gourmet) credentials sub-screen, pushed from Settings → Konto (settings §4 / §3.5).
+/// Reuses the former root login form. The demo credentials render canned data offline and are
+/// never sent to the live server; any other credentials perform the real scraping login.
+struct KantineLoginView: View {
     @EnvironmentObject var model: AppModel
     @State private var username = ""
     @State private var password = ""
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Kantine-Login") {
+        Form {
+            if model.gourmetAuthenticated {
+                Section("Sitzung") {
+                    LabeledContent("Angemeldet als", value: model.userInfo?.username ?? username)
+                    if model.demoMode {
+                        LabeledContent("Modus", value: "Demo")
+                    }
+                    Button("Abmelden", role: .destructive) {
+                        Task { await model.gourmetLogout() }
+                    }
+                }
+            } else {
+                Section("Zugangsdaten") {
                     TextField("Benutzername", text: $username)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
@@ -37,7 +48,7 @@ struct LoginView: View {
                             if model.busy {
                                 ProgressView()
                             } else {
-                                Text("Anmelden").bold()
+                                Text("Speichern").bold()
                             }
                             Spacer()
                         }
@@ -52,12 +63,13 @@ struct LoginView: View {
                     Text("Offline-Vorschau mit Beispieldaten — keine Verbindung zum Server.")
                 }
             }
-            .navigationTitle("SnackPilot")
-            .safeAreaInset(edge: .bottom) {
-                Text("Core \(model.coreVersion)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 8)
+        }
+        .navigationTitle("Kantine-Zugangsdaten")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if let creds = KeychainStore.savedGourmet() {
+                username = creds.username
+                password = creds.password
             }
         }
     }

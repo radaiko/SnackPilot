@@ -61,4 +61,17 @@ enum KeychainStore {
               !u.isEmpty, !p.isEmpty else { return nil }
         return (u, p)
     }
+
+    /// Save both Ventopay keys (settings §3.6 `saveCredentials`, Automaten pair).
+    static func saveVentopay(username: String, password: String) {
+        set(ventopayUsername, username)
+        set(ventopayPassword, password)
+    }
+
+    /// Read both Ventopay keys; `nil` unless BOTH are non-empty (settings §3.6).
+    static func savedVentopay() -> (username: String, password: String)? {
+        guard let u = get(ventopayUsername), let p = get(ventopayPassword),
+              !u.isEmpty, !p.isEmpty else { return nil }
+        return (u, p)
+    }
 }

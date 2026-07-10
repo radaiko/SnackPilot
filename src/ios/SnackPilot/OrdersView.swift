@@ -5,11 +5,21 @@ import SwiftUI
 struct OrdersView: View {
     @EnvironmentObject var model: AppModel
 
+    /// Upcoming orders still awaiting approval (orders §5.3 confirm banner).
+    private var unconfirmedCount: Int {
+        model.ordersSplit?.upcoming.filter { !$0.approved }.count ?? 0
+    }
+
     var body: some View {
         NavigationStack {
             Group {
                 if let split = model.ordersSplit, !(split.upcoming.isEmpty && split.past.isEmpty) {
                     List {
+                        if unconfirmedCount > 0 {
+                            Section {
+                                confirmBanner(count: unconfirmedCount)
+                            }
+                        }
                         if !split.upcoming.isEmpty {
                             Section("Anstehend") {
                                 ForEach(split.upcoming, id: \.positionId) { order in
@@ -25,6 +35,11 @@ struct OrdersView: View {
                             }
                         }
                     }
+                } else if !model.gourmetAuthenticated {
+                    // No-wall navigation (settings §3.7): unauthenticated + no cached orders.
+                    ContentUnavailableView("Nicht angemeldet",
+                                           systemImage: "person.crop.circle.badge.xmark",
+                                           description: Text("Melde dich in den Einstellungen an."))
                 } else {
                     ContentUnavailableView("Keine Bestellungen",
                                            systemImage: "checklist",
@@ -32,6 +47,22 @@ struct OrdersView: View {
                 }
             }
             .navigationTitle("Bestellungen")
+        }
+    }
+
+    private func confirmBanner(count: Int) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(.orange)
+            Text("\(count) unbestätigte Bestellung(en)")
+                .font(.subheadline)
+            Spacer()
+            Button("Bestätigen") {
+                Task { await model.confirmOrders() }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.brand)
+            .disabled(model.busy)
         }
     }
 }

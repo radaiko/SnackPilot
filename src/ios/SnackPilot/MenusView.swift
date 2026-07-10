@@ -25,6 +25,11 @@ struct MenusView: View {
                     }
                 } else if model.busy {
                     ProgressView("Menüs werden geladen …")
+                } else if !model.gourmetAuthenticated {
+                    // No-wall navigation (settings §3.7): unauthenticated + no cached data.
+                    ContentUnavailableView("Nicht angemeldet",
+                                           systemImage: "person.crop.circle.badge.xmark",
+                                           description: Text("Melde dich in den Einstellungen an."))
                 } else {
                     ContentUnavailableView("Keine Menüs",
                                            systemImage: "fork.knife",
