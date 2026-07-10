@@ -185,8 +185,10 @@ async fn wire_audit() {
         .any(|(k, val)| k.eq_ignore_ascii_case("set-cookie") && val.contains("ASP.NET_SessionId"));
     println!("\n==================== FINDINGS ====================");
     println!(
-        "User-Agent absent on all requests: {}",
-        reqs.iter().all(|r| r.header("user-agent").is_none())
+        "User-Agent present (mobile Safari) on all requests: {}",
+        reqs.iter().all(|r| r
+            .header("user-agent")
+            .is_some_and(|ua| ua.starts_with("Mozilla/5.0")))
     );
     println!(
         "Accept header present: {}",
@@ -209,10 +211,12 @@ async fn wire_audit() {
     // ---- Invariants that MUST hold (locked) ----
     for r in &reqs {
         assert!(
-            r.header("user-agent").is_none(),
-            "reqwest sent a User-Agent on {} {} — must be absent (01 §10.2)",
+            r.header("user-agent")
+                .is_some_and(|ua| ua.starts_with("Mozilla/5.0")),
+            "missing/altered User-Agent on {} {} (absent UA is a bot signal, 01 §10.2): {:?}",
             r.method,
-            r.path
+            r.path,
+            r.header("user-agent")
         );
         assert_eq!(
             r.header("accept"),

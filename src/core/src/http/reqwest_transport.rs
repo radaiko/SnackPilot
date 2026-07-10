@@ -1,5 +1,5 @@
-//! Production Transport on reqwest. Shared config for both services: explicit Accept
-//! header on every request, NO User-Agent, redirect limit 5, status 200-399 = success
+//! Production Transport on reqwest. Shared config for both services: explicit Accept header on
+//! every request, a mobile-Safari User-Agent, redirect limit 5, status 200-399 = success
 //! (docs/architecture §3.1; 01 §2, 02 §2.1). Per-service cookie behavior is layered above.
 use crate::error::{CoreError, CoreResult};
 use crate::http::{HttpResponse, Method, Request, RequestBody, Transport};
@@ -7,6 +7,12 @@ use std::future::Future;
 use std::pin::Pin;
 
 const ACCEPT: &str = "application/json, text/plain, */*";
+
+/// A realistic current mobile-Safari User-Agent. v1 relied on the platform default UA (non-empty);
+/// reqwest sends none by default, and an absent UA is a common bot-detection trigger (01 §10.2),
+/// so we send a plausible browser UA instead of nothing. Single value for both platforms.
+const USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) \
+AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1";
 
 pub struct ReqwestTransport {
     client: reqwest::Client,
@@ -29,7 +35,7 @@ impl ReqwestTransport {
         let client = reqwest::Client::builder()
             .cookie_store(cookie_store)
             .redirect(policy)
-            // reqwest sets no default UA when we don't call .user_agent(); leave it absent.
+            .user_agent(USER_AGENT)
             .build()
             .map_err(|e| CoreError::Http {
                 detail: e.to_string(),
@@ -120,7 +126,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sends_accept_header_and_no_user_agent() {
+    async fn sends_accept_and_mobile_user_agent() {
         let (url, rx) = spawn_capturing_server();
         let t = ReqwestTransport::new(true, true).unwrap();
         let resp = t
@@ -141,9 +147,10 @@ mod tests {
                 || raw.contains("Accept: application/json, text/plain, */*"),
             "missing Accept header in:\n{raw}"
         );
+        // A non-empty, browser-like UA must be present (absent UA is a bot signal, 01 §10.2).
         assert!(
-            !raw.to_lowercase().contains("user-agent:"),
-            "reqwest sent a User-Agent, must be none:\n{raw}"
+            raw.to_lowercase().contains("user-agent: mozilla/5.0"),
+            "expected the mobile-Safari User-Agent in:\n{raw}"
         );
     }
 
