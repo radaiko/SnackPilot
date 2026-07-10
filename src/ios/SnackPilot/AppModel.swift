@@ -91,11 +91,20 @@ final class AppModel: ObservableObject {
     /// install's — same Keychain coordinates), log straight in for both services (Gourmet first,
     /// then Ventopay), fire-and-forget. No login wall for returning users.
     private func attemptAutoLogin() {
-        if let creds = KeychainStore.savedGourmet() {
-            Task { await login(user: creds.username, pass: creds.password) }
-        }
-        if let vcreds = KeychainStore.savedVentopay() {
-            Task { await ventopayLogin(user: vcreds.username, pass: vcreds.password) }
+        let g = KeychainStore.savedGourmet()
+        let v = KeychainStore.savedVentopay()
+        guard g != nil || v != nil else { return }
+        // Sequence in ONE task: authenticate Ventopay first WITHOUT its own billing fetch, so the
+        // Gourmet session-load fetches both sources in a single pass — avoids duplicate concurrent
+        // billing scrapes (ban risk from bot-like duplicate traffic).
+        Task {
+            if let v { await ventopayLogin(user: v.username, pass: v.password, fetchBilling: false) }
+            if let g {
+                await login(user: g.username, pass: g.password)
+            } else if ventopayAuthenticated {
+                // Ventopay-only user: no Gourmet session-load, so fetch billing here.
+                await loadBilling(offset: selectedOffset)
+            }
         }
     }
 
@@ -145,15 +154,19 @@ final class AppModel: ObservableObject {
 
     /// Persist Automaten credentials first (settings §3.6), then log in against the core.
     /// Publishes `ventopayAuthenticated`; refreshes billing so Automaten transactions appear.
-    func ventopayLogin(user: String, pass: String) async {
+    /// `fetchBilling` is false during startup auto-login (the Gourmet session-load fetches both
+    /// sources once); interactive Automaten login leaves it true so transactions appear immediately.
+    func ventopayLogin(user: String, pass: String, fetchBilling: Bool = true) async {
         ventopayBusy = true
         ventopayError = nil
         KeychainStore.saveVentopay(username: user, password: pass)
         do {
             try await core.ventopayLogin(creds: Credentials(username: user, password: pass))
             ventopayAuthenticated = core.ventopayIsAuthenticated()
-            monthOptions = core.billingMonthOptions()
-            await loadBilling(offset: selectedOffset)
+            if fetchBilling {
+                monthOptions = core.billingMonthOptions()
+                await loadBilling(offset: selectedOffset)
+            }
         } catch {
             ventopayError = String(describing: error)
         }
@@ -243,8 +256,14 @@ final class AppModel: ObservableObject {
     }
 
     func confirmOrders() async {
-        try? await core.confirmOrders()
+        busy = true // guards the banner button against double-taps → duplicate confirm POSTs
+        do {
+            try await core.confirmOrders()
+        } catch {
+            ordersError = String(describing: error)
+        }
         await loadOrders()
+        busy = false
     }
 
     func cancelOrder(_ positionId: String) async {

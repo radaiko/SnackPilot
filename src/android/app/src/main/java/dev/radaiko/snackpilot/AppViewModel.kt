@@ -131,28 +131,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Log in and load the session. Demo credentials are intercepted by the core (offline data,
      *  never reaches the live server); everything else performs live scraping. */
     fun login(user: String, pass: String) {
+        viewModelScope.launch { loginSuspend(user, pass) }
+    }
+
+    private suspend fun loginSuspend(user: String, pass: String) {
         val demo = isDemoCreds(user, pass)
         // Persist before the attempt (settings §3.6; v1 saves even if login later fails).
         creds.saveGourmet(user, pass)
-        viewModelScope.launch {
-            busy = true
-            errorText = null
-            try {
-                userInfo = core.gourmetLogin(Credentials(username = user, password = pass))
-                gourmetAuthenticated = core.gourmetIsAuthenticated()
-                demoMode = demo
-                if (demo) {
-                    runCatching {
-                        core.ventopayLogin(Credentials(username = user, password = pass))
-                        ventopayAuthenticated = core.ventopayIsAuthenticated()
-                    }
+        busy = true
+        errorText = null
+        try {
+            userInfo = core.gourmetLogin(Credentials(username = user, password = pass))
+            gourmetAuthenticated = core.gourmetIsAuthenticated()
+            demoMode = demo
+            if (demo) {
+                runCatching {
+                    core.ventopayLogin(Credentials(username = user, password = pass))
+                    ventopayAuthenticated = core.ventopayIsAuthenticated()
                 }
-                loadSession()
-            } catch (e: Exception) {
-                errorText = e.toString()
             }
-            busy = false
+            loadSession()
+        } catch (e: Exception) {
+            errorText = e.toString()
         }
+        busy = false
     }
 
     private suspend fun loadSession() {
@@ -316,8 +318,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Startup auto-login (settings §3.7): fire-and-forget login from saved credentials for BOTH
      *  services (this install's, or a v1 install's — same store format). No login wall. */
     fun attemptAutoLogin() {
-        creds.savedGourmet()?.let { login(it.first, it.second) }
-        creds.savedVentopay()?.let { ventopayLogin(it.first, it.second) }
+        val g = creds.savedGourmet()
+        val v = creds.savedVentopay()
+        if (g == null && v == null) return
+        // Sequence in ONE coroutine: authenticate Ventopay first WITHOUT its own billing fetch, so
+        // the Gourmet session-load fetches both sources once — avoids duplicate concurrent billing
+        // scrapes (ban risk).
+        viewModelScope.launch {
+            if (v != null) ventopayLoginSuspend(v.first, v.second, fetchBilling = false)
+            if (g != null) {
+                loginSuspend(g.first, g.second)
+            } else if (ventopayAuthenticated) {
+                loadBilling(selectedOffset)
+            }
+        }
     }
 
     /** Kantine (Gourmet) logout: end the session and clear session state; saved credentials are
@@ -330,11 +344,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             demoMode = false
             ordersSplit = null
             ordersError = null
-            monthOptions = emptyList()
             gourmetMonth = null
-            ventopayMonth = null
-            selectedOffset = 0u
             gourmetAuthenticated = false
+            // Do NOT clear monthOptions / ventopayMonth / selectedOffset — the Automaten session
+            // may still be active and its billing must remain visible.
         }
     }
 
@@ -345,18 +358,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Persist Ventopay credentials (§3.6: persist-before-validate), then log in. */
     fun ventopayLogin(user: String, pass: String) {
+        viewModelScope.launch { ventopayLoginSuspend(user, pass, fetchBilling = true) }
+    }
+
+    /** `fetchBilling` is false during startup auto-login (the Gourmet session-load fetches both
+     *  sources once); interactive Automaten login leaves it true so transactions appear immediately. */
+    private suspend fun ventopayLoginSuspend(user: String, pass: String, fetchBilling: Boolean) {
         creds.saveVentopay(user, pass)
-        viewModelScope.launch {
-            ventopayBusy = true
-            ventopayError = null
-            try {
-                core.ventopayLogin(Credentials(username = user, password = pass))
-                ventopayAuthenticated = core.ventopayIsAuthenticated()
-            } catch (e: Exception) {
-                ventopayError = e.toString()
+        ventopayBusy = true
+        ventopayError = null
+        try {
+            core.ventopayLogin(Credentials(username = user, password = pass))
+            ventopayAuthenticated = core.ventopayIsAuthenticated()
+            if (fetchBilling) {
+                monthOptions = core.billingMonthOptions()
+                loadBilling(selectedOffset)
             }
-            ventopayBusy = false
+        } catch (e: Exception) {
+            ventopayError = e.toString()
         }
+        ventopayBusy = false
     }
 
     /** Ventopay logout: end the session; saved credentials are NOT deleted (settings §3.4). */

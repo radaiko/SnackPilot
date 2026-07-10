@@ -260,7 +260,7 @@ private fun OrdersScreen(vm: AppViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "$unconfirmed unbestätigte Bestellung(en)",
+                        "$unconfirmed unbestätigte ${if (unconfirmed == 1) "Bestellung" else "Bestellungen"}",
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -320,10 +320,10 @@ private fun BillingScreen(vm: AppViewModel) {
                     color = MaterialTheme.colorScheme.tertiary)
             }
         }
-        if (vm.monthOptions.isEmpty()) {
-            val msg = if (!vm.gourmetAuthenticated && !vm.ventopayAuthenticated)
-                "Anmeldung erforderlich" else "Nach der Anmeldung verfügbar."
-            Text(msg, modifier = Modifier.padding(16.dp),
+        // Gate on auth, not monthOptions (which is always 3 static offsets). Un-authenticated →
+        // "Anmeldung erforderlich" (settings §3.7).
+        if (!vm.gourmetAuthenticated && !vm.ventopayAuthenticated) {
+            Text("Anmeldung erforderlich", modifier = Modifier.padding(16.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             return
         }
@@ -339,12 +339,14 @@ private fun BillingScreen(vm: AppViewModel) {
                 )
             }
         }
+        // Auth-gate each section so a logged-out account's still-cached billing can't reappear.
+        val g = vm.gourmetMonth?.takeIf { vm.gourmetAuthenticated && it.bills.isNotEmpty() }
+        val v = vm.ventopayMonth?.takeIf { vm.ventopayAuthenticated && it.transactions.isNotEmpty() }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
         ) {
-            val g = vm.gourmetMonth
-            if (g != null && g.bills.isNotEmpty()) {
+            if (g != null) {
                 item(key = "kh") { SectionHeader("Kantine") }
                 items(g.bills, key = { "k-${it.billNr}" }) { bill ->
                     BillingRow(billDateLabel(bill.billDateEpochMs), bill.items.firstOrNull()?.description ?: "", bill.billing)
@@ -352,14 +354,20 @@ private fun BillingScreen(vm: AppViewModel) {
                 }
                 item(key = "kt") { TotalRow("Summe (Kantine)", g.totalBilling) }
             }
-            val v = vm.ventopayMonth
-            if (v != null && v.transactions.isNotEmpty()) {
+            if (v != null) {
                 item(key = "vh") { SectionHeader("Automaten") }
                 items(v.transactions, key = { "v-${it.id}" }) { tx ->
                     BillingRow(billDateLabel(tx.dateEpochMs), tx.restaurant, tx.amount)
                     HorizontalDivider()
                 }
                 item(key = "vt") { TotalRow("Summe (Automaten)", v.total) }
+            }
+            if (g == null && v == null) {
+                item(key = "nodata") {
+                    Text("Keine Abrechnungsdaten für diesen Monat",
+                        modifier = Modifier.padding(vertical = 16.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

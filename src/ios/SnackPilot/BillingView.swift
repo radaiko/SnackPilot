@@ -43,15 +43,17 @@ struct BillingView: View {
         }
     }
 
-    /// True when either billing source has rows to show for the selected month.
+    /// True when an AUTHENTICATED source has rows for the selected month. Gating on the auth
+    /// flag (not just a non-empty month) stops a logged-out account's still-cached billing from
+    /// reappearing when a month is re-selected (the core keeps its month cache after logout).
     private var hasData: Bool {
-        let gourmet = model.gourmetMonth.map { !$0.bills.isEmpty } ?? false
-        let ventopay = model.ventopayMonth.map { !$0.transactions.isEmpty } ?? false
+        let gourmet = model.gourmetAuthenticated && (model.gourmetMonth.map { !$0.bills.isEmpty } ?? false)
+        let ventopay = model.ventopayAuthenticated && (model.ventopayMonth.map { !$0.transactions.isEmpty } ?? false)
         return gourmet || ventopay
     }
 
     @ViewBuilder private var gourmetSection: some View {
-        if let g = model.gourmetMonth, !g.bills.isEmpty {
+        if model.gourmetAuthenticated, let g = model.gourmetMonth, !g.bills.isEmpty {
             Section("Kantine") {
                 ForEach(g.bills, id: \.billNr) { bill in
                     HStack {
@@ -71,7 +73,7 @@ struct BillingView: View {
     }
 
     @ViewBuilder private var ventopaySection: some View {
-        if let v = model.ventopayMonth, !v.transactions.isEmpty {
+        if model.ventopayAuthenticated, let v = model.ventopayMonth, !v.transactions.isEmpty {
             Section("Automaten") {
                 ForEach(v.transactions, id: \.id) { tx in
                     HStack {

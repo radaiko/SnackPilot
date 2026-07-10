@@ -54,7 +54,7 @@ struct OrdersView: View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(.orange)
-            Text("\(count) unbestätigte Bestellung(en)")
+            Text("\(count) unbestätigte \(count == 1 ? "Bestellung" : "Bestellungen")")
                 .font(.subheadline)
             Spacer()
             Button("Bestätigen") {
