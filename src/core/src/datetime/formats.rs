@@ -54,10 +54,54 @@ pub fn format_ventopay_date(date_key: &str) -> String {
     }
 }
 
-/// ISO-like "2026-02-10T12:00:00" (no tz) parsed as local -> epoch ms (01 §12 BillDate).
+/// Parse the Gourmet `BillDate` (01 §12) as leniently as v1's `new Date(bill.BillDate)`, which
+/// accepts the several shapes .NET emits. The sanitized fixtures use a clean no-tz ISO string, but
+/// real data varies (fractional seconds, a `Z`/offset timezone, or the `/Date(ms)/` form) — the old
+/// strict `%Y-%m-%dT%H:%M:%S`-only parser rejected those and fell back to epoch 0 (shown as
+/// 01.01.1970). Order of attempts:
+///   1. `/Date(1751320800000)/` (optionally with a `+0200` offset) → the embedded epoch ms.
+///   2. RFC3339 with an explicit timezone (`…Z` / `…+02:00`) → absolute instant.
+///   3. ISO datetime WITHOUT a timezone (optional fractional seconds) → local time, matching JS's
+///      `new Date("2026-07-01T00:00:00")` which is interpreted in the local zone.
+///   4. Date only → local midnight.
 pub fn parse_bill_date(s: &str) -> Option<i64> {
-    let ndt = NaiveDateTime::parse_from_str(s.trim(), "%Y-%m-%dT%H:%M:%S").ok()?;
-    local_epoch_ms(ndt)
+    let s = s.trim();
+
+    // 1. ASP.NET "/Date(ms)/" or "/Date(ms+0200)/" — take the leading signed integer (ms).
+    if let Some(inner) = s.strip_prefix("/Date(").and_then(|r| r.strip_suffix(")/")) {
+        let digits: String = inner
+            .char_indices()
+            .take_while(|(i, c)| c.is_ascii_digit() || (*i == 0 && *c == '-'))
+            .map(|(_, c)| c)
+            .collect();
+        if let Ok(ms) = digits.parse::<i64>() {
+            return Some(ms);
+        }
+    }
+
+    // 2. Timezone-qualified (Z or ±hh:mm) → absolute epoch.
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Some(dt.timestamp_millis());
+    }
+
+    // 3. Naive datetime (no tz) → local. Try fractional seconds and both T / space separators.
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S",
+    ] {
+        if let Ok(ndt) = NaiveDateTime::parse_from_str(s, fmt) {
+            return local_epoch_ms(ndt);
+        }
+    }
+
+    // 4. Date only → local midnight.
+    if let Ok(d) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return d.and_hms_opt(0, 0, 0).and_then(local_epoch_ms);
+    }
+
+    None
 }
 
 /// Ordering/cancellation cutoff (Europe/Vienna): past day blocked; today blocked iff
@@ -140,6 +184,33 @@ mod tests {
     #[test]
     fn ventopay_date_format() {
         assert_eq!(format_ventopay_date("2026-02-28"), "28.02.2026");
+    }
+
+    #[test]
+    fn bill_date_accepts_dotnet_variants() {
+        // The sanitized fixture shape (no tz) — still parses (local).
+        assert!(parse_bill_date("2026-07-01T00:00:00").is_some_and(|ms| ms != 0));
+        // Real .NET variants the old strict parser rejected → had fallen back to epoch 0 (1970).
+        assert!(parse_bill_date("2026-07-01T00:00:00.000").is_some_and(|ms| ms != 0));
+        assert!(parse_bill_date("2026-07-01T12:30:00.1234567").is_some());
+        assert!(parse_bill_date("2026-07-01 12:30:00").is_some());
+        assert!(parse_bill_date("2026-07-01").is_some());
+        // Timezone-qualified → absolute instant (epoch 0 == 1970-01-01T00:00:00Z).
+        assert_eq!(parse_bill_date("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(parse_bill_date("1970-01-01T02:00:00+02:00"), Some(0));
+        // ASP.NET "/Date(ms)/" (with optional offset).
+        assert_eq!(parse_bill_date("/Date(0)/"), Some(0));
+        assert_eq!(
+            parse_bill_date("/Date(1751320800000)/"),
+            Some(1_751_320_800_000)
+        );
+        assert_eq!(
+            parse_bill_date("/Date(1751320800000+0200)/"),
+            Some(1_751_320_800_000)
+        );
+        // Genuine garbage still yields None.
+        assert_eq!(parse_bill_date("not a date"), None);
+        assert_eq!(parse_bill_date(""), None);
     }
 
     #[test]

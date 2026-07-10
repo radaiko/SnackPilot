@@ -48,9 +48,12 @@ struct MenusView: View {
         let position = idx.map { $0 + 1 } ?? 0
         let prevDisabled = (idx ?? 0) <= 0
         let nextDisabled = idx.map { $0 >= dates.count - 1 } ?? false
-        // "Heute" (center-tap → nearest day, menus §4.1) is reachable whenever we're not already
-        // on the nearest day — including weekends when today itself has no menu.
-        let onNearest = model.selectedDay == AppModel.nearestDay(in: dates)
+        // "Heute" jumps to today's menu (menus §4.1). Only meaningful when today is actually a menu
+        // day: on weekends/holidays today has no menu, the view opens on the nearest upcoming day,
+        // and labeling a jump to it "Heute" would be wrong — so hide the button then.
+        let todayKey = AppModel.todayKey()
+        let todayIsAvailable = dates.contains(todayKey)
+        let onToday = model.selectedDay == todayKey
 
         VStack(spacing: 4) {
             HStack {
@@ -81,7 +84,7 @@ struct MenusView: View {
                 .opacity(nextDisabled ? 0.3 : 1)
             }
 
-            if !onNearest {
+            if todayIsAvailable && !onToday {
                 Button("Heute") { model.goToToday() }
                     .font(.caption)
             }

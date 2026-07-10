@@ -272,7 +272,10 @@ private fun DayNavigator(dates: List<String>, selected: String?, onSelect: (Stri
             if (index < 0) onSelect(dates[0]) else if (nextEnabled) onSelect(dates[index + 1])
         }
     }
-    if (selected != nearest) {
+    // "Heute" only when today is actually a menu day and we're not already on it — otherwise the
+    // nearest day is a future day and labeling a jump to it "Heute" would mislead (menus §4.1).
+    val todayIsAvailable = dates.contains(todayKey)
+    if (todayIsAvailable && selected != todayKey) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             TextButton(onClick = { onSelect(nearest) }) { Text("Heute") }
         }
