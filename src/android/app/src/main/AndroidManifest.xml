@@ -16,16 +16,82 @@
         android:label="SnackPilot"
         android:supportsRtl="true"
         android:theme="@style/Theme.SnackPilot">
+        <!-- The launcher entry point lives on the per-accent activity-aliases below (themes §6),
+             so MainActivity itself carries no LAUNCHER filter. It stays exported for the aliases'
+             targetActivity + adb debug launches. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="SnackPilot"
-            android:theme="@style/Theme.SnackPilot">
+            android:theme="@style/Theme.SnackPilot" />
+
+        <!-- One launcher alias per accent (themes §6). Exactly one is enabled at a time;
+             AppViewModel.setAccent toggles them. Orange is the default. -->
+        <activity-alias
+            android:name=".MainActivityOrange"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:label="SnackPilot"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivityEmerald"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_emerald"
+            android:roundIcon="@mipmap/ic_launcher_emerald"
+            android:label="SnackPilot"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivityBerry"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_berry"
+            android:roundIcon="@mipmap/ic_launcher_berry"
+            android:label="SnackPilot"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivityGolden"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_golden"
+            android:roundIcon="@mipmap/ic_launcher_golden"
+            android:label="SnackPilot"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivityOcean"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_ocean"
+            android:roundIcon="@mipmap/ic_launcher_ocean"
+            android:label="SnackPilot"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <receiver
             android:name=".AlarmReceiver"

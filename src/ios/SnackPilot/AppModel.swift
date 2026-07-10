@@ -108,7 +108,7 @@ final class AppModel: ObservableObject {
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-uiTestAccent"), i + 1 < args.count,
            let accent = AccentColor(rawValue: args[i + 1]) {
-            setAccent(accent)
+            setAccent(accent, switchIcon: false)
         }
         if args.contains("-uiTestSavedLocation") {
             // Persist a location without the GPS/permission flow so the saved-state UI (§8) is
@@ -457,13 +457,13 @@ final class AppModel: ObservableObject {
     }
 
     /// Change the accent color and persist it (themes §1.2). Independent of the preference.
-    func setAccent(_ newAccent: AccentColor) {
+    /// Also switches the home-screen app icon to match (themes §6) — this is the only call site,
+    /// mirroring v1 (no startup reconciliation). `switchIcon: false` skips it for the DEBUG
+    /// screenshot hook so tests don't trip iOS's icon-change system alert.
+    func setAccent(_ newAccent: AccentColor, switchIcon: Bool = true) {
         accent = newAccent
         UserDefaults.standard.set(newAccent.rawValue, forKey: "accent_color")
-        // TODO(themes §6): switch the alternate home-screen app icon to match the accent
-        // (UIApplication.shared.setAlternateIconName("AppIcon-<accent>") / nil for orange).
-        // Deferred — requires 5 sets of binary icon assets (AppIcon-emerald/berry/golden/ocean)
-        // that are not yet in the repo.
+        if switchIcon { AppIconService.setIcon(for: newAccent) }
     }
 
     // MARK: Notification preferences

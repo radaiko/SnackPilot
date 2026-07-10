@@ -28,6 +28,10 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Per-accent alternate app icons (themes §6). The four alternates ship in the asset
+        # catalog; AppModel.setAccent switches to them via UIApplication.setAlternateIconName.
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: "YES"
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-emerald AppIcon-berry AppIcon-golden AppIcon-ocean"
         # Location purpose strings (notifications-location §10). "Always" is required for region
         # monitoring; the geofence is the only location use.
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um deinen Firmenstandort zu speichern."

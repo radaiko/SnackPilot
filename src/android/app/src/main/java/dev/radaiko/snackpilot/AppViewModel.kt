@@ -1,6 +1,8 @@
 package dev.radaiko.snackpilot
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.pm.PackageManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +54,15 @@ enum class AccentColor(val label: String, val lightPrimary: Long, val darkPrimar
     /** The effective primary ARGB for the resolved scheme (themes §3). */
     fun primary(isDark: Boolean): Long = if (isDark) darkPrimary else lightPrimary
 }
+
+/** Accent → launcher activity-alias name (themes §6). Orange is the default alias. */
+private val ALIAS_FOR = mapOf(
+    AccentColor.ORANGE to "MainActivityOrange",
+    AccentColor.EMERALD to "MainActivityEmerald",
+    AccentColor.BERRY to "MainActivityBerry",
+    AccentColor.GOLDEN to "MainActivityGolden",
+    AccentColor.OCEAN to "MainActivityOcean",
+)
 
 /**
  * Thin Compose shell state over the Rust core (`SnackPilotCore`). The core owns all scraping,
@@ -265,9 +276,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setAccent(accent: AccentColor) {
         accentColor = accent
         prefs.edit().putString("accent_color", accent.name).apply()
-        // TODO(themes §6): switch the alternate app icon to match the accent (orange = default icon,
-        // others = per-accent activity-alias via PackageManager.setComponentEnabledSetting). Deferred:
-        // needs 5 sets of adaptive-icon assets that are not yet in the repo.
+        applyAppIcon(accent)
+    }
+
+    /** Switch the home-screen icon to match the accent (themes §6) by enabling the accent's
+     *  launcher activity-alias and disabling the others. Only here — no startup reconciliation,
+     *  mirroring v1. DONT_KILL_APP keeps the app alive across the swap. */
+    private fun applyAppIcon(accent: AccentColor) {
+        val ctx = getApplication<Application>()
+        val pm = ctx.packageManager
+        val classPkg = MainActivity::class.java.`package`?.name ?: "dev.radaiko.snackpilot"
+        val target = ALIAS_FOR[accent] ?: return
+        for (alias in ALIAS_FOR.values) {
+            val state = if (alias == target) {
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } else {
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            }
+            runCatching {
+                pm.setComponentEnabledSetting(
+                    ComponentName(ctx.packageName, "$classPkg.$alias"),
+                    state, PackageManager.DONT_KILL_APP
+                )
+            }
+        }
     }
 
     // Notification preferences
