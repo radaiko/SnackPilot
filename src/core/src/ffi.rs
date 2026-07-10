@@ -5,7 +5,7 @@
 use crate::datetime::{Clock, SystemClock};
 use crate::domain::{
     Credentials, GeofenceEvent, GourmetMonthlyBilling, GourmetUserInfo, MenuSnapshot, MonthOption,
-    OrderedMenu, OrdersSplit, VentopayMonthlyBilling,
+    OrderProgress, OrderedMenu, OrdersSplit, VentopayMonthlyBilling,
 };
 use crate::error::CoreError;
 use crate::features::billing::BillingStore;
@@ -146,6 +146,11 @@ impl SnackPilotCore {
     }
     pub fn menu_snapshot(&self) -> MenuSnapshot {
         self.menus.snapshot()
+    }
+    /// Current submit-pipeline phase, if a submit is in flight (menus §6.6). Lets the shell
+    /// render the order-progress banner (Adding/Confirming/Cancelling/Refreshing).
+    pub fn order_progress(&self) -> Option<OrderProgress> {
+        self.menus.order_progress()
     }
     /// Demo menus rendered as a snapshot — no network (demo-mode §5.2). Lets the shell show
     /// real menu data offline (store review / FFI preview) without touching the live server.
