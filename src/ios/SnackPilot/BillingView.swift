@@ -39,6 +39,7 @@ struct BillingView: View {
                         }
                         entriesSection
                     }
+                    .refreshable { await model.reloadBilling() }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)

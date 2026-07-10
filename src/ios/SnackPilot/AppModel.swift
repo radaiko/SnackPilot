@@ -395,6 +395,12 @@ final class AppModel: ObservableObject {
         await loadBilling(offset: offset)
     }
 
+    /// Pull-to-refresh on Abrechnung: re-fetch the selected month's billing (Kantine + Automaten).
+    /// The current month always re-hits the server; new/late-posted bills appear on refresh.
+    func reloadBilling() async {
+        await loadBilling(offset: selectedOffset)
+    }
+
     private func loadBilling(offset: UInt8) async {
         try? await core.fetchBilling(offset: offset)
         try? await core.fetchVentopayBilling(offset: offset)

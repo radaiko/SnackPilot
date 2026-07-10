@@ -46,6 +46,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -427,6 +430,7 @@ private fun OrderRow(order: OrderedMenu, cancellable: Boolean, vm: AppViewModel)
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BillingScreen(vm: AppViewModel) {
     Column {
@@ -480,6 +484,18 @@ private fun BillingScreen(vm: AppViewModel) {
         val total = gourmetTotal + ventopayTotal
         val subsidy = g?.totalSubsidy ?: 0.0
 
+        val scope = rememberCoroutineScope()
+        var refreshing by remember { mutableStateOf(false) }
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = {
+                scope.launch {
+                    refreshing = true
+                    vm.reloadBilling()
+                    refreshing = false
+                }
+            }
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
@@ -497,6 +513,7 @@ private fun BillingScreen(vm: AppViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
         }
     }
 }

@@ -528,6 +528,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { loadBilling(offset) }
     }
 
+    /** Pull-to-refresh on Abrechnung: re-fetch the selected month (Kantine + Automaten). The
+     *  current month always re-hits the server; late-posted bills appear on refresh. Suspends so
+     *  the pull indicator stays until the fetch completes. */
+    suspend fun reloadBilling() {
+        loadBilling(selectedOffset)
+    }
+
     /** Set the unified-billing source filter (billing §6.1). Presentation-only. */
     fun setBillingSource(source: BillingSource) {
         billingSourceFilter = source
