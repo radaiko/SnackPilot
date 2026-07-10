@@ -147,23 +147,43 @@ struct MenusView: View {
     }
 
     private var submitBar: some View {
-        HStack(spacing: 12) {
-            Button("Verwerfen") { model.clearPending() }
-                .buttonStyle(.bordered)
-            Button {
-                Task { await model.submitOrders() }
-            } label: {
-                if model.busy {
+        VStack(spacing: 8) {
+            if model.busy, let phase = model.orderProgress {
+                HStack(spacing: 8) {
                     ProgressView()
-                } else {
-                    Text("Bestellen").bold().frame(maxWidth: .infinity)
+                    Text(Self.progressLabel(phase)).font(.footnote).foregroundStyle(.secondary)
+                    Spacer()
                 }
             }
-            .primaryAction()
-            .disabled(model.busy)
+            HStack(spacing: 12) {
+                Button("Verwerfen") { model.clearPending() }
+                    .buttonStyle(.bordered)
+                    .disabled(model.busy)
+                Button {
+                    Task { await model.submitOrders() }
+                } label: {
+                    if model.busy {
+                        ProgressView()
+                    } else {
+                        Text("Bestellen").bold().frame(maxWidth: .infinity)
+                    }
+                }
+                .primaryAction()
+                .disabled(model.busy)
+            }
         }
         .padding()
         .glassBar()
+    }
+
+    /// Live submit-pipeline phase labels (menus §6.6).
+    static func progressLabel(_ phase: OrderProgress) -> String {
+        switch phase {
+        case .adding: return "Wird in den Warenkorb gelegt …"
+        case .confirming: return "Wird bestätigt …"
+        case .cancelling: return "Wird storniert …"
+        case .refreshing: return "Wird aktualisiert …"
+        }
     }
 
     /// Category heading (menus §5): uppercase display strings, with SUPPE & SALAT suppressed.

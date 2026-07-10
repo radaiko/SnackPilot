@@ -18,7 +18,9 @@ import uniffi.snackpilot_core.LogEntry
 import uniffi.snackpilot_core.MenuItem
 import uniffi.snackpilot_core.MenuSnapshot
 import uniffi.snackpilot_core.MonthOption
+import uniffi.snackpilot_core.OrderProgress
 import uniffi.snackpilot_core.OrdersSplit
+import uniffi.snackpilot_core.ProgressListener
 import uniffi.snackpilot_core.SnackPilotCore
 import uniffi.snackpilot_core.VentopayMonthlyBilling
 import uniffi.snackpilot_core.coreVersion
@@ -70,6 +72,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var ordersSplit by mutableStateOf<OrdersSplit?>(null)
         private set
     var ordersError by mutableStateOf<String?>(null)
+        private set
+    /** Live submit-pipeline phase while a submission is in flight (menus §6.6). */
+    var orderProgress by mutableStateOf<OrderProgress?>(null)
         private set
 
     /** DEBUG headless hooks (set before loadDemo). */
@@ -304,16 +309,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val hasPendingChanges: Boolean
         get() = snapshot?.let { it.pendingOrders.isNotEmpty() || it.pendingCancellations.isNotEmpty() } ?: false
 
+    /** Bridges the core's ProgressListener callback (invoked off the main thread) onto the main
+     *  dispatcher so it can update Compose state (menus §6.6). */
+    private inner class ProgressBridge : ProgressListener {
+        override fun onProgress(phase: OrderProgress?) {
+            viewModelScope.launch { orderProgress = phase }
+        }
+    }
+
     suspend fun submitOrders() {
         busy = true
         errorText = null
         try {
-            snapshot = core.submitOrders(progress = null)
+            snapshot = core.submitOrders(progress = ProgressBridge())
             syncSelectedDay()
             loadOrders()
         } catch (e: Exception) {
             errorText = e.toString()
         }
+        orderProgress = null
         busy = false
     }
 

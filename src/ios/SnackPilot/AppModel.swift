@@ -16,6 +16,8 @@ final class AppModel: ObservableObject {
     @Published var selectedDay: String?
     @Published var errorText: String?
     @Published var busy = false
+    /// Live submit-pipeline phase while an order submission is in flight (menus §6.6).
+    @Published var orderProgress: OrderProgress?
     /// True while showing offline demo data (magic credentials).
     @Published var demoMode = false
     @Published var selectedTab = 0
@@ -321,13 +323,16 @@ final class AppModel: ObservableObject {
     func submitOrders() async {
         busy = true
         errorText = nil
+        // Pass a progress listener so the submit bar can show the live pipeline phase (§6.6).
+        let bridge = ProgressBridge { [weak self] phase in self?.orderProgress = phase }
         do {
-            snapshot = try await core.submitOrders(progress: nil)
+            snapshot = try await core.submitOrders(progress: bridge)
             syncSelectedDay()
             await loadOrders()
         } catch {
             errorText = String(describing: error)
         }
+        orderProgress = nil
         busy = false
     }
 
@@ -435,5 +440,15 @@ final class AppModel: ObservableObject {
         case "settings": return 3
         default: return 0
         }
+    }
+}
+
+/// Bridges the core's `ProgressListener` callback (invoked off the main thread by the tokio
+/// runtime) onto the main actor so it can update `@Published` state (menus §6.6).
+final class ProgressBridge: ProgressListener {
+    private let onPhase: (OrderProgress?) -> Void
+    init(_ onPhase: @escaping (OrderProgress?) -> Void) { self.onPhase = onPhase }
+    func onProgress(phase: OrderProgress?) {
+        Task { @MainActor in onPhase(phase) }
     }
 }

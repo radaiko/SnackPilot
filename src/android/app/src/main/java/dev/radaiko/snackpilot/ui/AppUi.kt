@@ -1,5 +1,6 @@
 package dev.radaiko.snackpilot.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -61,6 +62,7 @@ import uniffi.snackpilot_core.LogSubsystem
 import uniffi.snackpilot_core.MenuCategory
 import uniffi.snackpilot_core.MenuItem
 import uniffi.snackpilot_core.MenuSnapshot
+import uniffi.snackpilot_core.OrderProgress
 import uniffi.snackpilot_core.OrderedMenu
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -195,19 +197,33 @@ private fun MenusScreen(vm: AppViewModel) {
             }
         }
         if (vm.hasPendingChanges) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedButton(onClick = { vm.clearPending() }) { Text("Verwerfen") }
-                Button(
-                    onClick = { vm.submitOrdersAsync() },
-                    enabled = !vm.busy,
-                    modifier = Modifier.weight(1f)
-                ) { Text("Bestellen") }
+            Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                if (vm.busy) {
+                    vm.orderProgress?.let { phase ->
+                        Text(progressLabel(phase), style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp))
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { vm.clearPending() }, enabled = !vm.busy) { Text("Verwerfen") }
+                    Button(
+                        onClick = { vm.submitOrdersAsync() },
+                        enabled = !vm.busy,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Bestellen") }
+                }
             }
         }
     }
+}
+
+/** Live submit-pipeline phase labels (menus §6.6). */
+private fun progressLabel(phase: OrderProgress): String = when (phase) {
+    OrderProgress.ADDING -> "Wird in den Warenkorb gelegt …"
+    OrderProgress.CONFIRMING -> "Wird bestätigt …"
+    OrderProgress.CANCELLING -> "Wird storniert …"
+    OrderProgress.REFRESHING -> "Wird aktualisiert …"
 }
 
 /** Single-day navigator (menus §4.1): prev/next arrows, localized day label + position
@@ -591,6 +607,8 @@ private enum class SettingsRoute { ROOT, KANTINE, AUTOMATEN }
 @Composable
 private fun SettingsScreen(vm: AppViewModel) {
     var route by remember { mutableStateOf(SettingsRoute.ROOT) }
+    // System back pops a sub-screen to the settings root (instead of leaving the app).
+    BackHandler(enabled = route != SettingsRoute.ROOT) { route = SettingsRoute.ROOT }
     when (route) {
         SettingsRoute.ROOT -> SettingsRootList(vm) { route = it }
         SettingsRoute.KANTINE -> KantineLoginScreen(vm) { route = SettingsRoute.ROOT }
