@@ -306,17 +306,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         locationService.currentLocation { loc ->
             if (loc == null) {
                 locationDialog = LocationDialog("Fehler", "Standort konnte nicht ermittelt werden.")
-            } else {
-                core.setCompanyLocation(loc.latitude, loc.longitude)
-                companyLocation = core.companyLocation()
-                locationService.startGeofence(loc.latitude, loc.longitude, triggerOnEntry = true)
-                locationDialog = LocationDialog(
-                    "Gespeichert",
-                    "Firmenstandort gesetzt. Du wirst um 8:45 benachrichtigt, wenn du im Büro " +
-                        "bist und nicht bestellt hast."
-                )
+                locationBusy = false
+                return@currentLocation
             }
-            locationBusy = false
+            // Persist + report success ONLY once the geofence actually registers. addGeofences
+            // fails (SecurityException) without ACCESS_BACKGROUND_LOCATION, so a swallowed failure
+            // must not masquerade as success — keep companyLocation null and tell the user.
+            locationService.startGeofence(loc.latitude, loc.longitude, triggerOnEntry = true) { ok ->
+                if (ok) {
+                    core.setCompanyLocation(loc.latitude, loc.longitude)
+                    companyLocation = core.companyLocation()
+                    locationDialog = LocationDialog(
+                        "Gespeichert",
+                        "Firmenstandort gesetzt. Du wirst um 8:45 benachrichtigt, wenn du im Büro " +
+                            "bist und nicht bestellt hast."
+                    )
+                } else {
+                    locationDialog = LocationDialog(
+                        "Fehler",
+                        "Standort-Benachrichtigungen konnten nicht aktiviert werden. Bitte erlaube " +
+                            "den Standortzugriff „Immer erlauben\"."
+                    )
+                }
+                locationBusy = false
+            }
         }
     }
 

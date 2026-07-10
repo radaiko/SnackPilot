@@ -20,6 +20,9 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     private var authContinuation: CheckedContinuation<CLAuthorizationStatus, Never>?
     private var locationContinuation: CheckedContinuation<CLLocation, Error>?
+    /// Set on the setup path so the one-shot `requestState` result fires the initial Enter (§3.3);
+    /// cleared after the first determination so the launch-restore path never re-fires (§3.2).
+    private var pendingInitialStateRegionId: String?
 
     override init() {
         super.init()
@@ -34,7 +37,12 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     /// `.authorizedWhenInUse` is the caller's cue to send the user to Settings for "Immer" (§7.1).
     func requestAlwaysAuthorization() async -> CLAuthorizationStatus {
         let status = manager.authorizationStatus
-        if status == .authorizedAlways { return status }
+        // iOS only shows a prompt — and only then fires `locationManagerDidChangeAuthorization` —
+        // when the status is `.notDetermined`. For any already-resolved status (`.authorizedAlways`,
+        // `.authorizedWhenInUse`, `.denied`, `.restricted`) the call is a silent no-op with no
+        // delegate callback, so parking a continuation would suspend forever (button stuck on
+        // "wird ermittelt …"). Return the current status synchronously instead.
+        guard status == .notDetermined else { return status }
         return await withCheckedContinuation { cont in
             authContinuation = cont
             manager.requestAlwaysAuthorization()
@@ -55,9 +63,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     /// Start monitoring the single 500 m region (§2–§3). No-op if it is already monitored, so it
-    /// does not re-fire the initial Enter and spam notifications (§3.2). Starting while inside the
-    /// region fires an immediate Enter (§3.3).
-    func startMonitoring(latitude: Double, longitude: Double) {
+    /// does not re-fire the initial Enter and spam notifications (§3.2). When [requestInitialState]
+    /// is true (the setup path, §3.3), it asks CoreLocation for the current region state — unlike
+    /// Android's INITIAL_TRIGGER_ENTER, `startMonitoring(for:)` does NOT synthesize an Enter for a
+    /// device already inside, so we synthesize it via `requestState`/`didDetermineState`.
+    func startMonitoring(latitude: Double, longitude: Double, requestInitialState: Bool = false) {
         guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else { return }
         if isMonitoringCompany { return }
         let region = CLCircularRegion(
@@ -66,6 +76,10 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         region.notifyOnEntry = true
         region.notifyOnExit = true
         manager.startMonitoring(for: region)
+        if requestInitialState {
+            pendingInitialStateRegionId = Self.regionId
+            manager.requestState(for: region)
+        }
     }
 
     /// Stop monitoring the company region if active (§3, `stopGeofencing`).
@@ -91,6 +105,15 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         locationContinuation?.resume(throwing: error)
         locationContinuation = nil
+    }
+
+    /// One-shot state check requested only on the setup path (§3.3): if the device is already
+    /// inside the region when the location is set, synthesize the initial Enter.
+    func locationManager(_ manager: CLLocationManager, didDetermineState state: CLRegionState,
+                         for region: CLRegion) {
+        guard pendingInitialStateRegionId == region.identifier else { return }
+        pendingInitialStateRegionId = nil
+        if state == .inside { onRegionEvent?(.enter) }
     }
 
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {

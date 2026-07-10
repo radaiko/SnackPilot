@@ -32,5 +32,10 @@ targets:
         # monitoring; the geofence is the only location use.
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um deinen Firmenstandort zu speichern."
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um dich an Bestellungen zu erinnern, wenn du im Büro bist."
+        # NOTE (notifications-location §10): UIBackgroundModes is intentionally NOT set. Region
+        # monitoring (geofencing) is delivered even when the app is suspended/terminated WITHOUT a
+        # background mode — iOS relaunches the app for region crossings. The spec's "location"/
+        # "processing" modes are only needed for continuous background updates / the BGTask
+        # background sync, which is P2 and not built yet; add them alongside that work.
         # rustls-tls core links no Apple TLS, but reqwest/ring still need libc++.
         OTHER_LDFLAGS: "-lc++"

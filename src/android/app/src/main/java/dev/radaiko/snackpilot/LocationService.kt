@@ -42,7 +42,12 @@ class LocationService(private val context: Context) {
      * The app-start restore passes false to avoid re-firing a spurious Enter (§3.2).
      */
     @SuppressLint("MissingPermission")
-    fun startGeofence(latitude: Double, longitude: Double, triggerOnEntry: Boolean) {
+    fun startGeofence(
+        latitude: Double,
+        longitude: Double,
+        triggerOnEntry: Boolean,
+        onResult: (Boolean) -> Unit = {}
+    ) {
         val geofence = Geofence.Builder()
             .setRequestId(REGION_ID)
             .setCircularRegion(latitude, longitude, RADIUS_M)
@@ -57,7 +62,11 @@ class LocationService(private val context: Context) {
             )
             .addGeofence(geofence)
             .build()
+        // Surface the result: addGeofences fails (SecurityException) if ACCESS_BACKGROUND_LOCATION
+        // is not granted, so the caller must not report success on a silent failure.
         geofencingClient.addGeofences(request, geofencePendingIntent())
+            .addOnSuccessListener { onResult(true) }
+            .addOnFailureListener { onResult(false) }
     }
 
     /** Stop monitoring the company region (§3, `stopGeofencing`). */

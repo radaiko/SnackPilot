@@ -1,10 +1,12 @@
 package dev.radaiko.snackpilot.ui
 
 import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -684,20 +686,31 @@ private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Un
             Text("Erinnerung um 8:45 basierend auf deinem Standort",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (vm.companyLocation == null) {
-                val locationPermission = rememberLauncherForActivityResult(
+                val ctx = LocalContext.current
+                // Background location is a SEPARATE grant on API 29+ (it can't be bundled with the
+                // foreground request on 30+), and the geofence needs it to fire while backgrounded.
+                val backgroundPermission = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    if (granted) vm.captureAndSaveCompanyLocation() else vm.onLocationPermissionDenied()
+                }
+                val foregroundPermission = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
                 ) { grants ->
-                    if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-                        grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-                        vm.captureAndSaveCompanyLocation()
-                    } else {
-                        vm.onLocationPermissionDenied()
+                    val fine = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                        grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+                    when {
+                        !fine -> vm.onLocationPermissionDenied()
+                        ContextCompat.checkSelfPermission(
+                            ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                        ) == PackageManager.PERMISSION_GRANTED -> vm.captureAndSaveCompanyLocation()
+                        else -> backgroundPermission.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                     }
                 }
                 TextButton(
                     enabled = !vm.locationBusy,
                     onClick = {
-                        locationPermission.launch(
+                        foregroundPermission.launch(
                             arrayOf(
                                 Manifest.permission.ACCESS_FINE_LOCATION,
                                 Manifest.permission.ACCESS_COARSE_LOCATION

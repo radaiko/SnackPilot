@@ -531,7 +531,8 @@ final class AppModel: ObservableObject {
                 latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude)
             companyLocation = core.companyLocation()
             LocationService.shared.startMonitoring(
-                latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude)
+                latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude,
+                requestInitialState: true)
             locationAlert = LocationAlert(
                 title: "Gespeichert",
                 message: "Firmenstandort gesetzt. Du wirst um 8:45 benachrichtigt, wenn du im Büro "
