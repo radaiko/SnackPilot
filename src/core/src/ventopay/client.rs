@@ -73,22 +73,61 @@ impl VentopayClient {
         Ok(resp.body)
     }
 
-    /// Inject the Cookie header from the jar, send, then capture Set-Cookie into the jar (§2.2).
-    async fn send(&self, mut req: Request) -> CoreResult<HttpResponse> {
-        if let Some(h) = self.jar.lock().unwrap().header() {
-            req.headers.push(("Cookie".to_string(), h));
+    /// Inject the Cookie header from the jar, send, capture Set-Cookie into the jar (§2.2), and
+    /// FOLLOW 3xx redirects manually (up to 5). The transport is built with redirects OFF for
+    /// Ventopay: reqwest's auto-follow hides intermediate `Set-Cookie` headers, so the session
+    /// cookie the login POST sets on its 302 would be dropped (verified by tests/wire_audit). By
+    /// following here, the jar captures every hop's cookies and the follow-up GET resends them.
+    async fn send(&self, req: Request) -> CoreResult<HttpResponse> {
+        let mut next = req;
+        let mut hops = 0u8;
+        loop {
+            if let Some(h) = self.jar.lock().unwrap().header() {
+                next.headers.push(("Cookie".to_string(), h));
+            }
+            let resp = self.transport.send(next).await?;
+            let set_cookies: Vec<String> = resp
+                .headers
+                .iter()
+                .filter(|(k, _)| k.eq_ignore_ascii_case("set-cookie"))
+                .map(|(_, v)| v.clone())
+                .collect();
+            if !set_cookies.is_empty() {
+                self.jar.lock().unwrap().capture(&set_cookies);
+            }
+            // A 3xx with a Location → follow as a GET (matches 302/303 forms-auth redirects),
+            // carrying the just-captured cookies. Non-redirects (and after 5 hops) return as-is.
+            if (300..400).contains(&resp.status) && hops < 5 {
+                if let Some(loc) = resp
+                    .headers
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("location"))
+                    .map(|(_, v)| v.clone())
+                {
+                    hops += 1;
+                    next = Request {
+                        method: Method::Get,
+                        url: self.resolve_redirect(&loc),
+                        headers: vec![],
+                        body: None,
+                    };
+                    continue;
+                }
+            }
+            return Ok(resp);
         }
-        let resp = self.transport.send(req).await?;
-        let set_cookies: Vec<String> = resp
-            .headers
-            .iter()
-            .filter(|(k, _)| k.eq_ignore_ascii_case("set-cookie"))
-            .map(|(_, v)| v.clone())
-            .collect();
-        if !set_cookies.is_empty() {
-            self.jar.lock().unwrap().capture(&set_cookies);
+    }
+
+    /// Resolve a redirect `Location` (absolute, root-relative, or path-relative) against the
+    /// Ventopay origin/base. Query strings are preserved (unlike `absolute_url`).
+    fn resolve_redirect(&self, loc: &str) -> String {
+        if loc.starts_with("http") {
+            loc.to_string()
+        } else if loc.starts_with('/') {
+            format!("{VENTOPAY_ORIGIN}{loc}")
+        } else {
+            format!("{VENTOPAY_BASE_URL}/{loc}")
         }
-        Ok(resp)
     }
 
     fn absolute_url(&self, url: &str) -> String {

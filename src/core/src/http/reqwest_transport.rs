@@ -13,12 +13,22 @@ pub struct ReqwestTransport {
 }
 
 impl ReqwestTransport {
-    /// `cookie_store` = true for the Gourmet client (reqwest manages cookies),
-    /// false for Ventopay (which manages its own jar above this layer).
-    pub fn new(cookie_store: bool) -> CoreResult<Self> {
+    /// `cookie_store` = true for the Gourmet client (reqwest manages cookies + carries them across
+    /// redirects), false for Ventopay (which manages its own jar above this layer).
+    ///
+    /// `follow_redirects` = true for Gourmet (reqwest's cookie store captures the login-302 cookie
+    /// while auto-following). Ventopay passes false: reqwest's auto-follow hides intermediate 3xx
+    /// `Set-Cookie` headers, so with a manual jar the login-302 session cookie would be dropped
+    /// (verified by tests/wire_audit). VentopayClient follows redirects itself, capturing each hop.
+    pub fn new(cookie_store: bool, follow_redirects: bool) -> CoreResult<Self> {
+        let policy = if follow_redirects {
+            reqwest::redirect::Policy::limited(5)
+        } else {
+            reqwest::redirect::Policy::none()
+        };
         let client = reqwest::Client::builder()
             .cookie_store(cookie_store)
-            .redirect(reqwest::redirect::Policy::limited(5))
+            .redirect(policy)
             // reqwest sets no default UA when we don't call .user_agent(); leave it absent.
             .build()
             .map_err(|e| CoreError::Http {
@@ -112,7 +122,7 @@ mod tests {
     #[tokio::test]
     async fn sends_accept_header_and_no_user_agent() {
         let (url, rx) = spawn_capturing_server();
-        let t = ReqwestTransport::new(true).unwrap();
+        let t = ReqwestTransport::new(true, true).unwrap();
         let resp = t
             .send(Request {
                 method: Method::Get,
@@ -149,7 +159,7 @@ mod tests {
                 let _ = s.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
             }
         });
-        let t = ReqwestTransport::new(true).unwrap();
+        let t = ReqwestTransport::new(true, true).unwrap();
         let out = t
             .send(Request {
                 method: Method::Get,

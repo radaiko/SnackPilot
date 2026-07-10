@@ -56,8 +56,8 @@ impl SnackPilotCore {
         config: CoreConfig,
         analytics: Option<Arc<dyn AnalyticsSink>>,
     ) -> Result<Arc<Self>, CoreError> {
-        let gourmet_tx: Arc<dyn Transport> = Arc::new(ReqwestTransport::new(true)?);
-        let ventopay_tx: Arc<dyn Transport> = Arc::new(ReqwestTransport::new(false)?);
+        let gourmet_tx: Arc<dyn Transport> = Arc::new(ReqwestTransport::new(true, true)?);
+        let ventopay_tx: Arc<dyn Transport> = Arc::new(ReqwestTransport::new(false, false)?);
         let kv: Arc<dyn Kv> = Arc::new(FileKv::new(config.storage_dir.into()));
         let clock: Arc<dyn Clock> = Arc::new(SystemClock);
         // Wrap the live scraping APIs in providers that swap to demo data on magic-credential
@@ -292,7 +292,7 @@ impl SnackPilotCore {
         &self,
         creds: Option<Credentials>,
     ) -> Result<MenuCheckResult, CoreError> {
-        let tx: Arc<dyn Transport> = Arc::new(ReqwestTransport::new(true)?);
+        let tx: Arc<dyn Transport> = Arc::new(ReqwestTransport::new(true, true)?);
         let fresh = GourmetApi::new(tx);
         Ok(run_background_menu_check(
             &fresh,
