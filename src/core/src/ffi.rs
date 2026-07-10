@@ -4,8 +4,8 @@
 //! records back. Async ops use the tokio runtime.
 use crate::datetime::{Clock, SystemClock};
 use crate::domain::{
-    Credentials, GeofenceEvent, GourmetMonthlyBilling, GourmetUserInfo, MenuSnapshot, MonthOption,
-    OrderProgress, OrderedMenu, OrdersSplit, VentopayMonthlyBilling,
+    CompanyLocation, Credentials, GeofenceEvent, GourmetMonthlyBilling, GourmetUserInfo,
+    MenuSnapshot, MonthOption, OrderProgress, OrderedMenu, OrdersSplit, VentopayMonthlyBilling,
 };
 use crate::error::CoreError;
 use crate::features::billing::BillingStore;
@@ -21,7 +21,7 @@ use crate::notify::daily_reminder::check_daily_reminder;
 use crate::notify::geofence::handle_geofence_event;
 use crate::notify::menu_check::run_background_menu_check;
 use crate::notify::{log, DailyReminderSettings, MenuCheckResult, NotificationCommand};
-use crate::storage::{FileKv, Kv};
+use crate::storage::{cache, FileKv, Kv};
 use crate::ventopay::api::VentopayApi;
 use crate::ventopay::provider::VentopayProvider;
 use std::sync::Arc;
@@ -253,6 +253,30 @@ impl SnackPilotCore {
     }
     pub fn geofence_commands(&self, event: GeofenceEvent) -> Vec<NotificationCommand> {
         handle_geofence_event(event, self.clock.as_ref(), &self.orders.orders())
+    }
+
+    // ---- Company location (notifications-location §1) ----
+    pub fn company_location(&self) -> Option<CompanyLocation> {
+        cache::load_company_location(self.kv.as_ref())
+    }
+    pub fn set_company_location(&self, latitude: f64, longitude: f64) {
+        let _ = cache::save_company_location(
+            self.kv.as_ref(),
+            &CompanyLocation {
+                latitude,
+                longitude,
+            },
+        );
+    }
+    /// `clearCompanyLocation` (§1): drop the saved location and reset the geofence flag.
+    pub fn clear_company_location(&self) {
+        cache::clear_company_location(self.kv.as_ref());
+    }
+    pub fn is_at_company(&self) -> bool {
+        cache::load_is_at_company(self.kv.as_ref())
+    }
+    pub fn set_is_at_company(&self, value: bool) {
+        cache::save_is_at_company(self.kv.as_ref(), value);
     }
     /// Background new-menu check. Uses a FRESH, isolated Gourmet session (own cookie store —
     /// deliberate v2 change, notifications-new-menu §3.3).

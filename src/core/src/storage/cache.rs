@@ -8,7 +8,7 @@
 //! OR the value is corrupt — the caller must then leave existing in-memory state untouched
 //! (never clear it). Menus/orders additionally REMOVE a corrupt key; billing does not.
 use crate::datetime::Clock;
-use crate::domain::{Bill, MenuItem, OrderedMenu, VentopayTransaction};
+use crate::domain::{Bill, CompanyLocation, MenuItem, OrderedMenu, VentopayTransaction};
 use crate::error::CoreResult;
 use crate::storage::Kv;
 use chrono::{Datelike, TimeZone};
@@ -17,6 +17,41 @@ pub const MENUS_KEY: &str = "menus_items";
 pub const ORDERS_KEY: &str = "orders_list";
 pub const GOURMET_BILLING_PREFIX: &str = "billing_";
 pub const VENTOPAY_BILLING_PREFIX: &str = "ventopay_billing_";
+pub const COMPANY_LOCATION_KEY: &str = "company_location";
+pub const IS_AT_COMPANY_KEY: &str = "is_at_company";
+
+/// Saved office coordinates; `None` if absent or corrupt (notifications-location §1).
+pub fn load_company_location(kv: &dyn Kv) -> Option<CompanyLocation> {
+    match kv.get(COMPANY_LOCATION_KEY).ok().flatten() {
+        None => None,
+        Some(raw) => match serde_json::from_str::<CompanyLocation>(&raw) {
+            Ok(loc) => Some(loc),
+            Err(_) => {
+                let _ = kv.remove(COMPANY_LOCATION_KEY);
+                None
+            }
+        },
+    }
+}
+pub fn save_company_location(kv: &dyn Kv, loc: &CompanyLocation) -> CoreResult<()> {
+    save(kv, COMPANY_LOCATION_KEY, loc)
+}
+/// `clearCompanyLocation` (§1): drop the location AND reset the geofence flag.
+pub fn clear_company_location(kv: &dyn Kv) {
+    let _ = kv.remove(COMPANY_LOCATION_KEY);
+    let _ = kv.remove(IS_AT_COMPANY_KEY);
+}
+/// Last known geofence state; deliberately persisted so a cold background launch sees it (§1).
+pub fn load_is_at_company(kv: &dyn Kv) -> bool {
+    kv.get(IS_AT_COMPANY_KEY)
+        .ok()
+        .flatten()
+        .map(|v| v == "true")
+        .unwrap_or(false)
+}
+pub fn save_is_at_company(kv: &dyn Kv, value: bool) {
+    let _ = kv.set(IS_AT_COMPANY_KEY, if value { "true" } else { "false" });
+}
 
 /// Austrian German month names (caching §2.5), 1-based index via `[m-1]`.
 const MONTH_NAMES: [&str; 12] = [
