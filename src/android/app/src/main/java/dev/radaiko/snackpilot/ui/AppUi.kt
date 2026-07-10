@@ -867,7 +867,10 @@ private fun AutomatenLoginScreen(vm: AppViewModel, onBack: () -> Unit) {
         Spacer(Modifier.padding(8.dp))
 
         if (vm.ventopayAuthenticated) {
-            Text("Automaten-Sitzung aktiv", style = MaterialTheme.typography.bodyLarge)
+            // Mirror the Kantine session block. Ventopay has no user info, so the status line is
+            // "Sitzung aktiv" rather than a username (settings §5).
+            Text("Sitzung aktiv", style = MaterialTheme.typography.bodyLarge)
+            if (vm.demoMode) Text("Modus: Demo", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.padding(8.dp))
             OutlinedButton(onClick = { vm.ventopayLogout() }, modifier = Modifier.fillMaxWidth()) {
                 Text("Abmelden", color = MaterialTheme.colorScheme.error)

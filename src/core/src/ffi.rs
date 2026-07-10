@@ -103,6 +103,11 @@ impl SnackPilotCore {
         if crate::demo::is_demo_credentials(&creds.username, &creds.password) {
             self.gourmet.enter_demo();
             self.menus.reset_for_demo();
+        } else if self.gourmet.is_demo() {
+            // Real credentials after a demo session: leave demo mode and clear the demo-populated
+            // menus so the live fetch starts clean. Without this, demo data sticks forever (§1).
+            self.gourmet.exit_demo();
+            self.menus.reset_for_demo();
         }
         self.gourmet.login(creds).await
     }
@@ -122,6 +127,9 @@ impl SnackPilotCore {
         // creds must never reach the live server.
         if crate::demo::is_demo_credentials(&creds.username, &creds.password) {
             self.ventopay.enter_demo();
+        } else if self.ventopay.is_demo() {
+            // Real credentials after a demo session: leave demo mode so live transactions load (§1).
+            self.ventopay.exit_demo();
         }
         self.ventopay.login(creds).await
     }

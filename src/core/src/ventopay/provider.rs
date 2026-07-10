@@ -32,6 +32,12 @@ impl VentopayProvider {
         *self.demo.write().unwrap() = Some(Arc::new(DemoVentopayApi::new(self.clock.clone())));
     }
 
+    /// Return to the live backend — a subsequent login with real (non-demo) credentials must
+    /// leave demo mode, otherwise every later login keeps serving demo data (§1).
+    pub fn exit_demo(&self) {
+        *self.demo.write().unwrap() = None;
+    }
+
     pub fn is_demo(&self) -> bool {
         self.demo.read().unwrap().is_some()
     }

@@ -9,21 +9,19 @@ struct AutomatenLoginView: View {
     @State private var username = ""
     @State private var password = ""
 
-    /// The screen subtitle (04-ui-ux §3.6), carried as the first section's header.
-    private var subtitle: some View {
-        Text("Für Automaten und Kassenabrechnungen").textCase(nil)
-    }
-
     var body: some View {
         Form {
             if model.ventopayAuthenticated {
-                Section {
-                    Text("Automaten-Sitzung aktiv")
+                // Mirror the Kantine "Sitzung" section (settings §4/§5). Ventopay carries no user
+                // info, so the status line shows "Aktiv" instead of a username.
+                Section("Sitzung") {
+                    LabeledContent("Status", value: "Aktiv")
+                    if model.demoMode {
+                        LabeledContent("Modus", value: "Demo")
+                    }
                     Button("Abmelden", role: .destructive) {
                         Task { await model.ventopayLogout() }
                     }
-                } header: {
-                    subtitle
                 }
             } else {
                 Section {
@@ -34,7 +32,9 @@ struct AutomatenLoginView: View {
                     SecureField("Passwort", text: $password)
                         .textContentType(.password)
                 } header: {
-                    subtitle
+                    Text("Zugangsdaten")
+                } footer: {
+                    Text("Für Automaten und Kassenabrechnungen")
                 }
 
                 if let error = model.ventopayError {

@@ -35,6 +35,12 @@ impl GourmetProvider {
         *self.demo.write().unwrap() = Some(Arc::new(DemoGourmetApi::new(self.clock.clone())));
     }
 
+    /// Return to the live backend — a subsequent login with real (non-demo) credentials must
+    /// leave demo mode, otherwise every later login keeps serving demo data (§1).
+    pub fn exit_demo(&self) {
+        *self.demo.write().unwrap() = None;
+    }
+
     pub fn is_demo(&self) -> bool {
         self.demo.read().unwrap().is_some()
     }
@@ -114,5 +120,28 @@ impl GourmetProvider {
             Handle::Live(a) => a.logout().await,
             Handle::Demo(d) => d.logout().await,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::datetime::FixedClock;
+    use crate::http::CapturingTransport;
+
+    fn provider() -> GourmetProvider {
+        let tx = Arc::new(CapturingTransport::new());
+        GourmetProvider::new(Arc::new(GourmetApi::new(tx)), Arc::new(FixedClock::new(0)))
+    }
+
+    #[test]
+    fn exit_demo_returns_to_live_backend() {
+        let p = provider();
+        assert!(!p.is_demo(), "starts on the live backend");
+        p.enter_demo();
+        assert!(p.is_demo(), "demo backend after enter_demo");
+        // Regression: a later real login must escape demo, else it keeps serving demo data.
+        p.exit_demo();
+        assert!(!p.is_demo(), "back on the live backend after exit_demo");
     }
 }
