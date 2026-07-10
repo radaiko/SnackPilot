@@ -90,6 +90,10 @@ final class AppModel: ObservableObject {
         #if DEBUG
         // UI-test / preview hooks. Never compiled into release builds; only render demo data.
         let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-uiTestAccent"), i + 1 < args.count,
+           let accent = AccentColor(rawValue: args[i + 1]) {
+            setAccent(accent)
+        }
         if args.contains("-uiTestDemo") {
             if let i = args.firstIndex(of: "-uiTestTab"), i + 1 < args.count {
                 selectedTab = tabIndex(args[i + 1])
