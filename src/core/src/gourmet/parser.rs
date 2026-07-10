@@ -191,9 +191,13 @@ pub struct CancelFormData {
 }
 
 /// Parse ordered menus (01 §9.1). Approved iff a `.fa-check` or `.checkmark` descendant exists.
-pub fn parse_ordered_menus(html: &str) -> Vec<OrderedMenu> {
+/// `now_epoch_ms` is the fallback date for an order-item missing its `cp_Date_` input (matches v1's
+/// `new Date()` — G-2; without it a missing date became epoch 0 and misfiled the order as past).
+pub fn parse_ordered_menus(html: &str, now_epoch_ms: i64) -> Vec<OrderedMenu> {
     let doc = Html::parse_document(html);
-    let item_sel = Selector::parse("div.order-item").unwrap();
+    // Match v1's `div.order-item, div[class*="order-item"]` (G-1) so hyphenated variant classes
+    // (e.g. `order-item-cancelled`) aren't missed.
+    let item_sel = Selector::parse(r#"div.order-item, div[class*="order-item"]"#).unwrap();
     let pos_sel = Selector::parse(r#"input[name="cp_PositionId"]"#).unwrap();
     let ec_sel = Selector::parse(r#"input[name^="cp_EatingCycleId_"]"#).unwrap();
     let date_sel = Selector::parse(r#"input[name^="cp_Date_"]"#).unwrap();
@@ -222,7 +226,7 @@ pub fn parse_ordered_menus(html: &str) -> Vec<OrderedMenu> {
             .next()
             .and_then(|e| e.value().attr("value"))
             .unwrap_or("");
-        let date_epoch_ms = parse_orders_date(date_str).unwrap_or(0);
+        let date_epoch_ms = parse_orders_date(date_str).unwrap_or(now_epoch_ms);
         let title = item
             .select(&title_sel)
             .next()
@@ -454,7 +458,7 @@ mod tests {
 
     #[test]
     fn parses_ordered_menus() {
-        let orders = parse_ordered_menus(ORDERS_PAGE);
+        let orders = parse_ordered_menus(ORDERS_PAGE, 0);
         assert!(!orders.is_empty());
         assert!(orders.iter().all(|o| !o.position_id.is_empty()));
     }
@@ -466,7 +470,7 @@ mod tests {
 
     #[test]
     fn cancel_form_extraction_or_clear_error() {
-        let orders = parse_ordered_menus(ORDERS_EDIT);
+        let orders = parse_ordered_menus(ORDERS_EDIT, 0);
         if let Some(first) = orders.first() {
             let data = extract_cancel_form_data(ORDERS_EDIT, &first.position_id).unwrap();
             assert_eq!(data.position_id, first.position_id);

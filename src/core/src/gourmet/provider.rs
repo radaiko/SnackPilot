@@ -82,7 +82,7 @@ impl GourmetProvider {
 
     pub async fn get_orders(&self) -> CoreResult<Vec<OrderedMenu>> {
         match self.current() {
-            Handle::Live(a) => a.get_orders().await,
+            Handle::Live(a) => a.get_orders(self.clock.now_epoch_ms()).await,
             Handle::Demo(d) => d.get_orders().await,
         }
     }

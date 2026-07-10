@@ -143,10 +143,10 @@ impl GourmetApi {
         Ok(all)
     }
 
-    /// §9.1 — ordered menus.
-    pub async fn get_orders(&self) -> CoreResult<Vec<OrderedMenu>> {
+    /// §9.1 — ordered menus. `now_epoch_ms` is the fallback for an order missing its date (G-2).
+    pub async fn get_orders(&self, now_epoch_ms: i64) -> CoreResult<Vec<OrderedMenu>> {
         let html = self.get_authenticated_html(GOURMET_ORDERS_URL).await?;
-        Ok(parser::parse_ordered_menus(&html))
+        Ok(parser::parse_ordered_menus(&html, now_epoch_ms))
     }
 
     /// GET a page, re-login+re-fetch if the session expired, return fresh authenticated HTML.
@@ -498,7 +498,7 @@ mod tests {
         let t = Arc::new(CapturingTransport::new());
         let api = logged_in_api(&t).await;
         t.queue_response(ok(ORDERS_PAGE));
-        let orders = api.get_orders().await.unwrap();
+        let orders = api.get_orders(0).await.unwrap();
         assert!(!orders.is_empty());
         assert_eq!(
             t.requests()[2].url,
