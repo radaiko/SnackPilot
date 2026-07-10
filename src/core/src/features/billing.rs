@@ -89,7 +89,7 @@ impl BillingStore {
     }
 
     /// §4.1 Gourmet fetch. Loading/error reflect this fetch only.
-    pub async fn fetch_billing(&self, offset: u8) -> CoreResult<()> {
+    pub async fn fetch_billing(&self, offset: u8, force: bool) -> CoreResult<()> {
         if offset > 2 {
             return Ok(()); // invalid offset → silent
         }
@@ -97,8 +97,9 @@ impl BillingStore {
             return Ok(()); // in-flight guard
         }
         let key = cache::month_key_from_offset(self.clock.as_ref(), offset as u32);
-        // past-month skip: offset != 0 and a non-empty entry already exists.
-        if offset != 0 {
+        // past-month skip: offset != 0 and a non-empty entry already exists — unless `force`
+        // (pull-to-refresh), which always re-hits the server so a stale/older cache is replaced.
+        if offset != 0 && !force {
             if let Some(m) = self.gourmet_months.lock().unwrap().get(&key) {
                 if !m.bills.is_empty() {
                     return Ok(());
@@ -134,12 +135,12 @@ impl BillingStore {
     }
 
     /// §4.2 Ventopay fetch. Non-blocking: never sets loading/error; silent on failure.
-    pub async fn fetch_ventopay_billing(&self, offset: u8) -> CoreResult<()> {
+    pub async fn fetch_ventopay_billing(&self, offset: u8, force: bool) -> CoreResult<()> {
         if offset > 2 {
             return Ok(());
         }
         let key = cache::month_key_from_offset(self.clock.as_ref(), offset as u32);
-        if offset != 0 {
+        if offset != 0 && !force {
             if let Some(m) = self.ventopay_months.lock().unwrap().get(&key) {
                 if !m.transactions.is_empty() {
                     return Ok(());
@@ -322,7 +323,7 @@ mod tests {
         t.queue_response(ok(
             r#"{"Billings":[{"BillNr":1,"BillDate":"2026-02-10T12:00:00","Location":"Wien","Billing":4.5,"BillingItemInfo":[{"Id":"i","ArticleId":"a","Count":1,"Description":"x","Total":5.5,"Subsidy":2.5,"DiscountValue":0.0,"IsCustomMenu":false}]}]}"#,
         ));
-        store.fetch_billing(0).await.unwrap();
+        store.fetch_billing(0, false).await.unwrap();
 
         let m = store.gourmet_month("2026-02").unwrap();
         assert_eq!(m.bills.len(), 1);
@@ -343,7 +344,7 @@ mod tests {
             Arc::new(MemoryKv::new()),
             feb_2026_clock(),
         );
-        store.fetch_ventopay_billing(0).await.unwrap();
+        store.fetch_ventopay_billing(0, false).await.unwrap();
         assert!(store.ventopay_month("2026-02").is_none());
         assert_eq!(t.requests().len(), 0); // nothing sent
     }
@@ -363,10 +364,10 @@ mod tests {
         t.queue_response(ok(
             r#"{"Billings":[{"BillNr":1,"BillDate":"2026-01-10T12:00:00","Location":"W","Billing":1.0,"BillingItemInfo":[]}]}"#,
         ));
-        store.fetch_billing(1).await.unwrap();
+        store.fetch_billing(1, false).await.unwrap();
         let count_after_first = t.requests().len();
         // second fetch of the same past month must NOT hit the network again.
-        store.fetch_billing(1).await.unwrap();
+        store.fetch_billing(1, false).await.unwrap();
         assert_eq!(t.requests().len(), count_after_first);
     }
 }

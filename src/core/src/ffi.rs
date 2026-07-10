@@ -233,11 +233,11 @@ impl SnackPilotCore {
     pub fn load_cached_billing_months(&self) {
         self.billing.load_cached_months();
     }
-    pub async fn fetch_billing(&self, offset: u8) -> Result<(), CoreError> {
-        self.billing.fetch_billing(offset).await
+    pub async fn fetch_billing(&self, offset: u8, force: bool) -> Result<(), CoreError> {
+        self.billing.fetch_billing(offset, force).await
     }
-    pub async fn fetch_ventopay_billing(&self, offset: u8) -> Result<(), CoreError> {
-        self.billing.fetch_ventopay_billing(offset).await
+    pub async fn fetch_ventopay_billing(&self, offset: u8, force: bool) -> Result<(), CoreError> {
+        self.billing.fetch_ventopay_billing(offset, force).await
     }
     pub fn gourmet_billing_month(&self, month_key: String) -> Option<GourmetMonthlyBilling> {
         self.billing.gourmet_month(&month_key)

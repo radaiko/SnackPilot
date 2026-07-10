@@ -472,7 +472,8 @@ private fun BillingScreen(vm: AppViewModel) {
         val entries = buildList {
             g?.bills?.forEach { bill ->
                 add(BillingEntry("g-${bill.billNr}", bill.billDateEpochMs, BillingSource.GOURMET,
-                    bill.items.firstOrNull()?.description ?: "", bill.billing))
+                    "", bill.billing,
+                    bill.items.map { BillItemLine(it.count, it.description, it.total) }))
             }
             v?.transactions?.forEach { tx ->
                 add(BillingEntry("v-${tx.id}", tx.dateEpochMs, BillingSource.VENTOPAY, tx.restaurant, tx.amount))
@@ -518,14 +519,18 @@ private fun BillingScreen(vm: AppViewModel) {
     }
 }
 
-/** One unified billing entry from either source (billing §6.2). */
+/** One unified billing entry from either source (billing §6.2). A Kantine bill carries all its
+ *  line items (count × description → total), like v1's BillCard; Automaten carries none. */
 private data class BillingEntry(
     val id: String,
     val dateEpochMs: Long,
     val source: BillingSource,
     val description: String,
-    val amount: Double
+    val amount: Double,
+    val items: List<BillItemLine> = emptyList()
 )
+
+private data class BillItemLine(val count: Long, val description: String, val total: Double)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -563,28 +568,46 @@ private fun SummaryCell(label: String, value: String, valueColor: Color) {
  *  (billing §8.3). */
 @Composable
 private fun BillingEntryRow(e: BillingEntry) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(billDateFull(e.dateEpochMs), style = MaterialTheme.typography.bodyMedium)
-            val time = billTime(e.dateEpochMs)
-            if (time.isNotEmpty()) {
-                Text(time, style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(billDateFull(e.dateEpochMs), style = MaterialTheme.typography.bodyMedium)
+                val time = billTime(e.dateEpochMs)
+                if (time.isNotEmpty()) {
+                    Text(time, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (e.items.isEmpty() && e.description.isNotEmpty()) {
+                    Text(e.description, style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            if (e.description.isNotEmpty()) {
-                Text(e.description, style = MaterialTheme.typography.labelSmall, maxLines = 1,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(horizontalAlignment = Alignment.End) {
+                val (badgeText, badgeColor) = when (e.source) {
+                    BillingSource.VENTOPAY -> "AUTOMATEN" to Color(0xFF4CAF50)
+                    else -> "KANTINE" to MaterialTheme.colorScheme.primary
+                }
+                Text(badgeText, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                    color = badgeColor)
+                Text(euro(e.amount), style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             }
         }
-        Column(horizontalAlignment = Alignment.End) {
-            val (badgeText, badgeColor) = when (e.source) {
-                BillingSource.VENTOPAY -> "AUTOMATEN" to Color(0xFF4CAF50)
-                else -> "KANTINE" to MaterialTheme.colorScheme.primary
+        // Kantine bill line items (billing §6): count × description → item total, like v1.
+        if (e.items.isNotEmpty()) {
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 2.dp)) {
+                e.items.forEach { item ->
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${item.count}× ", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(item.description, style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f))
+                        Text(euro(item.total), style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
-            Text(badgeText, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                color = badgeColor)
-            Text(euro(e.amount), style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
         }
     }
 }

@@ -13,13 +13,22 @@ struct BillingView: View {
     enum SourceFilter: Hashable { case all, gourmet, ventopay }
     enum Source { case gourmet, ventopay }
 
-    /// One row in the unified list (billing §6.2).
+    /// One row in the unified list (billing §6.2). A Gourmet bill carries all its line items
+    /// (count × description → total), like v1's BillCard; Ventopay carries none and uses `description`.
     struct Entry: Identifiable {
         let id: String
         let epochMs: Int64
         let source: Source
         let description: String
         let amount: Double
+        var items: [ItemLine] = []
+    }
+
+    struct ItemLine: Identifiable {
+        let id = UUID()
+        let count: Int64
+        let description: String
+        let total: Double
     }
 
     var body: some View {
@@ -108,18 +117,37 @@ struct BillingView: View {
     }
 
     private func entryRow(_ entry: Entry) -> some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(Self.dateLabel(entry.epochMs)).font(.subheadline)
-                Text(Self.timeLabel(entry.epochMs)).font(.caption).foregroundStyle(.secondary)
-                if !entry.description.isEmpty {
-                    Text(entry.description).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.dateLabel(entry.epochMs)).font(.subheadline)
+                    Text(Self.timeLabel(entry.epochMs)).font(.caption).foregroundStyle(.secondary)
+                    if entry.items.isEmpty && !entry.description.isEmpty {
+                        Text(entry.description).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    sourceBadge(entry.source)
+                    Text(Self.euro(entry.amount)).bold().monospacedDigit()
                 }
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                sourceBadge(entry.source)
-                Text(Self.euro(entry.amount)).bold().monospacedDigit()
+            // Kantine bill line items (billing §6): count × description → item total, like v1.
+            if !entry.items.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(entry.items) { item in
+                        HStack(spacing: 6) {
+                            Text("\(item.count)×").font(.caption2).monospacedDigit()
+                                .foregroundStyle(.tertiary)
+                            Text(item.description).font(.caption).foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(Self.euro(item.total)).font(.caption2).monospacedDigit()
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .padding(.top, 2)
             }
         }
     }
@@ -156,8 +184,11 @@ struct BillingView: View {
                 list.append(Entry(id: "g-\(bill.billNr)",
                                   epochMs: bill.billDateEpochMs,
                                   source: .gourmet,
-                                  description: bill.items.first?.description ?? "",
-                                  amount: bill.billing))
+                                  description: "",
+                                  amount: bill.billing,
+                                  items: bill.items.map {
+                                      ItemLine(count: $0.count, description: $0.description, total: $0.total)
+                                  }))
             }
         }
         if sourceFilter != .gourmet, model.ventopayAuthenticated, let v = model.ventopayMonth {

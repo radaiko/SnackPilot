@@ -528,11 +528,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { loadBilling(offset) }
     }
 
-    /** Pull-to-refresh on Abrechnung: re-fetch the selected month (Kantine + Automaten). The
-     *  current month always re-hits the server; late-posted bills appear on refresh. Suspends so
-     *  the pull indicator stays until the fetch completes. */
+    /** Pull-to-refresh on Abrechnung: force a re-fetch of the selected month (Kantine + Automaten),
+     *  bypassing the past-month cache skip so a refresh always gets fresh data. Suspends so the
+     *  pull indicator stays until the fetch completes. */
     suspend fun reloadBilling() {
-        loadBilling(selectedOffset)
+        loadBilling(selectedOffset, force = true)
     }
 
     /** Set the unified-billing source filter (billing §6.1). Presentation-only. */
@@ -540,9 +540,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         billingSourceFilter = source
     }
 
-    private suspend fun loadBilling(offset: UByte) {
-        runCatching { core.fetchBilling(offset) }
-        runCatching { core.fetchVentopayBilling(offset) }
+    private suspend fun loadBilling(offset: UByte, force: Boolean = false) {
+        runCatching { core.fetchBilling(offset, force) }
+        runCatching { core.fetchVentopayBilling(offset, force) }
         val key = monthOptions.firstOrNull { it.offset == selectedOffset }?.key ?: return
         gourmetMonth = core.gourmetBillingMonth(key)
         ventopayMonth = core.ventopayBillingMonth(key)

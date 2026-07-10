@@ -395,15 +395,15 @@ final class AppModel: ObservableObject {
         await loadBilling(offset: offset)
     }
 
-    /// Pull-to-refresh on Abrechnung: re-fetch the selected month's billing (Kantine + Automaten).
-    /// The current month always re-hits the server; new/late-posted bills appear on refresh.
+    /// Pull-to-refresh on Abrechnung: force a re-fetch of the selected month's billing (Kantine +
+    /// Automaten), bypassing the past-month cache skip so a refresh always gets fresh data.
     func reloadBilling() async {
-        await loadBilling(offset: selectedOffset)
+        await loadBilling(offset: selectedOffset, force: true)
     }
 
-    private func loadBilling(offset: UInt8) async {
-        try? await core.fetchBilling(offset: offset)
-        try? await core.fetchVentopayBilling(offset: offset)
+    private func loadBilling(offset: UInt8, force: Bool = false) async {
+        try? await core.fetchBilling(offset: offset, force: force)
+        try? await core.fetchVentopayBilling(offset: offset, force: force)
         refreshBilling()
     }
 
