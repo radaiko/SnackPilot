@@ -25,6 +25,16 @@ struct MenusView: View {
                     ContentUnavailableView("Nicht angemeldet",
                                            systemImage: "person.crop.circle.badge.xmark",
                                            description: Text("Melde dich in den Einstellungen an."))
+                } else if let message = model.snapshot?.error ?? model.errorText {
+                    // A fetch/parse failure — distinct from a genuinely empty menu (menus retry).
+                    // Offer a retry so a transient network hiccup isn't a dead end.
+                    ContentUnavailableView {
+                        Label("Menüs nicht geladen", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(message)
+                    } actions: {
+                        Button("Erneut versuchen") { Task { await model.refreshMenus() } }
+                    }
                 } else {
                     ContentUnavailableView("Keine Menüs",
                                            systemImage: "fork.knife",
@@ -150,6 +160,16 @@ struct MenusView: View {
                     Text(Self.progressLabel(phase)).font(.footnote).foregroundStyle(.secondary)
                     Spacer()
                 }
+            }
+            // Surface a failed submit inline — without this the user sees the pending changes
+            // silently persist and wrongly believes the order went through (menus §6.6).
+            if !model.busy, let message = model.errorText {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(message).font(.footnote)
+                    Spacer()
+                }
+                .foregroundStyle(.red)
             }
             HStack(spacing: 12) {
                 Button("Verwerfen") { model.clearPending() }

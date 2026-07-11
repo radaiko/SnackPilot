@@ -40,6 +40,15 @@ struct OrdersView: View {
                     ContentUnavailableView("Nicht angemeldet",
                                            systemImage: "person.crop.circle.badge.xmark",
                                            description: Text("Melde dich in den Einstellungen an."))
+                } else if let message = model.ordersError {
+                    // A fetch/parse failure — distinct from having no orders. Offer a retry.
+                    ContentUnavailableView {
+                        Label("Bestellungen nicht geladen", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(message)
+                    } actions: {
+                        Button("Erneut versuchen") { Task { await model.loadOrders() } }
+                    }
                 } else {
                     ContentUnavailableView("Keine Bestellungen",
                                            systemImage: "checklist",
@@ -51,17 +60,28 @@ struct OrdersView: View {
     }
 
     private func confirmBanner(count: Int) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(.orange)
-            Text("\(count) unbestätigte \(count == 1 ? "Bestellung" : "Bestellungen")")
-                .font(.subheadline)
-            Spacer()
-            Button("Bestätigen") {
-                Task { await model.confirmOrders() }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.orange)
+                Text("\(count) unbestätigte \(count == 1 ? "Bestellung" : "Bestellungen")")
+                    .font(.subheadline)
+                Spacer()
+                Button("Bestätigen") {
+                    Task { await model.confirmOrders() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.busy)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(model.busy)
+            // Surface a failed confirm inline — otherwise the banner just stays and the user has
+            // no idea the confirm didn't go through (orders §5.3).
+            if !model.busy, let message = model.ordersError {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(message).font(.footnote)
+                }
+                .foregroundStyle(.red)
+            }
         }
     }
 }

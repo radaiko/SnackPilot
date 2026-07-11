@@ -43,6 +43,7 @@ struct BillingView: View {
                     List {
                         monthSection
                         filterSection
+                        billingErrorSection
                         if !entries.isEmpty {
                             summarySection
                         }
@@ -81,6 +82,20 @@ struct BillingView: View {
                 Text("Automaten").tag(SourceFilter.ventopay)
             }
             .pickerStyle(.segmented)
+        }
+    }
+
+    /// A billing fetch/parse failure — surfaced inline so a stale/empty list isn't mistaken for
+    /// "no data". Pull-to-refresh is the retry (billing §6).
+    @ViewBuilder private var billingErrorSection: some View {
+        if let message = model.billingError {
+            Section {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(message).font(.footnote)
+                }
+                .foregroundStyle(.red)
+            }
         }
     }
 

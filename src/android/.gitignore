@@ -9,3 +9,8 @@ build/
 # Generated/copied from the Rust core (bootstrap.sh regenerates)
 app/src/main/jniLibs/
 app/src/main/java/uniffi/
+
+# Release signing — never commit the keystore or its passwords
+/keystore.properties
+*.jks
+*.keystore

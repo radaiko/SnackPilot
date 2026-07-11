@@ -116,6 +116,8 @@ struct SettingsView: View {
                     Button("Protokoll aktivieren (24 h)") { model.activateLog() }
                     Button("Menü-Check ausführen") { Task { await model.runMenuCheck() } }
                     if !model.logEntries.isEmpty {
+                        // Let a sideloaded tester ship the log to the dev when something breaks.
+                        ShareLink("Protokoll teilen", item: logShareText)
                         Button("Protokoll leeren", role: .destructive) { model.clearLog() }
                     }
                 }
@@ -163,6 +165,18 @@ struct SettingsView: View {
             Text(title)
             Text(hint).font(.footnote).foregroundStyle(.secondary)
         }
+    }
+
+    /// Flatten the diagnostic log into plain text for the share sheet — one line per entry:
+    /// "<subsystem> · <event> · <detail?> · <ts>" (detail omitted when absent).
+    private var logShareText: String {
+        model.logEntries.map { entry in
+            var parts = [Self.subsystem(entry.subsystem), entry.event]
+            if let detail = entry.detail, !detail.isEmpty { parts.append(detail) }
+            parts.append(entry.ts)
+            return parts.joined(separator: " · ")
+        }
+        .joined(separator: "\n")
     }
 
     static func subsystem(_ s: LogSubsystem) -> String {

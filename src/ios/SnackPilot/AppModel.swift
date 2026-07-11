@@ -166,6 +166,33 @@ final class AppModel: ObservableObject {
         SnackPilot.isDemoCredentials(username: user, password: pass)
     }
 
+    /// Map a core error to a friendly, user-facing German sentence. Used everywhere a caught
+    /// error is surfaced to the UI (login, order submit/confirm, session load, …) instead of the
+    /// raw debug form. `LoginFailed`/`AddToCartFailed` carry a server message we show verbatim
+    /// (with a generic fallback when empty); everything else maps to a fixed sentence.
+    static func humanError(_ error: Error) -> String {
+        switch error as? CoreError {
+        case .LoginFailed(let d):
+            return d.isEmpty ? "Anmeldung fehlgeschlagen." : d
+        case .AddToCartFailed(let d):
+            return d.isEmpty ? "Bestellung fehlgeschlagen." : d
+        case .SessionExpired:
+            return "Die Sitzung ist abgelaufen. Bitte melde dich erneut an."
+        case .NotLoggedIn:
+            return "Nicht angemeldet."
+        case .Http:
+            return "Verbindungsproblem. Bitte prüfe deine Internetverbindung und versuche es erneut."
+        case .Parse:
+            return "Die Serverantwort konnte nicht gelesen werden. Bitte später erneut versuchen."
+        case .EditModeFailed:
+            return "Bestellung konnte nicht bearbeitet werden."
+        case .Storage:
+            return "Speicherfehler."
+        case .none:
+            return "Ein unbekannter Fehler ist aufgetreten."
+        }
+    }
+
     /// Log in and load the session. Demo credentials are intercepted by the core (it swaps to
     /// offline data and never touches the live server); everything else performs live scraping.
     func login(user: String, pass: String) async {
@@ -186,7 +213,7 @@ final class AppModel: ObservableObject {
             }
             await loadSession()
         } catch {
-            errorText = String(describing: error)
+            errorText = Self.humanError(error)
         }
         busy = false
     }
@@ -209,7 +236,7 @@ final class AppModel: ObservableObject {
                 await loadBilling(offset: selectedOffset)
             }
         } catch {
-            ventopayError = String(describing: error)
+            ventopayError = Self.humanError(error)
         }
         ventopayBusy = false
     }
@@ -237,7 +264,7 @@ final class AppModel: ObservableObject {
     /// Fetch menus + billing for the active session.
     private func loadSession() async {
         do { snapshot = try await core.fetchMenus(force: false); syncSelectedDay() } catch {
-            errorText = String(describing: error)
+            errorText = Self.humanError(error)
         }
         await loadOrders()
         monthOptions = core.billingMonthOptions()
@@ -260,6 +287,21 @@ final class AppModel: ObservableObject {
             setDailyReminder(enabled: true, hour: 8, minute: 30)
         }
         #endif
+    }
+
+    /// Force a fresh menu fetch and republish (Menüs "Erneut versuchen" — surfaces failures via
+    /// `errorText`/`snapshot.error` so the empty state can distinguish an error from a genuinely
+    /// empty menu and offer a retry).
+    func refreshMenus() async {
+        busy = true
+        errorText = nil
+        do {
+            snapshot = try await core.fetchMenus(force: true)
+            syncSelectedDay()
+        } catch {
+            errorText = Self.humanError(error)
+        }
+        busy = false
     }
 
     // MARK: Orders
@@ -397,7 +439,7 @@ final class AppModel: ObservableObject {
             syncSelectedDay()
             await loadOrders()
         } catch {
-            errorText = String(describing: error)
+            errorText = Self.humanError(error)
         }
         orderProgress = nil
         busy = false
@@ -412,7 +454,7 @@ final class AppModel: ObservableObject {
         do {
             try await core.confirmOrders()
         } catch {
-            ordersError = String(describing: error)
+            ordersError = Self.humanError(error)
         }
         await loadOrders()
         busy = false
@@ -445,6 +487,11 @@ final class AppModel: ObservableObject {
         gourmetMonth = core.gourmetBillingMonth(monthKey: key)
         ventopayMonth = core.ventopayBillingMonth(monthKey: key)
     }
+
+    /// Billing fetch/parse error from the core's last billing load, if any (Abrechnung surfaces it
+    /// inline; pull-to-refresh is the retry). Re-read on each render — billing loads republish the
+    /// `@Published` month state, which re-renders the view and re-evaluates this.
+    var billingError: String? { core.billingError() }
 
     /// Offline demo session (button / debug hook) — routes through the same login path.
     func loadDemo() {

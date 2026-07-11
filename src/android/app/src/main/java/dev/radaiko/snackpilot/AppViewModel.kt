@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import uniffi.snackpilot_core.CompanyLocation
 import uniffi.snackpilot_core.CoreConfig
+import uniffi.snackpilot_core.CoreException
 import uniffi.snackpilot_core.Credentials
 import uniffi.snackpilot_core.DailyReminderSettings
 import uniffi.snackpilot_core.NotificationCommand
@@ -54,6 +55,23 @@ enum class AccentColor(val label: String, val lightPrimary: Long, val darkPrimar
 
     /** The effective primary ARGB for the resolved scheme (themes §3). */
     fun primary(isDark: Boolean): Long = if (isDark) darkPrimary else lightPrimary
+}
+
+/**
+ * Map a caught core error ([CoreException]) to a friendly German sentence for display
+ * (error-handling). Anything that isn't a recognised `CoreException` falls back to the generic
+ * message, so no raw/debug string ever reaches the UI.
+ */
+fun humanError(e: Throwable?): String = when (e) {
+    is CoreException.LoginFailed -> e.detail.ifBlank { "Anmeldung fehlgeschlagen." }
+    is CoreException.AddToCartFailed -> e.detail.ifBlank { "Bestellung fehlgeschlagen." }
+    is CoreException.SessionExpired -> "Die Sitzung ist abgelaufen. Bitte melde dich erneut an."
+    is CoreException.NotLoggedIn -> "Nicht angemeldet."
+    is CoreException.Http -> "Verbindungsproblem. Bitte prüfe deine Internetverbindung und versuche es erneut."
+    is CoreException.Parse -> "Die Serverantwort konnte nicht gelesen werden. Bitte später erneut versuchen."
+    is CoreException.EditModeFailed -> "Bestellung konnte nicht bearbeitet werden."
+    is CoreException.Storage -> "Speicherfehler."
+    else -> "Ein unbekannter Fehler ist aufgetreten."
 }
 
 /** Accent → launcher activity-alias name (themes §6). Orange is the default alias. */
@@ -159,6 +177,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var ventopayMonth by mutableStateOf<VentopayMonthlyBilling?>(null)
         private set
 
+    /** Last billing fetch/parse error surfaced by the core (billing error-handling), or null. */
+    var billingError by mutableStateOf<String?>(null)
+        private set
+
     /** Source filter for the unified billing list (billing §6.1). Presentation-only; never
      *  suppresses fetching/caching. Not persisted — resets to ALL on restart. */
     var billingSourceFilter by mutableStateOf(BillingSource.ALL)
@@ -232,7 +254,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             loadSession()
         } catch (e: Exception) {
-            errorText = e.toString()
+            errorText = humanError(e)
         }
         busy = false
     }
@@ -241,7 +263,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         try {
             snapshot = core.fetchMenus(force = false)
         } catch (e: Exception) {
-            errorText = e.toString()
+            errorText = humanError(e)
         }
         syncSelectedDay()
         loadOrders()
@@ -264,6 +286,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (BuildConfig.DEBUG && debugAutoReminder) {
             setDailyReminder(enabled = true, hour = 8, minute = 30)
         }
+    }
+
+    /** Re-run the menu fetch after a fetch/parse failure (menus error-handling → "Erneut versuchen").
+     *  Forces a fresh fetch so the retry bypasses any stale cache. */
+    suspend fun refreshMenus() {
+        busy = true
+        errorText = null
+        try {
+            snapshot = core.fetchMenus(force = true)
+        } catch (e: Exception) {
+            errorText = humanError(e)
+        }
+        syncSelectedDay()
+        busy = false
+    }
+
+    fun refreshMenusAsync() {
+        viewModelScope.launch { refreshMenus() }
     }
 
     // Appearance (themes §1) — persist each setting independently; changing one never touches the
@@ -431,6 +471,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         ordersError = core.ordersError()
     }
 
+    /** Re-run the orders fetch after a fetch/parse failure (orders error-handling → "Erneut versuchen"). */
+    fun reloadOrdersAsync() {
+        viewModelScope.launch { loadOrders() }
+    }
+
     fun toggle(item: MenuItem) {
         snapshot = core.togglePending(menuId = item.id, dateKey = item.day)
     }
@@ -511,7 +556,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             syncSelectedDay()
             loadOrders()
         } catch (e: Exception) {
-            errorText = e.toString()
+            errorText = humanError(e)
         }
         orderProgress = null
         busy = false
@@ -539,7 +584,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             core.confirmOrders()
             loadOrders()
         } catch (e: Exception) {
-            ordersError = e.toString()
+            ordersError = humanError(e)
         }
         busy = false
     }
@@ -568,6 +613,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun loadBilling(offset: UByte, force: Boolean = false) {
         runCatching { core.fetchBilling(offset, force) }
         runCatching { core.fetchVentopayBilling(offset, force) }
+        billingError = core.billingError()
         val key = monthOptions.firstOrNull { it.offset == selectedOffset }?.key ?: return
         gourmetMonth = core.gourmetBillingMonth(key)
         ventopayMonth = core.ventopayBillingMonth(key)
@@ -637,7 +683,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 loadBilling(selectedOffset)
             }
         } catch (e: Exception) {
-            ventopayError = e.toString()
+            ventopayError = humanError(e)
         }
         ventopayBusy = false
     }

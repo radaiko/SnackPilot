@@ -1,6 +1,7 @@
 package dev.radaiko.snackpilot.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -171,8 +172,13 @@ private fun MenusScreen(vm: AppViewModel) {
     Column {
         val snapshot = vm.snapshot
         if (snapshot == null || snapshot.items.isEmpty()) {
+            // Distinguish a genuine "no menus" result from a fetch/parse failure: on error show the
+            // friendly message + a retry, otherwise the neutral empty text (menus error-handling).
+            val err = snapshot?.error ?: vm.errorText
             if (!vm.gourmetAuthenticated) {
                 NotSignedInState()
+            } else if (err != null) {
+                ErrorRetryState(err, enabled = !vm.busy) { vm.refreshMenusAsync() }
             } else {
                 Text(
                     "Keine Menüs für diesen Zeitraum.",
@@ -220,6 +226,13 @@ private fun MenusScreen(vm: AppViewModel) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 8.dp))
                     }
+                }
+                // Surface a failed submission inline (menus error-handling) — otherwise pending
+                // changes silently remain and the user believes the order went through.
+                vm.errorText?.let { msg ->
+                    Text(msg, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = { vm.clearPending() }, enabled = !vm.busy) { Text("Verwerfen") }
@@ -369,8 +382,13 @@ private fun OrdersScreen(vm: AppViewModel) {
     Column {
         val split = vm.ordersSplit
         if (split == null || (split.upcoming.isEmpty() && split.past.isEmpty())) {
+            // On a fetch/parse failure show the friendly message + retry; otherwise the neutral
+            // "no orders yet" hint (orders error-handling).
+            val err = vm.ordersError
             if (!vm.gourmetAuthenticated) {
                 NotSignedInState()
+            } else if (err != null) {
+                ErrorRetryState(err, enabled = !vm.busy) { vm.reloadOrdersAsync() }
             } else {
                 Text("Bestelle ein Menü im Menüs-Tab.", modifier = Modifier.padding(16.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -382,17 +400,26 @@ private fun OrdersScreen(vm: AppViewModel) {
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "$unconfirmed unbestätigte ${if (unconfirmed == 1) "Bestellung" else "Bestellungen"}",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Button(onClick = { vm.confirmOrdersAsync() }, enabled = !vm.busy) {
-                        Text("Bestätigen")
+                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "$unconfirmed unbestätigte ${if (unconfirmed == 1) "Bestellung" else "Bestellungen"}",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Button(onClick = { vm.confirmOrdersAsync() }, enabled = !vm.busy) {
+                            Text("Bestätigen")
+                        }
+                    }
+                    // Surface a failed confirmation inline (orders error-handling) — otherwise the
+                    // user thinks the order is confirmed when it isn't.
+                    vm.ordersError?.let { msg ->
+                        Text(msg, color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp))
                     }
                 }
             }
@@ -509,13 +536,21 @@ private fun BillingScreen(vm: AppViewModel) {
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
         ) {
+            // Surface a fetch/parse failure inline (billing error-handling); pull-to-refresh retries.
+            vm.billingError?.let { err ->
+                item(key = "billing-error") {
+                    Text(err, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
             if (entries.isNotEmpty()) {
                 item(key = "summary") { BillingSummary(total, entries.size, subsidy) }
                 items(entries, key = { it.id }) { e ->
                     BillingEntryRow(e)
                     HorizontalDivider()
                 }
-            } else {
+            } else if (vm.billingError == null) {
                 item(key = "nodata") {
                     Text("Keine Abrechnungsdaten für diesen Monat",
                         modifier = Modifier.padding(vertical = 16.dp),
@@ -795,6 +830,26 @@ private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Un
                     }
                 }
             }
+            // Let a sideloaded tester send the dev the log via the native share sheet when something
+            // breaks (diagnostics). Only offered when there is something to share.
+            if (vm.logEntries.isNotEmpty()) {
+                val shareCtx = LocalContext.current
+                TextButton(onClick = {
+                    val text = vm.logEntries.joinToString("\n") { e ->
+                        listOfNotNull(
+                            logSubsystemLabel(e.subsystem),
+                            e.event,
+                            e.detail?.takeIf { it.isNotEmpty() },
+                            e.ts
+                        ).joinToString(" · ")
+                    }
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }
+                    shareCtx.startActivity(Intent.createChooser(send, "Protokoll teilen"))
+                }) { Text("Protokoll teilen") }
+            }
             if (vm.logEntries.isNotEmpty()) {
                 Text("Protokoll-Einträge (${vm.logEntries.size})",
                     style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
@@ -1067,6 +1122,22 @@ private fun AccentSwatch(accent: AccentColor, selected: Boolean, onClick: () -> 
         }
         Spacer(Modifier.padding(2.dp))
         Text(accent.label, style = MaterialTheme.typography.labelSmall, color = labelColor)
+    }
+}
+
+/** Fetch/parse-failure state (error-handling): the friendly message + a retry button, distinct
+ *  from a genuine "no data" empty state so the user knows a load failed and can try again. */
+@Composable
+private fun ErrorRetryState(message: String, enabled: Boolean, onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(message, color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.padding(8.dp))
+        Button(onClick = onRetry, enabled = enabled) { Text("Erneut versuchen") }
     }
 }
 

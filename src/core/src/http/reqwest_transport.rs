@@ -36,6 +36,10 @@ impl ReqwestTransport {
             .cookie_store(cookie_store)
             .redirect(policy)
             .user_agent(USER_AGENT)
+            // Ceilings (NOT throttling — safe w.r.t. the no-delay rule): a stalled connection
+            // (captive-portal Wi-Fi, VPN handoff) otherwise hangs the login/menu spinner forever.
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(30))
             .build()
             .map_err(|e| CoreError::Http {
                 detail: e.to_string(),
