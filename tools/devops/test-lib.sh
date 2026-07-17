@@ -67,4 +67,12 @@ set_gradle_int "$tmp/build.gradle.kts" versionCode 42
 assert 'grep -q '"'"'versionName = "2.1.0"'"'"' "'"$tmp"'/build.gradle.kts"'  'gradle versionName bumped'
 assert 'grep -q '"'"'versionCode = 42'"'"' "'"$tmp"'/build.gradle.kts"'        'gradle versionCode bumped'
 
+# path_is_stale — rebuild-needed predicate
+mkdir -p "$tmp/src"; echo x > "$tmp/src/a.txt"
+assert     'path_is_stale "'"$tmp"'/src" "'"$tmp"'/nope"'      'stale when artifact missing'
+touch "$tmp/artifact"; sleep 1; touch "$tmp/src/a.txt"
+assert     'path_is_stale "'"$tmp"'/src" "'"$tmp"'/artifact"'  'stale when source newer than artifact'
+sleep 1; touch "$tmp/artifact"
+assert_not 'path_is_stale "'"$tmp"'/src" "'"$tmp"'/artifact"'  'fresh when artifact newer than source'
+
 echo "---"; [[ $fails -eq 0 ]] && echo "ALL PASS" || { echo "$fails FAILED"; exit 1; }

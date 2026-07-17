@@ -72,11 +72,18 @@ set_gradle_int() {
   verify_file_contains "$file" "${key} = ${val}"
 }
 
+# path_is_stale SOURCE_DIR ARTIFACT → success (0) if ARTIFACT is missing or any file
+# under SOURCE_DIR is newer than ARTIFACT (i.e. a rebuild is needed).
+path_is_stale() {
+  local source_dir=$1 artifact=$2
+  [[ ! -e "$artifact" ]] && return 0
+  [[ -n "$(find "$source_dir" -newer "$artifact" -print -quit 2>/dev/null)" ]]
+}
+
 # Rerun a platform bootstrap only when the core is newer than its built binding artifact.
 bootstrap_if_stale() {
   local platform=$1 artifact=$2
-  local script="$REPO_ROOT/src/$platform/bootstrap.sh"
-  if [[ ! -e "$artifact" ]] || [[ -n "$(find "$REPO_ROOT/src/core/src" -newer "$artifact" -print -quit 2>/dev/null)" ]]; then
+  if path_is_stale "$REPO_ROOT/src/core/src" "$artifact"; then
     info "core changed (or bindings absent) → running src/$platform/bootstrap.sh"
     ( cd "$REPO_ROOT/src/$platform" && ./bootstrap.sh )
   else

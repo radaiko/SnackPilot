@@ -11,19 +11,25 @@ cd "$REPO_ROOT"
 
 bootstrap_if_stale ios "src/ios/Frameworks/SnackPilotCore.xcframework"
 
-# Resolve a target simulator UDID: explicit DEVICE=, else the booted one, else boot IOS_SIM.
+# Resolve a target simulator UDID: explicit DEVICE=, else the booted one, else IOS_SIM.
 udid="${DEVICE:-}"
 if [[ -z "$udid" ]]; then
   udid="$(xcrun simctl list devices booted -j | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next((x["udid"] for v in d.values() for x in v if x.get("state")=="Booted"), ""))')"
 fi
 if [[ -z "$udid" ]]; then
-  info "no booted simulator — booting '$IOS_SIM'"
+  info "no booted simulator — selecting '$IOS_SIM'"
   udid="$(xcrun simctl list devices available -j | /usr/bin/python3 -c 'import json,sys,os; name=os.environ["IOS_SIM"]; d=json.load(sys.stdin)["devices"]; print(next((x["udid"] for v in d.values() for x in v if x.get("name")==name), ""))')"
   [[ -n "$udid" ]] || die "simulator '$IOS_SIM' not found — set IOS_SIM= to an available device (xcrun simctl list devices available)"
-  xcrun simctl boot "$udid"
-  open -a Simulator
 fi
 ok "target simulator: $udid"
+
+# Ensure the target is booted (a DEVICE= override or IOS_SIM pick may be shut down).
+if ! xcrun simctl list devices booted | grep -q "$udid"; then
+  info "booting simulator $udid"
+  xcrun simctl boot "$udid" 2>/dev/null || true
+  open -a Simulator
+fi
+xcrun simctl bootstatus "$udid" >/dev/null 2>&1 || true
 
 info "building (iphonesimulator)"
 xcodebuild -project src/ios/SnackPilot.xcodeproj -scheme SnackPilot \
