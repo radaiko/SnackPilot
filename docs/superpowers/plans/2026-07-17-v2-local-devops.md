@@ -504,7 +504,7 @@ git commit -m "feat(devops): make android-keystore (generate signed-release keys
 
 **Interfaces:**
 - Consumes: all lib.sh helpers — logging, `validate_semver`, `version_gt`, `set_cargo_package_version`, `set_yaml_key`, `set_gradle_string`, `set_gradle_int` (Tasks 1–2).
-- Env: `DRY_RUN=1` (no file/git/counter mutation, build into temp), `METHOD=` (iOS export method, default `development`).
+- Env: `DRY_RUN=1` (no file/git/counter mutation, build into temp), `METHOD=` (iOS export method, default `development`; `app-store` needs an Apple Distribution cert, not just the Apple Development one), `IOS_TEAM=` (Apple Team ID; auto-detected from the keychain signing identity's cert OU when unset).
 
 - [ ] **Step 1: Write `tools/devops/ship.sh`**
 
@@ -564,12 +564,17 @@ fi
 # 5a. iOS artifact
 if [[ $do_ios -eq 1 ]]; then
   require_tool xcodebuild "install Xcode"
-  info "iOS: regenerating project + archiving (method=$METHOD)"
+  # Auto-detect the Apple team from the signing identity already in the keychain (the cert's
+  # OU is the Team ID — NOT the id in the cert name). Override with IOS_TEAM=.
+  IOS_TEAM="${IOS_TEAM:-$(security find-certificate -c "Apple Development" -p 2>/dev/null | openssl x509 -noout -subject -nameopt sep_multiline,utf8 2>/dev/null | sed -n 's/^ *OU=//p' | head -1)}"
+  [[ -n "$IOS_TEAM" ]] || die "no Apple Development team in keychain — set IOS_TEAM=<teamid> (see: security find-identity -v -p codesigning)"
+  info "iOS: regenerating project + archiving (method=$METHOD, team=$IOS_TEAM)"
   ( cd src/ios && ./bootstrap.sh )
   archive="$outdir/SnackPilot.xcarchive"
   xcodebuild -project src/ios/SnackPilot.xcodeproj -scheme SnackPilot \
     -sdk iphoneos -destination "generic/platform=iOS" \
-    -archivePath "$archive" -allowProvisioningUpdates archive
+    -archivePath "$archive" -allowProvisioningUpdates \
+    DEVELOPMENT_TEAM="$IOS_TEAM" CODE_SIGN_STYLE=Automatic archive
   plist="$outdir/exportOptions.plist"
   cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -577,6 +582,7 @@ if [[ $do_ios -eq 1 ]]; then
 <plist version="1.0"><dict>
   <key>method</key><string>$METHOD</string>
   <key>signingStyle</key><string>automatic</string>
+  <key>teamID</key><string>$IOS_TEAM</string>
 </dict></plist>
 EOF
   xcodebuild -exportArchive -archivePath "$archive" \
