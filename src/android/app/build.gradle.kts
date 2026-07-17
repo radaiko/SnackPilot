@@ -45,7 +45,9 @@ android {
     signingConfigs {
         if (keystorePropertiesFile.exists()) {
             create("release") {
-                storeFile = file(keystoreProperties["storeFile"] as String)
+                // rootProject.file() resolves a relative storeFile against src/android/ (as
+                // keystore.properties.example documents) and passes an absolute path through as-is.
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
                 storePassword = keystoreProperties["storePassword"] as String
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String

@@ -53,8 +53,7 @@ buildno=0; [[ -f "$BUILDNO_FILE" ]] && buildno="$(cat "$BUILDNO_FILE")"
 buildno=$((buildno + 1))
 info "build number: $buildno"
 
-mkdir -p dist
-outdir="dist"; [[ "$DRY_RUN" == "1" ]] && outdir="$(mktemp -d)"
+if [[ "$DRY_RUN" == "1" ]]; then outdir="$(mktemp -d)"; else mkdir -p dist; outdir="dist"; fi
 
 # 4. bump version files (skip on dry-run)
 if [[ "$DRY_RUN" != "1" ]]; then
