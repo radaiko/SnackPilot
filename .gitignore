@@ -14,3 +14,8 @@ src/android/.gradle/
 src/android/build/
 src/android/app/build/
 src/android/local.properties
+
+# Devops
+dist/
+.ship-history
+tools/devops/.build-number
