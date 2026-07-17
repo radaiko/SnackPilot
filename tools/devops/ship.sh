@@ -11,6 +11,18 @@ CARGO="src/core/Cargo.toml"
 PROJECT_YML="src/ios/project.yml"
 GRADLE="src/android/app/build.gradle.kts"
 
+# Revert the version-file bumps if we fail after editing them but before the commit lands.
+bumped=0; committed=0
+cleanup() {
+  local rc=$?
+  if [[ "$bumped" == "1" && "$committed" == "0" ]]; then
+    err "ship failed (exit $rc) — reverting version-file bumps in the working tree"
+    git checkout -- "$CARGO" "$PROJECT_YML" "$GRADLE" 2>/dev/null || true
+  fi
+  exit $rc
+}
+trap cleanup EXIT
+
 [[ "$DRY_RUN" == "1" ]] && info "DRY RUN — no files, commits, tags, or counters will change"
 
 # 1. version
@@ -30,6 +42,12 @@ do_ios=0; do_android=0
 label=""; [[ $do_ios -eq 1 ]] && label="ios"; [[ $do_android -eq 1 ]] && label="${label:+$label,}android"
 info "shipping v$VERSION ($label)"
 
+# Fail fast if a target tag already exists, so a collision can't orphan a Release commit later.
+for _plat in ${label//,/ }; do
+  git rev-parse -q --verify "refs/tags/$_plat/v$VERSION" >/dev/null 2>&1 \
+    && die "tag $_plat/v$VERSION already exists — bump the version or delete the tag first"
+done
+
 # 3. build number (increment; dry-run just previews)
 buildno=0; [[ -f "$BUILDNO_FILE" ]] && buildno="$(cat "$BUILDNO_FILE")"
 buildno=$((buildno + 1))
@@ -45,6 +63,7 @@ if [[ "$DRY_RUN" != "1" ]]; then
   set_yaml_key "$PROJECT_YML" CURRENT_PROJECT_VERSION "$buildno"
   set_gradle_string "$GRADLE" versionName "$VERSION"
   set_gradle_int "$GRADLE" versionCode "$buildno"
+  bumped=1
   ok "bumped version to $VERSION (build $buildno) in all three files"
 else
   info "(dry-run) would bump $CARGO, $PROJECT_YML, $GRADLE to $VERSION / build $buildno"
@@ -99,6 +118,7 @@ fi
 echo "$buildno" > "$BUILDNO_FILE"
 git add "$CARGO" "$PROJECT_YML" "$GRADLE"
 git commit -m "Release v$VERSION ($label)"
+committed=1
 [[ $do_ios -eq 1 ]] && git tag "ios/v$VERSION"
 [[ $do_android -eq 1 ]] && git tag "android/v$VERSION"
 echo "$VERSION" >> "$HISTORY"
