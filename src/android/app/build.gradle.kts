@@ -71,6 +71,10 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.activity:activity-compose:1.9.3")
+    // Force Fragment >=1.3.0 so lint's InvalidFragmentVersionForActivityResult (a false
+    // positive here — the app is Compose/ComponentActivity, no Fragments) doesn't fail the
+    // release build. A stale 1.1.0 is otherwise pulled in transitively.
+    implementation("androidx.fragment:fragment:1.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     // UniFFI Kotlin runtime deps.
