@@ -71,3 +71,15 @@ set_gradle_int() {
   sed -i '' -E "s/(${key}[[:space:]]*=[[:space:]]*)[0-9]+/\1${val}/" "$file"
   verify_file_contains "$file" "${key} = ${val}"
 }
+
+# Rerun a platform bootstrap only when the core is newer than its built binding artifact.
+bootstrap_if_stale() {
+  local platform=$1 artifact=$2
+  local script="$REPO_ROOT/src/$platform/bootstrap.sh"
+  if [[ ! -e "$artifact" ]] || [[ -n "$(find "$REPO_ROOT/src/core/src" -newer "$artifact" -print -quit 2>/dev/null)" ]]; then
+    info "core changed (or bindings absent) → running src/$platform/bootstrap.sh"
+    ( cd "$REPO_ROOT/src/$platform" && ./bootstrap.sh )
+  else
+    ok "core bindings for $platform are up to date"
+  fi
+}
