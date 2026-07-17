@@ -11,6 +11,11 @@ verified requirements extracted from v1.4.5 under [`docs/`](docs/). Implementati
 
 v1 (Expo React Native + Tauri, shipped through v1.4.5) lives on the `main` branch.
 
+## Local devops
+
+`make help` at the repo root lists the build/run/ship targets. See
+[`tools/devops/README.md`](tools/devops/README.md).
+
 ## Credits
 
 Based on [GourmetClient](https://github.com/patrickl92/GourmetClient) by patrickl92,
