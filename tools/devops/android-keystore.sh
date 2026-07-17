@@ -8,6 +8,7 @@ PROPS="$REPO_ROOT/src/android/keystore.properties"
 ALIAS="snackpilot"
 
 [[ -e "$KS" ]] && die "keystore already exists at $KS — refusing to overwrite (delete it manually to regenerate)"
+[[ -e "$PROPS" ]] && die "keystore.properties already exists at $PROPS — refusing to overwrite (delete it manually to regenerate)"
 
 pass="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)" || true
 info "generating release keystore (RSA 2048, 10000-day validity)"
@@ -16,6 +17,7 @@ keytool -genkeypair -v \
   -keyalg RSA -keysize 2048 -validity 10000 \
   -storepass "$pass" -keypass "$pass" \
   -dname "CN=SnackPilot, OU=SnackPilot, O=SnackPilot, L=Vienna, C=AT"
+chmod 600 "$KS"
 
 cat > "$PROPS" <<EOF
 storeFile=$KS
