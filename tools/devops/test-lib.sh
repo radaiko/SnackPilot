@@ -35,6 +35,18 @@ set_cargo_package_version "$tmp/Cargo.toml" 2.1.0
 assert 'grep -q '"'"'^version = "2.1.0"'"'"' "'"$tmp"'/Cargo.toml"' 'cargo package version bumped'
 assert 'grep -q '"'"'version = "1.0"'"'"' "'"$tmp"'/Cargo.toml"'      'cargo dep version untouched'
 
+# set_cargo_package_version — bumps [package] even when a dependency already has the target string
+cat > "$tmp/Cargo2.toml" <<'EOF'
+[package]
+name = "x"
+version = "2.0.0"
+
+[dependencies]
+foo = { version = "2.1.0" }
+EOF
+set_cargo_package_version "$tmp/Cargo2.toml" 2.1.0
+assert 'awk '"'"'/^\[package\]/{p=1} /^\[/&&$0!~/^\[package\]/{p=0} p&&/^version/{print}'"'"' "'"$tmp"'/Cargo2.toml" | grep -qF '"'"'version = "2.1.0"'"'"'' 'cargo [package] version bumped with colliding dep'
+
 # set_yaml_key
 cat > "$tmp/project.yml" <<'EOF'
     MARKETING_VERSION: "2.0.0"

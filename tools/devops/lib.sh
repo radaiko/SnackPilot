@@ -31,7 +31,7 @@ version_gt() {
   [[ "$highest" == "$1" ]]
 }
 
-verify_file_contains() { grep -q -- "$2" "$1" || die "expected '$2' in $1 after edit — aborting"; }
+verify_file_contains() { grep -qF -- "$2" "$1" || die "expected '$2' in $1 after edit — aborting"; }
 
 # Replace [package].version only (leaves dependency versions alone).
 set_cargo_package_version() {
@@ -42,7 +42,13 @@ set_cargo_package_version() {
     inpkg && /^version[[:space:]]*=/ { sub(/"[^"]*"/, "\"" ver "\"") }
     { print }
   ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-  verify_file_contains "$file" "version = \"$v\""
+  # verify the bump landed INSIDE [package], not merely somewhere in the file
+  awk '
+    /^\[package\]/ { inpkg=1 }
+    /^\[/ && $0 !~ /^\[package\]/ { inpkg=0 }
+    inpkg && /^version[[:space:]]*=/ { print }
+  ' "$file" | grep -qF -- "version = \"$v\"" \
+    || die "set_cargo_package_version: [package].version not set to $v in $file — aborting"
 }
 
 # Edit `KEY: "value"` (yaml). Quotes preserved.
