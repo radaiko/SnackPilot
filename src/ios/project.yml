@@ -4,6 +4,10 @@ options:
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
+packages:
+  Aptabase:
+    url: https://github.com/aptabase/aptabase-swift.git
+    from: "0.3.4"
 settings:
   base:
     MARKETING_VERSION: "2.0.3"
@@ -19,6 +23,7 @@ targets:
     dependencies:
       - framework: Frameworks/SnackPilotCore.xcframework
         embed: false
+      - package: Aptabase
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.radaiko.gourmetclient

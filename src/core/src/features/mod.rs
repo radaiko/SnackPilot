@@ -9,7 +9,8 @@ use crate::domain::OrderProgress;
 use std::collections::HashMap;
 
 /// Fire-and-forget analytics emission (docs/architecture §4.1; 03-features/analytics.md).
-/// The core emits core-originated events; the shell forwards them to TelemetryDeck.
+/// The core emits core-originated events; the shell forwards them to the analytics
+/// provider (v2: self-hosted Aptabase — see the vault self-host doc / analytics.md).
 #[uniffi::export(with_foreign)]
 pub trait AnalyticsSink: Send + Sync {
     fn track(&self, event: String, props: HashMap<String, String>);

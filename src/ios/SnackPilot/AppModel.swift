@@ -80,11 +80,16 @@ final class AppModel: ObservableObject {
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("snackpilot", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        // Start analytics before the core so the sink is live for any launch-time events.
+        Analytics.start()
         do {
-            core = try SnackPilotCore(config: CoreConfig(storageDir: base.path), analytics: nil)
+            core = try SnackPilotCore(config: CoreConfig(storageDir: base.path), analytics: AptabaseSink())
         } catch {
             fatalError("SnackPilotCore init failed: \(error)")
         }
+        // Per-launch event → drives user/device/session counts in the dashboard (the core only
+        // emits on business actions, so without this a passive install would be invisible).
+        Analytics.track("app.launched")
 
         // Cache-first display (caching §4): publish any cached menus/orders/billing before the
         // network fetches so returning users see content instantly.

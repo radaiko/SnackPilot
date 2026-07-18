@@ -76,7 +76,11 @@ impl SnackPilotCore {
             menu_store = menu_store.with_analytics(a.clone());
         }
         let menus = Arc::new(menu_store);
-        let orders = Arc::new(OrderStore::new(gourmet.clone(), kv.clone(), clock.clone()));
+        let mut order_store = OrderStore::new(gourmet.clone(), kv.clone(), clock.clone());
+        if let Some(a) = &analytics {
+            order_store = order_store.with_analytics(a.clone());
+        }
+        let orders = Arc::new(order_store);
         let billing = Arc::new(BillingStore::new(
             gourmet.clone(),
             ventopay.clone(),

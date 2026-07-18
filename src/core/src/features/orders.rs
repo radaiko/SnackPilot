@@ -7,9 +7,11 @@
 use crate::datetime::Clock;
 use crate::domain::{OrderedMenu, OrdersSplit};
 use crate::error::CoreResult;
+use crate::features::AnalyticsSink;
 use crate::gourmet::provider::GourmetProvider;
 use crate::storage::{cache, Kv};
 use chrono::{Local, TimeZone};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 pub struct OrderStore {
@@ -20,6 +22,7 @@ pub struct OrderStore {
     loading: Mutex<bool>,
     cancelling_id: Mutex<Option<String>>,
     error: Mutex<Option<String>>,
+    analytics: Option<Arc<dyn AnalyticsSink>>,
 }
 
 impl OrderStore {
@@ -32,6 +35,23 @@ impl OrderStore {
             loading: Mutex::new(false),
             cancelling_id: Mutex::new(None),
             error: Mutex::new(None),
+            analytics: None,
+        }
+    }
+
+    /// Attach the analytics sink (`order.cancelled` is emitted from the cancel paths).
+    pub fn with_analytics(mut self, analytics: Arc<dyn AnalyticsSink>) -> Self {
+        self.analytics = Some(analytics);
+        self
+    }
+
+    /// Fire-and-forget `order.cancelled` with the number of positions cancelled (§6.1/§6.2).
+    fn emit_cancelled(&self, count: usize) {
+        if let Some(a) = &self.analytics {
+            a.track(
+                "order.cancelled".to_string(),
+                HashMap::from([("count".to_string(), count.to_string())]),
+            );
         }
     }
 
@@ -100,7 +120,10 @@ impl OrderStore {
         let result = self.gourmet.cancel_orders(vec![position_id]).await;
         *self.cancelling_id.lock().unwrap() = None;
         match result {
-            Ok(()) => self.fetch_orders().await,
+            Ok(()) => {
+                self.emit_cancelled(1);
+                self.fetch_orders().await
+            }
             Err(e) => {
                 *self.error.lock().unwrap() = Some(match e.to_string().as_str() {
                     "" => "Bestellung konnte nicht storniert werden".to_string(),
@@ -118,9 +141,13 @@ impl OrderStore {
             return Ok(());
         }
         *self.error.lock().unwrap() = None;
+        let count = position_ids.len();
         let result = self.gourmet.cancel_orders(position_ids).await;
         match result {
-            Ok(()) => self.fetch_orders().await,
+            Ok(()) => {
+                self.emit_cancelled(count);
+                self.fetch_orders().await
+            }
             Err(e) => {
                 *self.error.lock().unwrap() = Some(match e.to_string().as_str() {
                     "" => "Bestellungen konnten nicht storniert werden".to_string(),

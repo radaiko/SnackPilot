@@ -287,12 +287,20 @@ need regeneration.
   repo references the URL.)
 - Content that must stay accurate in v2 (v1: docs/privacy.html:48-137): operator
   Aiko Radlingmayr, contact `aiko@spitzbub.app`; credentials stored **only locally**
-  (iOS/Android Secure Store); anonymous analytics via TelemetryDeck (cookieless,
-  double-hashed IDs, no personal data — see `03-features/analytics.md`); network
-  connections exclusively to `alaclickneu.gourmet.at`, `my.ventopay.com`, and
-  TelemetryDeck; demo mode (`demo` / `demo1234!`) makes **no** network connections to
-  Gourmet/Ventopay; GDPR legal bases Art. 6(1)(f) (analytics) and Art. 6(1)(b)
-  (credential transmission); footer "Stand: Februar 2026".
+  (iOS/Android Secure Store); anonymous usage analytics; demo mode (`demo` / `demo1234!`)
+  makes **no** network connections to Gourmet/Ventopay; GDPR legal bases Art. 6(1)(f)
+  (analytics) and Art. 6(1)(b) (credential transmission); footer "Stand: Februar 2026".
+- **v2 analytics divergence (was TelemetryDeck):** v2 switched the analytics provider to a
+  **self-hosted Aptabase** instance (anonymous by design — no user/device IDs, no IDFA,
+  no cross-app tracking; GDPR Recital 26). The v2 privacy policy + in-app "Datenschutz"
+  summary must describe Aptabase, NOT TelemetryDeck, and the "network connections" list is
+  now `alaclickneu.gourmet.at`, `my.ventopay.com`, and the Aptabase ingest host
+  (`hetzner-server-1.ibex-dory.ts.net`, reached via Tailscale Funnel). See
+  `03-features/analytics.md` and the vault doc "Snackpilot - Aptabase Self-Host".
+- **Store disclosures (both platforms):** declare *Product interaction / App activity*,
+  **not linked to identity, not used for tracking**, purpose analytics — App Store privacy
+  label and Play Data Safety. The iOS privacy manifest (`src/ios/SnackPilot/PrivacyInfo.xcprivacy`)
+  already reflects this.
 - v2 must: keep the page hosted at a stable URL (same URL is simplest — the file lives
   on `main`, which v2 eventually replaces, so the v2 branch must carry
   `docs/privacy.html`), update the subtitle "iOS, Android & Desktop App"

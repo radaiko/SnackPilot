@@ -89,4 +89,5 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.14.0@aar")
     // Geofencing + one-shot location fix (notifications-location).
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.github.aptabase:aptabase-kotlin:0.0.8")   // self-hosted analytics
 }

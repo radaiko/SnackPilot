@@ -2,7 +2,17 @@
 
 > Extracted from SnackPilot v1.4.5 (main @ 6997c44). File references point into that commit.
 
-SnackPilot sends anonymous usage analytics to **TelemetryDeck**. There is no user-level
+> [!important] **v2 divergence — provider is self-hosted Aptabase, not TelemetryDeck.**
+> This document is the v1-parity record (TelemetryDeck wire format, event schema, anonymity
+> guarantees). v2 deliberately replaced the provider with a **self-hosted Aptabase** instance
+> (native Swift/Kotlin SDKs → `AnalyticsSink`; ingest via Tailscale Funnel at
+> `hetzner-server-1.ibex-dory.ts.net`). The **anonymity guarantee is preserved** (no user/device
+> IDs, no IDFA, no cross-app tracking — GDPR Recital 26). Event names use the core's dotted
+> convention: `app.launched` (per-launch, native), `order.submitted` + `order.cancelled` +
+> `menu.newDetected` (emitted by the Rust core). Setup + rationale: vault doc
+> "Snackpilot - Aptabase Self-Host". The TelemetryDeck specifics below are historical.
+
+SnackPilot (v1) sends anonymous usage analytics to **TelemetryDeck**. There is no user-level
 identity: every install reports the same constant client-user value, so no individual
 device or person can be distinguished. Analytics is strictly fire-and-forget — a failure
 to send must never crash, block, or otherwise affect the app.

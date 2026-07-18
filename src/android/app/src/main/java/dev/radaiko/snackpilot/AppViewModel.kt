@@ -202,7 +202,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         val dir = File(app.filesDir, "snackpilot").apply { mkdirs() }
-        core = SnackPilotCore(CoreConfig(storageDir = dir.absolutePath), analytics = null)
+        core = SnackPilotCore(CoreConfig(storageDir = dir.absolutePath), analytics = AptabaseSink())
         dailyReminderEnabled = prefs.getBoolean("daily_reminder_enabled", false)
         reminderHour = prefs.getInt("daily_reminder_hour", 8)
         reminderMinute = prefs.getInt("daily_reminder_minute", 0)

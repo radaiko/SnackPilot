@@ -26,7 +26,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             else -> return
         }
         val dir = File(context.filesDir, "snackpilot")
-        val core = SnackPilotCore(CoreConfig(storageDir = dir.absolutePath), analytics = null)
+        val core = SnackPilotCore(CoreConfig(storageDir = dir.absolutePath), analytics = AptabaseSink())
         core.loadCachedOrders()
         core.setIsAtCompany(geoEvent == GeofenceEvent.ENTER)
         val notifications = NotificationService(context)

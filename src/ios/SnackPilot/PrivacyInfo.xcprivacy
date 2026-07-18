@@ -2,15 +2,31 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- SnackPilot does not track users and collects no data for Apple's definition:
-	     credentials live in the Keychain, menu/billing data is fetched from the two
-	     cafeteria sites and shown on-device only, nothing is sent to us or a third party. -->
+	<!-- Credentials live in the Keychain; menu/billing data is fetched from the two cafeteria
+	     sites and shown on-device only. The app sends anonymous usage analytics (event names +
+	     coarse device/OS/app-version/locale) to our self-hosted Aptabase — NO user or device
+	     identifiers, no IDFA, no cross-app/-site tracking (analytics.md; vault Aptabase doc). -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<!-- Aptabase events = product interaction. Not linked to identity, not used for tracking,
+		     collected for analytics. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<!-- UserDefaults: theme_preference, accent_color, daily_reminder_* (AppModel).
