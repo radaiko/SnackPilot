@@ -61,6 +61,8 @@ android {
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // Bundle native (Rust core .so) symbols into the AAB so Play symbolicates crashes/ANRs.
+            ndk { debugSymbolLevel = "SYMBOL_TABLE" }
         }
     }
 }
