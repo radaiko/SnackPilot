@@ -483,6 +483,30 @@ final class AppModel: ObservableObject {
         isCutoff(Self.dayKey(fromEpochMs: order.dateEpochMs))
     }
 
+    // MARK: Multi-select cancellation (orders §6.1 — cancel a whole week at once)
+
+    @Published var orderSelectionMode = false
+    @Published var selectedOrderIds: Set<String> = []
+
+    func toggleOrderSelection(_ positionId: String) {
+        if selectedOrderIds.contains(positionId) { selectedOrderIds.remove(positionId) }
+        else { selectedOrderIds.insert(positionId) }
+    }
+    func endOrderSelection() {
+        orderSelectionMode = false
+        selectedOrderIds.removeAll()
+    }
+    /// Batch-cancel the selected orders in ONE edit-mode session (much cheaper/safer than N cancels).
+    func cancelSelectedOrders() async {
+        let ids = Array(selectedOrderIds)
+        guard !ids.isEmpty, !busy else { return }
+        busy = true
+        defer { busy = false }
+        try? await core.cancelOrders(positionIds: ids)
+        await loadOrders()
+        endOrderSelection()
+    }
+
     func selectMonth(offset: UInt8) async {
         selectedOffset = offset
         await loadBilling(offset: offset)

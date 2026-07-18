@@ -225,6 +225,10 @@ impl SnackPilotCore {
     pub async fn cancel_order(&self, position_id: String) -> Result<(), CoreError> {
         self.orders.cancel_order(position_id).await
     }
+    /// Batch cancel (multi-select — one edit-mode session for all).
+    pub async fn cancel_orders(&self, position_ids: Vec<String>) -> Result<(), CoreError> {
+        self.orders.cancel_orders(position_ids).await
+    }
 
     // ---- Billing ----
     pub fn billing_month_options(&self) -> Vec<MonthOption> {

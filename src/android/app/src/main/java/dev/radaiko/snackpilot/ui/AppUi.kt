@@ -60,6 +60,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -266,26 +267,30 @@ private fun MenusScreen(vm: AppViewModel) {
         if (vm.hasPendingChanges) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                 if (vm.busy) {
-                    vm.orderProgress?.let { phase ->
-                        Text(progressLabel(phase), style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // While submitting: ONE progress row (spinner + phase). Buttons hidden rather than
+                    // shown greyed/unreadable — there's nothing to do mid-submit.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(vm.orderProgress?.let { progressLabel(it) } ?: "Wird verarbeitet …",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    // Surface a failed submission inline (menus error-handling) — otherwise pending
+                    // changes silently remain and the user believes the order went through.
+                    vm.errorText?.let { msg ->
+                        Text(msg, color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(bottom = 8.dp))
                     }
-                }
-                // Surface a failed submission inline (menus error-handling) — otherwise pending
-                // changes silently remain and the user believes the order went through.
-                vm.errorText?.let { msg ->
-                    Text(msg, color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(bottom = 8.dp))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = { vm.clearPending() }, enabled = !vm.busy) { Text("Verwerfen") }
-                    Button(
-                        onClick = { vm.submitOrdersAsync() },
-                        enabled = !vm.busy,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Bestellen") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(onClick = { vm.clearPending() }) { Text("Verwerfen") }
+                        Button(
+                            onClick = { vm.submitOrdersAsync() },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Bestellen") }
+                    }
                 }
             }
         }
@@ -469,12 +474,30 @@ private fun OrdersScreen(vm: AppViewModel) {
                 }
             }
         }
+        // Multi-select is offered when at least one upcoming order is still cancellable — the
+        // "week of holiday" case (orders §6.1).
+        val hasSelectable = split.upcoming.any { !vm.isCancellationCutoff(it) }
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
         ) {
             if (split.upcoming.isNotEmpty()) {
-                item(key = "uh") { SectionHeader("Anstehend") }
+                item(key = "uh") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Anstehend", style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f))
+                        if (hasSelectable) {
+                            TextButton(onClick = {
+                                if (vm.orderSelectionMode) vm.endOrderSelection() else vm.orderSelectionMode = true
+                            }) {
+                                Text(if (vm.orderSelectionMode) "Fertig" else "Auswählen")
+                            }
+                        }
+                    }
+                }
                 items(split.upcoming, key = { "u-${it.positionId}" }) { o -> OrderRow(o, cancellable = true, vm) }
             }
             if (split.past.isNotEmpty()) {
@@ -482,12 +505,71 @@ private fun OrdersScreen(vm: AppViewModel) {
                 items(split.past, key = { "p-${it.positionId}" }) { o -> OrderRow(o, cancellable = false, vm) }
             }
         }
+        if (vm.orderSelectionMode) {
+            OrderSelectionBar(vm)
+        }
+    }
+}
+
+/** Bottom bar in multi-select mode: batch "N stornieren" + Abbrechen, or a progress line. */
+@Composable
+private fun OrderSelectionBar(vm: AppViewModel) {
+    var confirming by remember { mutableStateOf(false) }
+    Surface(tonalElevation = 3.dp) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            if (vm.busy) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Wird storniert …", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(onClick = { vm.endOrderSelection() }) { Text("Abbrechen") }
+                    Button(
+                        onClick = { confirming = true },
+                        enabled = vm.selectedOrderIds.isNotEmpty(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("${vm.selectedOrderIds.size} stornieren")
+                    }
+                }
+            }
+        }
+    }
+    if (confirming) {
+        val n = vm.selectedOrderIds.size
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Bestellungen stornieren") },
+            text = { Text("$n ${if (n == 1) "Bestellung" else "Bestellungen"} stornieren?") },
+            confirmButton = {
+                TextButton(onClick = { confirming = false; vm.cancelSelectedOrders() }) {
+                    Text("$n stornieren", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = false }) { Text("Behalten") }
+            }
+        )
     }
 }
 
 @Composable
 private fun OrderRow(order: OrderedMenu, cancellable: Boolean, vm: AppViewModel) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Selectable in multi-select mode = an upcoming order whose cutoff hasn't passed.
+    val selectable = cancellable && !vm.isCancellationCutoff(order)
+    val rowModifier = if (vm.orderSelectionMode && selectable) {
+        Modifier.fillMaxWidth().clickable { vm.toggleOrderSelection(order.positionId) }.padding(vertical = 8.dp)
+    } else {
+        Modifier.fillMaxWidth().padding(vertical = 8.dp)
+    }
+    Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(order.title, style = MaterialTheme.typography.bodyLarge)
             // Show the actual dish (looked up from the menu); fall back to the order's own
@@ -506,6 +588,21 @@ private fun OrderRow(order: OrderedMenu, cancellable: Boolean, vm: AppViewModel)
                 Text("Stornofrist abgelaufen (nach 9:00)", style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFFE68A00))
             }
+        }
+        if (vm.orderSelectionMode) {
+            // Multi-select: only selectable (cancellable, non-cutoff) rows get a checkbox.
+            if (selectable) {
+                val selected = order.positionId in vm.selectedOrderIds
+                Icon(
+                    if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                    null,
+                    tint = if (selected) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (order.approved) {
+                Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF4CAF50))
+            }
+            return@Row
         }
         // Approval is a status indicator, NOT a substitute for the cancel button: an approved
         // upcoming order is still cancellable (orders §6.2 — cancel shows for all upcoming rows).

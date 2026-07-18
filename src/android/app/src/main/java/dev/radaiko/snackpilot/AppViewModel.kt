@@ -550,6 +550,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  ordering). Drives disabling + explaining the cancel button. */
     fun isCancellationCutoff(order: OrderedMenu): Boolean = isOrderingCutoff(dayKeyFromEpoch(order.dateEpochMs))
 
+    // Multi-select cancellation (orders §6.1 — cancel a whole week at once)
+    var orderSelectionMode by mutableStateOf(false)
+    var selectedOrderIds by mutableStateOf<Set<String>>(emptySet())
+
+    fun toggleOrderSelection(positionId: String) {
+        selectedOrderIds = if (positionId in selectedOrderIds) selectedOrderIds - positionId
+                           else selectedOrderIds + positionId
+    }
+    fun endOrderSelection() {
+        orderSelectionMode = false
+        selectedOrderIds = emptySet()
+    }
+    /** Batch-cancel the selected orders in ONE edit-mode session. */
+    fun cancelSelectedOrders() {
+        val ids = selectedOrderIds.toList()
+        if (ids.isEmpty() || busy) return
+        viewModelScope.launch {
+            busy = true
+            try {
+                runCatching { core.cancelOrders(ids) }
+                loadOrders()
+                endOrderSelection()
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     val hasPendingChanges: Boolean
         get() = snapshot?.let { it.pendingOrders.isNotEmpty() || it.pendingCancellations.isNotEmpty() } ?: false
 

@@ -111,6 +111,26 @@ impl OrderStore {
         }
     }
 
+    /// §6.1 batch — cancel several positions in ONE edit-mode session (the "week of holiday" case).
+    /// Far cheaper + safer than N single cancels (one enter/exit, not N). No-op on an empty list.
+    pub async fn cancel_orders(&self, position_ids: Vec<String>) -> CoreResult<()> {
+        if position_ids.is_empty() {
+            return Ok(());
+        }
+        *self.error.lock().unwrap() = None;
+        let result = self.gourmet.cancel_orders(position_ids).await;
+        match result {
+            Ok(()) => self.fetch_orders().await,
+            Err(e) => {
+                *self.error.lock().unwrap() = Some(match e.to_string().as_str() {
+                    "" => "Bestellungen konnten nicht storniert werden".to_string(),
+                    s => s.to_string(),
+                });
+                Ok(())
+            }
+        }
+    }
+
     /// §7 — upcoming (`date >= today`) / past (`date < today`) at device-local midnight.
     pub fn split(&self) -> OrdersSplit {
         let midnight = local_midnight_ms(self.clock.now_epoch_ms());

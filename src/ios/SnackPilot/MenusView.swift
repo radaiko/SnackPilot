@@ -165,38 +165,36 @@ struct MenusView: View {
 
     private var submitBar: some View {
         VStack(spacing: 8) {
-            if model.busy, let phase = model.orderProgress {
+            if model.busy {
+                // While submitting: ONE progress indicator (phase spinner + label). The buttons are
+                // hidden rather than shown greyed/unreadable — there's nothing to do mid-submit.
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text(Self.progressLabel(phase)).font(.footnote).foregroundStyle(.secondary)
+                    Text(model.orderProgress.map(Self.progressLabel) ?? "Wird verarbeitet …")
+                        .font(.footnote).foregroundStyle(.secondary)
                     Spacer()
                 }
-            }
-            // Surface a failed submit inline — without this the user sees the pending changes
-            // silently persist and wrongly believes the order went through (menus §6.6).
-            if !model.busy, let message = model.errorText {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                    Text(message).font(.footnote)
-                    Spacer()
+            } else {
+                // Surface a failed submit inline — without this the user sees the pending changes
+                // silently persist and wrongly believes the order went through (menus §6.6).
+                if let message = model.errorText {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(message).font(.footnote)
+                        Spacer()
+                    }
+                    .foregroundStyle(.red)
                 }
-                .foregroundStyle(.red)
-            }
-            HStack(spacing: 12) {
-                Button("Verwerfen") { model.clearPending() }
-                    .buttonStyle(.bordered)
-                    .disabled(model.busy)
-                Button {
-                    Task { await model.submitOrders() }
-                } label: {
-                    if model.busy {
-                        ProgressView()
-                    } else {
+                HStack(spacing: 12) {
+                    Button("Verwerfen") { model.clearPending() }
+                        .buttonStyle(.bordered)
+                    Button {
+                        Task { await model.submitOrders() }
+                    } label: {
                         Text("Bestellen").bold().frame(maxWidth: .infinity)
                     }
+                    .primaryAction()
                 }
-                .primaryAction()
-                .disabled(model.busy)
             }
         }
         .padding()
