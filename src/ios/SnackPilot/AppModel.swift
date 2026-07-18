@@ -17,6 +17,9 @@ final class AppModel: ObservableObject {
     @Published var selectedDay: String?
     @Published var errorText: String?
     @Published var busy = false
+    /// True while a foreground refresh (orders + billing) runs — drives the small global spinner so
+    /// a second device's changes are pulled in when the app returns to the foreground.
+    @Published var refreshing = false
     /// Live submit-pipeline phase while an order submission is in flight (menus §6.6).
     @Published var orderProgress: OrderProgress?
     /// True while showing offline demo data (magic credentials).
@@ -477,6 +480,18 @@ final class AppModel: ObservableObject {
     /// Automaten), bypassing the past-month cache skip so a refresh always gets fresh data.
     func reloadBilling() async {
         await loadBilling(offset: selectedOffset, force: true)
+    }
+
+    /// Refresh orders + billing when the app returns to the foreground, so changes made on a second
+    /// device (a new order, a cancellation) show up without a manual pull. Fire-and-forget; the
+    /// small global spinner (`refreshing`) is the only affordance. Re-entrancy-guarded.
+    func refreshOnForeground() async {
+        guard gourmetAuthenticated || ventopayAuthenticated, !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
+        if gourmetAuthenticated { await loadOrders() }
+        // force:false → refetches the current month, respects cached past months (they don't change).
+        await loadBilling(offset: selectedOffset, force: false)
     }
 
     private func loadBilling(offset: UInt8, force: Bool = false) async {

@@ -183,6 +183,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** True while the selected month's billing is being fetched — Abrechnung shows a spinner so a
      *  month switch that hits the network reads as "loading", not empty. */
     var billingLoading by mutableStateOf(false)
+
+    /** True while a foreground refresh (orders + billing) runs — drives the small global spinner so
+     *  a second device's changes are pulled in when the app returns to the foreground. */
+    var refreshing by mutableStateOf(false)
         private set
 
     /** Source filter for the unified billing list (billing §6.1). Presentation-only; never
@@ -607,6 +611,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  pull indicator stays until the fetch completes. */
     suspend fun reloadBilling() {
         loadBilling(selectedOffset, force = true)
+    }
+
+    /** Refresh orders + billing when the app returns to the foreground so a second device's changes
+     *  (a new order, a cancellation) appear without a manual pull. Re-entrancy-guarded. */
+    fun refreshOnForeground() {
+        if (!(gourmetAuthenticated || ventopayAuthenticated) || refreshing) return
+        viewModelScope.launch {
+            refreshing = true
+            try {
+                if (gourmetAuthenticated) loadOrders()
+                // force=false → refetches the current month, respects cached past months (unchanged).
+                loadBilling(selectedOffset, force = false)
+            } finally {
+                refreshing = false
+            }
+        }
     }
 
     /** Set the unified-billing source filter (billing §6.1). Presentation-only. */

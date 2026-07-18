@@ -20,6 +20,16 @@ struct MainTabView: View {
                 .tabItem { Label("Einstellungen", systemImage: "gearshape") }
                 .tag(3)
         }
+        // Small global spinner while a foreground refresh (orders + billing) runs.
+        .overlay(alignment: .top) {
+            if model.refreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 4)
+            }
+        }
     }
 }
 

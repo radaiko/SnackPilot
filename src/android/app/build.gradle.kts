@@ -83,6 +83,7 @@ dependencies {
     implementation("androidx.fragment:fragment:1.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")   // LocalLifecycleOwner / foreground refresh
     // UniFFI Kotlin runtime deps.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("net.java.dev.jna:jna:5.14.0@aar")

@@ -91,6 +91,9 @@ private struct OrderRow: View {
     let order: OrderedMenu
     let cancellable: Bool
 
+    /// Drives the destructive confirmation dialog (orders §6.2).
+    @State private var confirming = false
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -105,16 +108,28 @@ private struct OrderRow: View {
                 Text(Self.dateLabel(order.dateEpochMs)).font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
+            // Approval is a status indicator, NOT a substitute for the cancel button: an approved
+            // upcoming order is still cancellable (orders §6.2 — cancel shows for all upcoming rows).
             if order.approved {
                 Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
-            } else if cancellable {
+            }
+            if cancellable {
                 Button(role: .destructive) {
-                    Task { await model.cancelOrder(order.positionId) }
+                    confirming = true
                 } label: {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.borderless)
+                .disabled(model.busy)
             }
+        }
+        .confirmationDialog("Bestellung stornieren", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Stornieren", role: .destructive) {
+                Task { await model.cancelOrder(order.positionId) }
+            }
+            Button("Behalten", role: .cancel) {}
+        } message: {
+            Text("\"\(order.title)\" stornieren?")
         }
     }
 

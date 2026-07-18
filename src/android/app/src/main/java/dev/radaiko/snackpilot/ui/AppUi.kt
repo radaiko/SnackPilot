@@ -84,6 +84,10 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.radaiko.snackpilot.AccentColor
 import dev.radaiko.snackpilot.AppViewModel
 import dev.radaiko.snackpilot.BillingSource
@@ -130,6 +134,15 @@ fun RootScreen(
 
 @Composable
 private fun MainScaffold(vm: AppViewModel) {
+    // Refresh orders + billing whenever the app returns to the foreground (multi-device freshness).
+    val owner = LocalLifecycleOwner.current
+    DisposableEffect(owner) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) vm.refreshOnForeground()
+        }
+        owner.lifecycle.addObserver(obs)
+        onDispose { owner.lifecycle.removeObserver(obs) }
+    }
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -152,12 +165,21 @@ private fun MainScaffold(vm: AppViewModel) {
             }
         }
     ) { inner ->
-        Column(modifier = Modifier.padding(inner)) {
-            when (vm.selectedTab) {
-                0 -> MenusScreen(vm)
-                1 -> OrdersScreen(vm)
-                2 -> BillingScreen(vm)
-                3 -> SettingsScreen(vm)
+        Box(modifier = Modifier.padding(inner)) {
+            Column {
+                when (vm.selectedTab) {
+                    0 -> MenusScreen(vm)
+                    1 -> OrdersScreen(vm)
+                    2 -> BillingScreen(vm)
+                    3 -> SettingsScreen(vm)
+                }
+            }
+            // Small global spinner while a foreground refresh (orders + billing) runs.
+            if (vm.refreshing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(20.dp),
+                    strokeWidth = 2.dp
+                )
             }
         }
     }
@@ -479,10 +501,32 @@ private fun OrderRow(order: OrderedMenu, cancellable: Boolean, vm: AppViewModel)
             Text(billDateLabel(order.dateEpochMs), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        when {
-            order.approved -> Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF4CAF50))
-            cancellable -> TextButton(onClick = { vm.cancelOrder(order.positionId) }) {
-                Text("Stornieren", color = MaterialTheme.colorScheme.error)
+        // Approval is a status indicator, NOT a substitute for the cancel button: an approved
+        // upcoming order is still cancellable (orders §6.2 — cancel shows for all upcoming rows).
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (order.approved) {
+                Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF4CAF50))
+            }
+            if (cancellable) {
+                var confirming by remember { mutableStateOf(false) }
+                TextButton(onClick = { confirming = true }, enabled = !vm.busy) {
+                    Text("Stornieren", color = MaterialTheme.colorScheme.error)
+                }
+                if (confirming) {
+                    AlertDialog(
+                        onDismissRequest = { confirming = false },
+                        title = { Text("Bestellung stornieren") },
+                        text = { Text("\"${order.title}\" stornieren?") },
+                        confirmButton = {
+                            TextButton(onClick = { confirming = false; vm.cancelOrder(order.positionId) }) {
+                                Text("Stornieren", color = MaterialTheme.colorScheme.error)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { confirming = false }) { Text("Behalten") }
+                        }
+                    )
+                }
             }
         }
     }
