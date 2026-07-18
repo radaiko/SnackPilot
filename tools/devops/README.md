@@ -10,6 +10,7 @@ Run `make help` for the target list; `make doctor` to check prerequisites.
 Both rerun the platform `bootstrap.sh` only when `src/core/src` changed since the last binding build.
 
 ## Release (local)
+- `make ios-archive` — build a signed release archive (auto-incrementing build number, team auto-detected from the keychain) and open it in **Xcode Organizer**. Then: *Distribute App → App Store Connect → Upload* → the build lands in **TestFlight**. `IOS_TEAM=<id>` overrides the team; `ORGANIZER_OPEN=0` skips opening Organizer (CI/tests). Organizer re-signs to the App Store *distribution* identity at the Distribute step.
 - `make android-keystore` — one-time: generate the signed-release keystore. Back up `src/android/snackpilot-release.jks` + `keystore.properties`.
 - `make ship` — prompt for a new semver + platforms, bump `Cargo.toml` / `project.yml` / `build.gradle.kts` (+ build number), build artifacts into `dist/`, commit `Release vX.Y.Z (label)`, and tag `ios/vX.Y.Z` / `android/vX.Y.Z` locally. It does **not** push (no CI consumes the tags yet) — it prints the push command.
   - `DRY_RUN=1 make ship` — validate + build into a temp dir, no git/file changes.
