@@ -187,6 +187,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** True while a foreground refresh (orders + billing) runs — drives the small global spinner so
      *  a second device's changes are pulled in when the app returns to the foreground. */
     var refreshing by mutableStateOf(false)
+
+    /** The positionId currently being cancelled — drives the per-row delete spinner and guards a
+     *  second cancel starting mid-flight (orders §6.2). */
+    var cancellingId by mutableStateOf<String?>(null)
         private set
 
     /** Source filter for the unified billing list (billing §6.1). Presentation-only; never
@@ -542,6 +546,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Ordering-cutoff flag for a day (menus §6.1): past cutoff → rows non-tappable. */
     fun isOrderingCutoff(dateKey: String): Boolean = core.isOrderingCutoff(dateKey)
 
+    /** Past the 09:00 Vienna cancellation cutoff for this order's day (orders §6.4 — same rule as
+     *  ordering). Drives disabling + explaining the cancel button. */
+    fun isCancellationCutoff(order: OrderedMenu): Boolean = isOrderingCutoff(dayKeyFromEpoch(order.dateEpochMs))
+
     val hasPendingChanges: Boolean
         get() = snapshot?.let { it.pendingOrders.isNotEmpty() || it.pendingCancellations.isNotEmpty() } ?: false
 
@@ -579,9 +587,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun cancelOrder(positionId: String) {
+        if (cancellingId != null) return   // one cancel at a time (orders §6.2)
         viewModelScope.launch {
-            runCatching { core.cancelOrder(positionId) }
-            loadOrders()
+            cancellingId = positionId
+            try {
+                runCatching { core.cancelOrder(positionId) }
+                loadOrders()
+            } finally {
+                cancellingId = null
+            }
         }
     }
 

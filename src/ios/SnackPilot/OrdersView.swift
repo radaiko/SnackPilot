@@ -94,6 +94,11 @@ private struct OrderRow: View {
     /// Drives the destructive confirmation dialog (orders §6.2).
     @State private var confirming = false
 
+    /// This row's order is the one currently being cancelled (shows the delete spinner).
+    private var cancelling: Bool { model.cancellingId == order.positionId }
+    /// Past the 09:00 cancellation cutoff → cancel is unavailable (orders §6.4).
+    private var cutoff: Bool { cancellable && model.isCancellationCutoff(order) }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -106,6 +111,11 @@ private struct OrderRow: View {
                     Text(order.subtitle).font(.footnote).foregroundStyle(.secondary)
                 }
                 Text(Self.dateLabel(order.dateEpochMs)).font(.caption2).foregroundStyle(.secondary)
+                // Explain the greyed-out cancel button: the 09:00 cutoff has passed (orders §6.4).
+                if cutoff {
+                    Text("Stornofrist abgelaufen (nach 9:00)")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
             }
             Spacer()
             // Approval is a status indicator, NOT a substitute for the cancel button: an approved
@@ -113,14 +123,17 @@ private struct OrderRow: View {
             if order.approved {
                 Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
             }
-            if cancellable {
+            if cancelling {
+                ProgressView()   // this order is being cancelled
+            } else if cancellable {
                 Button(role: .destructive) {
                     confirming = true
                 } label: {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.borderless)
-                .disabled(model.busy)
+                // Grey when past the cutoff (reason shown at left) or while another cancel runs.
+                .disabled(cutoff || model.cancellingId != nil)
             }
         }
         .confirmationDialog("Bestellung stornieren", isPresented: $confirming, titleVisibility: .visible) {

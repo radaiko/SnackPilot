@@ -20,6 +20,9 @@ final class AppModel: ObservableObject {
     /// True while a foreground refresh (orders + billing) runs — drives the small global spinner so
     /// a second device's changes are pulled in when the app returns to the foreground.
     @Published var refreshing = false
+    /// The positionId currently being cancelled — drives the per-row delete spinner and guards
+    /// against a second cancel starting mid-flight (orders §6.2).
+    @Published var cancellingId: String?
     /// Live submit-pipeline phase while an order submission is in flight (menus §6.6).
     @Published var orderProgress: OrderProgress?
     /// True while showing offline demo data (magic credentials).
@@ -467,8 +470,17 @@ final class AppModel: ObservableObject {
     }
 
     func cancelOrder(_ positionId: String) async {
+        guard cancellingId == nil else { return }   // one cancel at a time (orders §6.2)
+        cancellingId = positionId
+        defer { cancellingId = nil }
         try? await core.cancelOrder(positionId: positionId)
         await loadOrders()
+    }
+
+    /// Whether the order's day is past the 09:00 Europe/Vienna cancellation cutoff (orders §6.4 —
+    /// same rule as ordering). Drives disabling + explaining the cancel button.
+    func isCancellationCutoff(_ order: OrderedMenu) -> Bool {
+        isCutoff(Self.dayKey(fromEpochMs: order.dateEpochMs))
     }
 
     func selectMonth(offset: UInt8) async {

@@ -500,6 +500,12 @@ private fun OrderRow(order: OrderedMenu, cancellable: Boolean, vm: AppViewModel)
             }
             Text(billDateLabel(order.dateEpochMs), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Explain the greyed-out cancel button: the 09:00 cutoff has passed (orders §6.4).
+            val cutoff = cancellable && vm.isCancellationCutoff(order)
+            if (cutoff) {
+                Text("Stornofrist abgelaufen (nach 9:00)", style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFE68A00))
+            }
         }
         // Approval is a status indicator, NOT a substitute for the cancel button: an approved
         // upcoming order is still cancellable (orders §6.2 — cancel shows for all upcoming rows).
@@ -507,9 +513,13 @@ private fun OrderRow(order: OrderedMenu, cancellable: Boolean, vm: AppViewModel)
             if (order.approved) {
                 Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF4CAF50))
             }
-            if (cancellable) {
+            if (vm.cancellingId == order.positionId) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else if (cancellable) {
+                val cutoff = vm.isCancellationCutoff(order)
                 var confirming by remember { mutableStateOf(false) }
-                TextButton(onClick = { confirming = true }, enabled = !vm.busy) {
+                // Grey when past the cutoff (reason shown at left) or while another cancel runs.
+                TextButton(onClick = { confirming = true }, enabled = !cutoff && vm.cancellingId == null) {
                     Text("Stornieren", color = MaterialTheme.colorScheme.error)
                 }
                 if (confirming) {
