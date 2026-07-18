@@ -71,9 +71,8 @@ fi
 # 5a. iOS artifact
 if [[ $do_ios -eq 1 ]]; then
   require_tool xcodebuild "install Xcode"
-  # Auto-detect the Apple team from the signing identity already in the keychain (the cert's
-  # OU is the Team ID — NOT the id in the cert name). Override with IOS_TEAM=.
-  IOS_TEAM="${IOS_TEAM:-$(security find-certificate -c "Apple Development" -p 2>/dev/null | openssl x509 -noout -subject -nameopt sep_multiline,utf8 2>/dev/null | sed -n 's/^ *OU=//p' | head -1)}"
+  # Auto-detect the Apple team from the keychain signing identity. Override with IOS_TEAM=.
+  IOS_TEAM="${IOS_TEAM:-$(detect_ios_team)}"
   [[ -n "$IOS_TEAM" ]] || die "no Apple Development team in keychain — set IOS_TEAM=<teamid> (see: security find-identity -v -p codesigning)"
   info "iOS: regenerating project + archiving (method=$METHOD, team=$IOS_TEAM)"
   ( cd src/ios && ./bootstrap.sh )

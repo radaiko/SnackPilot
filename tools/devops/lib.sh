@@ -90,3 +90,21 @@ bootstrap_if_stale() {
     ok "core bindings for $platform are up to date"
   fi
 }
+
+# Echo the Apple Team ID from the keychain signing identity (the cert's OU — NOT the id in
+# the cert name). Empty output if no Apple Development identity is present.
+detect_ios_team() {
+  security find-certificate -c "Apple Development" -p 2>/dev/null \
+    | openssl x509 -noout -subject -nameopt sep_multiline,utf8 2>/dev/null \
+    | sed -n 's/^ *OU=//p' | head -1
+}
+
+# Next monotonic build number: increment the gitignored counter and echo it. Shared by ship
+# + ios-archive so every build gets a unique, strictly-increasing CFBundleVersion/versionCode.
+next_build_number() {
+  local f="$REPO_ROOT/tools/devops/.build-number" n=0
+  [[ -f "$f" ]] && n="$(cat "$f")"
+  n=$((n + 1))
+  echo "$n" > "$f"
+  echo "$n"
+}
