@@ -4,7 +4,6 @@ source "$(dirname "$0")/lib.sh"
 cd "$REPO_ROOT"
 
 DRY_RUN="${DRY_RUN:-0}"
-METHOD="${METHOD:-development}"
 HISTORY="$REPO_ROOT/.ship-history"
 BUILDNO_FILE="$REPO_ROOT/tools/devops/.build-number"
 CARGO="src/core/Cargo.toml"
@@ -71,31 +70,16 @@ fi
 # 5a. iOS artifact
 if [[ $do_ios -eq 1 ]]; then
   require_tool xcodebuild "install Xcode"
-  # Auto-detect the Apple team from the keychain signing identity. Override with IOS_TEAM=.
-  IOS_TEAM="${IOS_TEAM:-$(detect_ios_team)}"
-  [[ -n "$IOS_TEAM" ]] || die "no Apple Development team in keychain — set IOS_TEAM=<teamid> (see: security find-identity -v -p codesigning)"
-  info "iOS: regenerating project + archiving (method=$METHOD, team=$IOS_TEAM)"
-  ( cd src/ios && ./bootstrap.sh )
-  archive="$outdir/SnackPilot.xcarchive"
-  xcodebuild -project src/ios/SnackPilot.xcodeproj -scheme SnackPilot \
-    -sdk iphoneos -destination "generic/platform=iOS" \
-    -archivePath "$archive" -allowProvisioningUpdates \
-    DEVELOPMENT_TEAM="$IOS_TEAM" CODE_SIGN_STYLE=Automatic archive
-  plist="$outdir/exportOptions.plist"
-  cat > "$plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>method</key><string>$METHOD</string>
-  <key>signingStyle</key><string>automatic</string>
-  <key>teamID</key><string>$IOS_TEAM</string>
-</dict></plist>
-EOF
-  xcodebuild -exportArchive -archivePath "$archive" \
-    -exportOptionsPlist "$plist" -exportPath "$outdir" -allowProvisioningUpdates
-  ipa="$(ls "$outdir"/*.ipa | head -1)"
-  mv "$ipa" "$outdir/SnackPilot-$VERSION.ipa"
-  ok "iOS artifact: $outdir/SnackPilot-$VERSION.ipa"
+  # Archive a signed release build; upload happens via Xcode Organizer → App Store Connect.
+  if [[ "$DRY_RUN" == "1" ]]; then
+    archive="$(build_ios_archive "$buildno" "$outdir")"
+    ok "iOS archive (dry-run): $archive"
+  else
+    archive="$(build_ios_archive "$buildno")"
+    ok "iOS archive build $buildno: $archive"
+    info "opening Xcode Organizer → Distribute App → App Store Connect → Upload → TestFlight"
+    open "$archive"
+  fi
 fi
 
 # 5b. Android artifact

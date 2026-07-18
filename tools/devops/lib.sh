@@ -108,3 +108,23 @@ next_build_number() {
   echo "$n" > "$f"
   echo "$n"
 }
+
+# build_ios_archive BUILDNO [ARCHIVE_DIR] → regenerate the project + archive a signed release
+# build, then echo the .xcarchive path (all logging is on stderr). Defaults to Xcode's Archives
+# folder so it appears in Organizer. Team auto-detected (IOS_TEAM= overrides).
+build_ios_archive() {
+  local buildno=$1
+  local archdir="${2:-$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)}"
+  require_tool xcodebuild "install Xcode"
+  local team; team="${IOS_TEAM:-$(detect_ios_team)}"
+  [[ -n "$team" ]] || die "no Apple team in keychain — set IOS_TEAM=<teamid> (see: security find-identity -v -p codesigning)"
+  bootstrap_if_stale ios "$REPO_ROOT/src/ios/Frameworks/SnackPilotCore.xcframework"
+  mkdir -p "$archdir"
+  local archive="$archdir/SnackPilot $(date +%H.%M) build-$buildno.xcarchive"
+  info "iOS: archiving build $buildno (team $team)"
+  xcodebuild -project "$REPO_ROOT/src/ios/SnackPilot.xcodeproj" -scheme SnackPilot \
+    -sdk iphoneos -destination "generic/platform=iOS" \
+    -archivePath "$archive" -allowProvisioningUpdates \
+    DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="$buildno" archive >&2
+  echo "$archive"
+}
