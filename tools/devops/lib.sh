@@ -116,9 +116,13 @@ build_ios_archive() {
   local buildno=$1
   local archdir="${2:-$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)}"
   require_tool xcodebuild "install Xcode"
+  require_tool xcodegen "brew install xcodegen"
   local team; team="${IOS_TEAM:-$(detect_ios_team)}"
   [[ -n "$team" ]] || die "no Apple team in keychain — set IOS_TEAM=<teamid> (see: security find-identity -v -p codesigning)"
   bootstrap_if_stale ios "$REPO_ROOT/src/ios/Frameworks/SnackPilotCore.xcframework"
+  # Always regenerate the Xcode project so project.yml changes (esp. MARKETING_VERSION on a ship)
+  # land in the build — bootstrap_if_stale skips xcodegen entirely when the core is unchanged.
+  ( cd "$REPO_ROOT/src/ios" && xcodegen generate >&2 )
   mkdir -p "$archdir"
   local archive="$archdir/SnackPilot $(date +%H.%M) build-$buildno.xcarchive"
   info "iOS: archiving build $buildno (team $team)"
