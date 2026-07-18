@@ -123,7 +123,9 @@ build_ios_archive() {
   require_tool xcodegen "brew install xcodegen"
   local team; team="${IOS_TEAM:-$(detect_ios_team)}"
   [[ -n "$team" ]] || die "no Apple team in keychain — set IOS_TEAM=<teamid> (see: security find-identity -v -p codesigning)"
-  bootstrap_if_stale ios "$REPO_ROOT/src/ios/Frameworks/SnackPilotCore.xcframework"
+  # >&2: this function is called via $(...) to capture the archive path, so the bootstrap's stdout
+  # (now that a version bump makes the core stale) must NOT leak into that capture.
+  bootstrap_if_stale ios "$REPO_ROOT/src/ios/Frameworks/SnackPilotCore.xcframework" >&2
   # Always regenerate the Xcode project so project.yml changes (esp. MARKETING_VERSION on a ship)
   # land in the build — bootstrap_if_stale skips xcodegen entirely when the core is unchanged.
   ( cd "$REPO_ROOT/src/ios" && xcodegen generate >&2 )
