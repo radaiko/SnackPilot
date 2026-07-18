@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -81,6 +82,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import dev.radaiko.snackpilot.AccentColor
 import dev.radaiko.snackpilot.AppViewModel
 import dev.radaiko.snackpilot.BillingSource
@@ -194,7 +197,27 @@ private fun MenusScreen(vm: AppViewModel) {
         val dayItems = snapshot.items.filter { it.day == selected }
         val cutoff = selected?.let { vm.isOrderingCutoff(it) } ?: false
         LazyColumn(
-            modifier = Modifier.weight(1f),
+            // Swipe left/right to step between days (menus §4). detectHorizontalDragGestures only
+            // consumes horizontal drags, so the list's vertical scroll and row taps still work.
+            modifier = Modifier
+                .weight(1f)
+                .pointerInput(dates, selected) {
+                    var dragTotal = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragTotal = 0f },
+                        onDragEnd = {
+                            val threshold = 60.dp.toPx()
+                            val idx = dates.indexOf(selected)
+                            if (dragTotal <= -threshold) {          // swipe left → next day
+                                if (idx < 0) vm.selectDay(dates[0])
+                                else if (idx < dates.size - 1) vm.selectDay(dates[idx + 1])
+                            } else if (dragTotal >= threshold) {    // swipe right → previous day
+                                if (idx > 0) vm.selectDay(dates[idx - 1])
+                            }
+                        },
+                        onHorizontalDrag = { _, delta -> dragTotal += delta }
+                    )
+                },
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
         ) {
             CATEGORY_ORDER.forEach { cat ->
@@ -497,6 +520,20 @@ private fun BillingScreen(vm: AppViewModel) {
             SourceChip("Kantine", vm.billingSourceFilter == BillingSource.GOURMET) { vm.setBillingSource(BillingSource.GOURMET) }
             SourceChip("Automaten", vm.billingSourceFilter == BillingSource.VENTOPAY) { vm.setBillingSource(BillingSource.VENTOPAY) }
         }
+        // Loading hint while the selected month's billing is fetched (e.g. switching to an uncached
+        // month over the network) so the list doesn't read as "empty" mid-fetch.
+        if (vm.billingLoading) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Lädt …", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        }
         // Auth-gate each section so a logged-out account's still-cached billing can't reappear.
         val filter = vm.billingSourceFilter
         val g = vm.gourmetMonth?.takeIf { vm.gourmetAuthenticated && it.bills.isNotEmpty() && filter != BillingSource.VENTOPAY }
@@ -550,7 +587,7 @@ private fun BillingScreen(vm: AppViewModel) {
                     BillingEntryRow(e)
                     HorizontalDivider()
                 }
-            } else if (vm.billingError == null) {
+            } else if (vm.billingError == null && !vm.billingLoading) {
                 item(key = "nodata") {
                     Text("Keine Abrechnungsdaten für diesen Monat",
                         modifier = Modifier.padding(vertical = 16.dp),

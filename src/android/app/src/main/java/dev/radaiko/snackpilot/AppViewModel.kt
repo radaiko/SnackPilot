@@ -179,6 +179,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Last billing fetch/parse error surfaced by the core (billing error-handling), or null. */
     var billingError by mutableStateOf<String?>(null)
+
+    /** True while the selected month's billing is being fetched — Abrechnung shows a spinner so a
+     *  month switch that hits the network reads as "loading", not empty. */
+    var billingLoading by mutableStateOf(false)
         private set
 
     /** Source filter for the unified billing list (billing §6.1). Presentation-only; never
@@ -611,12 +615,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun loadBilling(offset: UByte, force: Boolean = false) {
-        runCatching { core.fetchBilling(offset, force) }
-        runCatching { core.fetchVentopayBilling(offset, force) }
-        billingError = core.billingError()
-        val key = monthOptions.firstOrNull { it.offset == selectedOffset }?.key ?: return
-        gourmetMonth = core.gourmetBillingMonth(key)
-        ventopayMonth = core.ventopayBillingMonth(key)
+        billingLoading = true
+        try {
+            runCatching { core.fetchBilling(offset, force) }
+            runCatching { core.fetchVentopayBilling(offset, force) }
+            billingError = core.billingError()
+            val key = monthOptions.firstOrNull { it.offset == selectedOffset }?.key ?: return
+            gourmetMonth = core.gourmetBillingMonth(key)
+            ventopayMonth = core.ventopayBillingMonth(key)
+        } finally {
+            billingLoading = false
+        }
     }
 
     /** Offline demo session (button / debug hook) — routes through the same login path. */

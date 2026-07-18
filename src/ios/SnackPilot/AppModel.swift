@@ -60,6 +60,9 @@ final class AppModel: ObservableObject {
     // Billing (Abrechnung)
     @Published var monthOptions: [MonthOption] = []
     @Published var selectedOffset: UInt8 = 0
+    /// True while the selected month's billing is being fetched (Abrechnung shows a spinner so a
+    /// month switch that hits the network reads as "loading", not empty).
+    @Published var billingLoading = false
     @Published var gourmetMonth: GourmetMonthlyBilling?
     @Published var ventopayMonth: VentopayMonthlyBilling?
 
@@ -477,6 +480,8 @@ final class AppModel: ObservableObject {
     }
 
     private func loadBilling(offset: UInt8, force: Bool = false) async {
+        billingLoading = true
+        defer { billingLoading = false }
         try? await core.fetchBilling(offset: offset, force: force)
         try? await core.fetchVentopayBilling(offset: offset, force: force)
         refreshBilling()

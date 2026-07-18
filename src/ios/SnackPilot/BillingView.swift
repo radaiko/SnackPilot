@@ -42,6 +42,7 @@ struct BillingView: View {
                 } else {
                     List {
                         monthSection
+                        if model.billingLoading { loadingSection }
                         filterSection
                         billingErrorSection
                         if !entries.isEmpty {
@@ -71,6 +72,20 @@ struct BillingView: View {
                 }
                 .pickerStyle(.segmented)
             }
+        }
+    }
+
+    /// Loading hint shown while the selected month's billing is fetched (e.g. switching to an
+    /// uncached month over the network) so the list doesn't read as "empty" mid-fetch.
+    private var loadingSection: some View {
+        Section {
+            HStack(spacing: 8) {
+                Spacer()
+                ProgressView()
+                Text("Lädt …").font(.footnote).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .listRowBackground(Color.clear)
         }
     }
 
@@ -115,12 +130,15 @@ struct BillingView: View {
 
     @ViewBuilder private var entriesSection: some View {
         if entries.isEmpty {
-            Section {
-                Text("Keine Abrechnungsdaten für diesen Monat")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 24)
-                    .listRowBackground(Color.clear)
+            // Don't show "no data" while a fetch is in flight — the spinner covers that.
+            if !model.billingLoading {
+                Section {
+                    Text("Keine Abrechnungsdaten für diesen Monat")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 24)
+                        .listRowBackground(Color.clear)
+                }
             }
         } else {
             Section {

@@ -18,6 +18,17 @@ struct MenusView: View {
                         dayNavigator(snapshot)
                         dayList(snapshot)
                     }
+                    // Swipe left/right to step between days (menus §4). Runs alongside the list's
+                    // vertical scroll; only a predominantly-horizontal swipe changes the day.
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 30, coordinateSpace: .local)
+                            .onEnded { value in
+                                let dx = value.translation.width
+                                let dy = value.translation.height
+                                guard abs(dx) > abs(dy), abs(dx) > 50 else { return }
+                                if dx < 0 { model.nextDay() } else { model.prevDay() }
+                            }
+                    )
                 } else if model.busy {
                     ProgressView("Menüs werden geladen …")
                 } else if !model.gourmetAuthenticated {
