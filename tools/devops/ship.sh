@@ -85,6 +85,9 @@ fi
 # 5b. Android artifact
 if [[ $do_android -eq 1 ]]; then
   [[ -f "src/android/keystore.properties" ]] || err "no keystore.properties — artifacts will be UNSIGNED (run: make android-keystore)"
+  # Rebuild the core .so/bindings if stale (incl. the version bump above) — gradle alone reuses the
+  # prebuilt jniLibs, so without this the shipped app reports a stale core version.
+  bootstrap_if_stale android "$REPO_ROOT/src/android/app/src/main/jniLibs/arm64-v8a/libsnackpilot_core.so"
   info "Android: bundleRelease + assembleRelease"
   ( cd src/android && ./gradlew :app:bundleRelease :app:assembleRelease )
   cp src/android/app/build/outputs/bundle/release/app-release.aab "$outdir/SnackPilot-$VERSION.aab"

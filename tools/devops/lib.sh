@@ -81,9 +81,13 @@ path_is_stale() {
 }
 
 # Rerun a platform bootstrap only when the core is newer than its built binding artifact.
+# Watches Cargo.toml too: core_version() bakes in CARGO_PKG_VERSION at COMPILE time, so a
+# version-only bump (every ship) must also force a core rebuild — and the version lives in
+# Cargo.toml, outside src/core/src. Without this the shipped app reports a stale core version.
 bootstrap_if_stale() {
   local platform=$1 artifact=$2
-  if path_is_stale "$REPO_ROOT/src/core/src" "$artifact"; then
+  if path_is_stale "$REPO_ROOT/src/core/src" "$artifact" \
+     || [[ "$REPO_ROOT/src/core/Cargo.toml" -nt "$artifact" ]]; then
     info "core changed (or bindings absent) → running src/$platform/bootstrap.sh"
     ( cd "$REPO_ROOT/src/$platform" && ./bootstrap.sh )
   else
