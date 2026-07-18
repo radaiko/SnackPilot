@@ -61,11 +61,10 @@ android {
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            // NOTE: AGP's debugSymbolLevel only extracts symbols from libs AGP builds, NOT our
-            // prebuilt cargo-ndk .so in jniLibs — so this is a no-op here. The real native-symbol
-            // bundling is done by tools/devops/android-symbols.sh (invoked by `make ship`). Kept for
-            // intent + in case the core is ever built via AGP's native pipeline.
-            ndk { debugSymbolLevel = "SYMBOL_TABLE" }
+            // NOTE: native (Rust core) debug symbols are NOT bundled — AGP's debugSymbolLevel only
+            // covers libs AGP builds, not our prebuilt cargo-ndk .so, and post-build injection makes
+            // Play reject the AAB signature. Play's "missing native symbols" warning is non-blocking;
+            // symbols can be uploaded separately later via the Play Developer API (needs a service acct).
         }
     }
 }

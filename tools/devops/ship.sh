@@ -105,9 +105,6 @@ if [[ $do_android -eq 1 ]]; then
   ( cd src/android && ./gradlew :app:bundleRelease :app:assembleRelease )
   cp src/android/app/build/outputs/bundle/release/app-release.aab "$outdir/SnackPilot-$VERSION.aab"
   cp src/android/app/build/outputs/apk/release/app-release.apk "$outdir/SnackPilot-$VERSION.apk"
-  # Bundle native (Rust core) debug symbols into the AAB + re-sign — AGP's debugSymbolLevel
-  # doesn't cover our prebuilt cargo-ndk .so, so we inject them ourselves.
-  [[ -f "src/android/keystore.properties" ]] && bash "$REPO_ROOT/tools/devops/android-symbols.sh" "$outdir/SnackPilot-$VERSION.aab"
   ok "Android artifacts: $outdir/SnackPilot-$VERSION.{aab,apk}"
 fi
 
