@@ -7,7 +7,7 @@ name: core-test
 
 on:
   push:
-    branches: [v2, main]
+    branches: [main]
     paths: ["src/core/**", "docs/fixtures/**", ".github/workflows/core-test.yml"]
   pull_request:
     paths: ["src/core/**", "docs/fixtures/**", ".github/workflows/core-test.yml"]
