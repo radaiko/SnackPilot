@@ -24,7 +24,7 @@ android {
         applicationId = "dev.radaiko.gourmetclient"
         minSdk = 29          // Android 10
         targetSdk = 35
-        versionCode = 28
+        versionCode = 29
         versionName = "2.0.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
@@ -61,7 +61,10 @@ android {
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            // Bundle native (Rust core .so) symbols into the AAB so Play symbolicates crashes/ANRs.
+            // NOTE: AGP's debugSymbolLevel only extracts symbols from libs AGP builds, NOT our
+            // prebuilt cargo-ndk .so in jniLibs — so this is a no-op here. The real native-symbol
+            // bundling is done by tools/devops/android-symbols.sh (invoked by `make ship`). Kept for
+            // intent + in case the core is ever built via AGP's native pipeline.
             ndk { debugSymbolLevel = "SYMBOL_TABLE" }
         }
     }
