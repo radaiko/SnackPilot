@@ -26,8 +26,8 @@ android {
         applicationId = "dev.radaiko.gourmetclient"
         minSdk = 29          // Android 10
         targetSdk = 36
-        versionCode = 34
-        versionName = "2.0.5"
+        versionCode = 35
+        versionName = "2.1.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
