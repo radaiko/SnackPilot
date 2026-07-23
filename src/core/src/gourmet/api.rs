@@ -6,8 +6,9 @@ use crate::error::{CoreError, CoreResult};
 use crate::gourmet::client::GourmetClient;
 use crate::gourmet::parser;
 use crate::gourmet::{
-    GOURMET_ADD_TO_CART_URL, GOURMET_BILLING_URL, GOURMET_LOGIN_URL, GOURMET_MENUS_URL,
-    GOURMET_ORDERS_URL,
+    GOURMET_ADD_TO_CART_URL, GOURMET_BILLING_URL, GOURMET_CANCEL_POSITION_URL,
+    GOURMET_LOGIN_SUBMIT_URL, GOURMET_LOGIN_URL, GOURMET_LOGOUT_URL, GOURMET_MENUS_URL,
+    GOURMET_ORDERS_URL, GOURMET_TOGGLE_EDIT_MODE_URL,
 };
 use crate::http::Transport;
 use std::collections::HashMap;
@@ -42,37 +43,33 @@ impl GourmetApi {
         self.user_info.lock().unwrap().is_some()
     }
 
-    /// Full login (§6): stale-session pre-logout, then the 5-field POST, verify, cache.
+    /// Full login: stale-session pre-logout, then the tokenless urlencoded credential POST,
+    /// verify, cache. The site was rebuilt (AngularJS) 2026-07-23 — login now posts
+    /// `Email`/`Password`/`RememberMe` as `application/x-www-form-urlencoded` to
+    /// `/Controller/AlaLogin/Submit` with NO `ufprt`/`__ncforminfo` tokens. Login-state
+    /// detection (§4) and user-info extraction (§5) are unchanged.
     pub async fn login(&self, creds: Credentials) -> CoreResult<GourmetUserInfo> {
-        // Step 0 — stale-session pre-logout (§6.1).
+        // Step 0 — stale-session pre-logout. Native cookie stores persist across restarts, so
+        // GET /start/ may already be authenticated; log out first (empty tokenless POST) so the
+        // credential POST starts from a clean session.
         let start_html = self.client.get(GOURMET_LOGIN_URL, &[]).await?;
-        let login_page = if parser::is_logged_in(&start_html) {
-            if let Ok((ufprt, ncform)) = parser::extract_logout_form_tokens(&start_html) {
-                let _ = self
-                    .client
-                    .post_form(
-                        GOURMET_LOGIN_URL,
-                        vec![("ufprt".into(), ufprt), ("__ncforminfo".into(), ncform)],
-                    )
-                    .await;
-            }
-            self.client.get(GOURMET_LOGIN_URL, &[]).await?
-        } else {
-            start_html
-        };
+        if parser::is_logged_in(&start_html) {
+            let _ = self
+                .client
+                .post_urlencoded(GOURMET_LOGOUT_URL, vec![])
+                .await;
+            let _ = self.client.get(GOURMET_LOGIN_URL, &[]).await?;
+        }
 
-        // Steps 1-2 — tokens from the FIRST form + 5-field POST in order (§6.2).
-        let (ufprt, ncform) = parser::extract_form_tokens(&login_page, "form:first-of-type")?;
+        // Steps 1-2 — the credential POST (no token extraction; the new form carries none).
         let post_html = self
             .client
-            .post_form(
-                GOURMET_LOGIN_URL,
+            .post_urlencoded(
+                GOURMET_LOGIN_SUBMIT_URL,
                 vec![
-                    ("Username".into(), creds.username.clone()),
+                    ("Email".into(), creds.username.clone()),
                     ("Password".into(), creds.password.clone()),
                     ("RememberMe".into(), "false".into()),
-                    ("ufprt".into(), ufprt),
-                    ("__ncforminfo".into(), ncform),
                 ],
             )
             .await?;
@@ -114,10 +111,14 @@ impl GourmetApi {
         }
     }
 
-    /// §8.1 — paginate menus 0..=9, stop after a page with no next link.
+    /// §8.1 — paginate menus 0..=9, stop after a page with no next link. De-dupes by (id, day):
+    /// the rebuilt site's "next" link is always present, so a single stray extra page (or any
+    /// server-side overlap) must never surface the same menu twice.
     pub async fn get_menus(&self) -> CoreResult<Vec<MenuItem>> {
         const MAX_MENU_PAGES: usize = 10;
         let mut all = Vec::new();
+        let mut seen: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
         for page in 0..MAX_MENU_PAGES {
             let html = if page == 0 {
                 let mut html = self.client.get(GOURMET_MENUS_URL, &[]).await?;
@@ -135,7 +136,11 @@ impl GourmetApi {
                     .get(GOURMET_MENUS_URL, &[("page", &page.to_string())])
                     .await?
             };
-            all.extend(parser::parse_menu_items(&html));
+            for item in parser::parse_menu_items(&html) {
+                if seen.insert((item.id.clone(), item.day.clone())) {
+                    all.push(item);
+                }
+            }
             if !parser::has_next_menu_page(&html) {
                 break;
             }
@@ -217,21 +222,17 @@ impl GourmetApi {
         Ok(())
     }
 
-    /// §9.4 — enter edit mode, cancel each position (fresh tokens per step), exit.
+    /// Cancel each position (rebuilt orders §9.4). The rebuilt site renders the cancel form whenever
+    /// an order exists — no edit-mode toggle required — and cancels via a tokenless urlencoded POST
+    /// to `/Controller/AlaMyOrders/CancelPosition`. Re-fetches between cancels so a still-present
+    /// position's form data is fresh.
     pub async fn cancel_orders(&self, position_ids: Vec<String>) -> CoreResult<()> {
-        let mut html = self.get_authenticated_html(GOURMET_ORDERS_URL).await?;
-        if parser::extract_edit_mode(&html).as_deref() != Some("False") {
-            self.post_toggle(&html).await?;
-            html = self.client.get(GOURMET_ORDERS_URL, &[]).await?;
-            if parser::extract_edit_mode(&html).as_deref() != Some("False") {
-                return Err(CoreError::EditModeFailed);
-            }
-        }
         for position_id in &position_ids {
+            let html = self.get_authenticated_html(GOURMET_ORDERS_URL).await?;
             let form = parser::extract_cancel_form_data(&html, position_id)?;
             self.client
-                .post_form(
-                    GOURMET_ORDERS_URL,
+                .post_urlencoded(
+                    GOURMET_CANCEL_POSITION_URL,
                     vec![
                         ("cp_PositionId".into(), form.position_id),
                         (
@@ -239,34 +240,21 @@ impl GourmetApi {
                             form.eating_cycle_id,
                         ),
                         (format!("cp_Date_{position_id}"), form.date),
-                        ("ufprt".into(), form.ufprt),
-                        ("__ncforminfo".into(), form.ncforminfo),
                     ],
                 )
                 .await?;
-            html = self.client.get(GOURMET_ORDERS_URL, &[]).await?;
-        }
-        if parser::extract_edit_mode(&html).as_deref() == Some("False") {
-            self.post_toggle(&html).await?;
         }
         Ok(())
     }
 
-    /// POST the edit-mode toggle, echoing the extracted editMode value (§9.2).
+    /// POST the edit-mode toggle, echoing the extracted editMode value (rebuilt orders §9.2).
+    /// Tokenless urlencoded POST to `/Controller/AlaMyOrders/ToggleEditMode`.
     async fn post_toggle(&self, html: &str) -> CoreResult<String> {
         let edit_mode = parser::extract_edit_mode(html).unwrap_or_else(|| "True".to_string());
-        let (ufprt, ncform) = parser::extract_form_tokens(html, "form.form-toggleEditMode")
-            .map_err(|_| CoreError::Parse {
-                detail: "Could not extract edit mode form data".into(),
-            })?;
         self.client
-            .post_form(
-                GOURMET_ORDERS_URL,
-                vec![
-                    ("editMode".into(), edit_mode),
-                    ("ufprt".into(), ufprt),
-                    ("__ncforminfo".into(), ncform),
-                ],
+            .post_urlencoded(
+                GOURMET_TOGGLE_EDIT_MODE_URL,
+                vec![("editMode".into(), edit_mode)],
             )
             .await
     }
@@ -313,13 +301,11 @@ impl GourmetApi {
     }
 
     async fn logout_inner(&self) -> CoreResult<()> {
-        let html = self.client.get(GOURMET_LOGIN_URL, &[]).await?;
-        let (ufprt, ncform) = parser::extract_logout_form_tokens(&html)?;
+        // Logout is now a tokenless empty POST to /Controller/AlaLogin/SubmitLogout (rebuilt site,
+        // 2026-07-23). A prior GET keeps the Referer pointing at a real page.
+        let _ = self.client.get(GOURMET_LOGIN_URL, &[]).await?;
         self.client
-            .post_form(
-                GOURMET_LOGIN_URL,
-                vec![("ufprt".into(), ufprt), ("__ncforminfo".into(), ncform)],
-            )
+            .post_urlencoded(GOURMET_LOGOUT_URL, vec![])
             .await?;
         Ok(())
     }
@@ -403,10 +389,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn login_posts_five_ordered_fields_and_caches_user_info() {
+    async fn login_posts_urlencoded_email_password_remember_and_caches_user_info() {
         let t = Arc::new(CapturingTransport::new());
-        t.queue_response(ok(LOGIN_PAGE));
-        t.queue_response(ok(LOGIN_SUCCESS));
+        t.queue_response(ok(LOGIN_PAGE)); // step 0 GET /start/ (not logged in)
+        t.queue_response(ok(LOGIN_SUCCESS)); // credential POST → authenticated page
         let api = GourmetApi::new(t.clone());
 
         let info = api
@@ -420,26 +406,36 @@ mod tests {
         assert!(api.is_authenticated());
 
         let reqs = t.requests();
+        assert_eq!(reqs.len(), 2); // no token extraction, no re-GET
         assert_eq!(reqs[1].method, Method::Post);
-        assert_eq!(reqs[1].url, "https://alaclickneu.gourmet.at/start/");
+        assert_eq!(
+            reqs[1].url,
+            "https://alaclickneu.gourmet.at/Controller/AlaLogin/Submit"
+        );
+        // urlencoded (Form), exactly Email/Password/RememberMe in order — no ufprt/__ncforminfo.
         match &reqs[1].body {
-            Some(RequestBody::Multipart(f)) => {
+            Some(RequestBody::Form(f)) => {
                 let names: Vec<&str> = f.iter().map(|(k, _)| k.as_str()).collect();
-                assert_eq!(
-                    names,
-                    [
-                        "Username",
-                        "Password",
-                        "RememberMe",
-                        "ufprt",
-                        "__ncforminfo"
-                    ]
-                );
+                assert_eq!(names, ["Email", "Password", "RememberMe"]);
+                assert_eq!(f[0].1, "u");
+                assert_eq!(f[1].1, "p");
                 assert_eq!(f[2].1, "false");
-                assert_eq!(f[3].1, "CSRF-TOKEN-LOGIN-ABC123");
             }
-            _ => panic!("expected multipart"),
+            other => panic!("expected urlencoded Form body, got {other:?}"),
         }
+        // Origin + Referer are still set on the POST.
+        let hdr = |k: &str| {
+            reqs[1]
+                .headers
+                .iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(hdr("Origin"), Some("https://alaclickneu.gourmet.at"));
+        assert_eq!(
+            hdr("Referer"),
+            Some("https://alaclickneu.gourmet.at/start/")
+        );
     }
 
     #[tokio::test]
@@ -464,10 +460,10 @@ mod tests {
     #[tokio::test]
     async fn stale_session_triggers_pre_logout() {
         let t = Arc::new(CapturingTransport::new());
-        t.queue_response(ok(LOGIN_SUCCESS)); // step 0 GET (logged in)
-        t.queue_response(ok("<html>bye</html>")); // pre-logout POST
+        t.queue_response(ok(LOGIN_SUCCESS)); // step 0 GET (already logged in)
+        t.queue_response(ok("<html>bye</html>")); // pre-logout POST (empty, tokenless)
         t.queue_response(ok(LOGIN_PAGE)); // re-GET /start/
-        t.queue_response(ok(LOGIN_SUCCESS)); // login POST
+        t.queue_response(ok(LOGIN_SUCCESS)); // credential POST
         let api = GourmetApi::new(t.clone());
         api.login(Credentials {
             username: "u".into(),
@@ -475,7 +471,18 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(t.requests().len(), 4);
+        let reqs = t.requests();
+        assert_eq!(reqs.len(), 4);
+        // The pre-logout POST goes to SubmitLogout with an empty urlencoded body.
+        assert_eq!(reqs[1].method, Method::Post);
+        assert_eq!(
+            reqs[1].url,
+            "https://alaclickneu.gourmet.at/Controller/AlaLogin/SubmitLogout"
+        );
+        match &reqs[1].body {
+            Some(RequestBody::Form(f)) => assert!(f.is_empty()),
+            other => panic!("expected empty urlencoded body, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -486,10 +493,22 @@ mod tests {
         t.queue_response(ok(MENUS_PAGE_1));
         let items = api.get_menus().await.unwrap();
         assert!(!items.is_empty());
+        // No duplicate (id, day) pairs survive — guards against the broken-pagination dup bug.
+        let mut keys: Vec<(String, String)> = items
+            .iter()
+            .map(|i| (i.id.clone(), i.day.clone()))
+            .collect();
+        let total = keys.len();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), total, "menu items must be unique by (id, day)");
 
         let reqs = t.requests();
-        assert_eq!(reqs[2].url, "https://alaclickneu.gourmet.at/menus/");
-        assert_eq!(reqs[3].url, "https://alaclickneu.gourmet.at/menus/?page=1");
+        assert_eq!(reqs[2].url, "https://alaclickneu.gourmet.at/de/menues/");
+        assert_eq!(
+            reqs[3].url,
+            "https://alaclickneu.gourmet.at/de/menues/?page=1"
+        );
         assert_eq!(reqs.len(), 4);
     }
 
@@ -502,7 +521,7 @@ mod tests {
         assert!(!orders.is_empty());
         assert_eq!(
             t.requests()[2].url,
-            "https://alaclickneu.gourmet.at/bestellungen/"
+            "https://alaclickneu.gourmet.at/de/bestellungen/"
         );
     }
 
@@ -572,26 +591,59 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_orders_enters_edit_mode_then_posts_cancel() {
+    async fn cancel_orders_posts_tokenless_urlencoded_to_controller() {
         let t = Arc::new(CapturingTransport::new());
         let api = logged_in_api(&t).await;
-        t.queue_response(ok(ORDERS_PAGE)); // initial GET (editMode=True)
-        t.queue_response(ok("<html>ok</html>")); // toggle POST (enter)
-        t.queue_response(ok(ORDERS_EDIT)); // re-GET (editMode=False)
+        t.queue_response(ok(ORDERS_EDIT)); // GET orders (cancel form + login markers, no edit dance)
         t.queue_response(ok("<html>cancelled</html>")); // cancel POST
-        t.queue_response(ok(ORDERS_EDIT)); // re-GET fresh tokens
-        t.queue_response(ok("<html>exited</html>")); // toggle POST (exit)
         api.cancel_orders(vec!["POS-001".into()]).await.unwrap();
 
-        let posts: Vec<_> = t
+        let post = t
             .requests()
             .into_iter()
-            .filter(|r| {
-                r.method == Method::Post && r.url == "https://alaclickneu.gourmet.at/bestellungen/"
-            })
-            .collect();
-        assert!(posts.iter().any(|p| matches!(&p.body,
-            Some(RequestBody::Multipart(f)) if f.iter().any(|(k, _)| k == "cp_PositionId"))));
+            .find(|r| r.url == GOURMET_CANCEL_POSITION_URL)
+            .expect("a cancel POST to /Controller/AlaMyOrders/CancelPosition");
+        assert_eq!(post.method, Method::Post);
+        match &post.body {
+            Some(RequestBody::Form(f)) => {
+                let names: Vec<&str> = f.iter().map(|(k, _)| k.as_str()).collect();
+                assert_eq!(
+                    names,
+                    [
+                        "cp_PositionId",
+                        "cp_EatingCycleId_POS-001",
+                        "cp_Date_POS-001"
+                    ]
+                );
+                assert_eq!(f[0].1, "POS-001");
+                assert!(!names.contains(&"ufprt") && !names.contains(&"__ncforminfo"));
+            }
+            other => panic!("expected urlencoded Form body, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn confirm_orders_toggles_edit_mode_tokenless() {
+        let t = Arc::new(CapturingTransport::new());
+        let api = logged_in_api(&t).await;
+        // editMode="False" ⇒ order is in edit mode (unconfirmed) ⇒ confirm toggles it.
+        t.queue_response(ok(ORDERS_EDIT)); // GET orders
+        t.queue_response(ok("<html>confirmed</html>")); // toggle POST
+        api.confirm_orders().await.unwrap();
+
+        let post = t
+            .requests()
+            .into_iter()
+            .find(|r| r.url == GOURMET_TOGGLE_EDIT_MODE_URL)
+            .expect("a toggle POST to /Controller/AlaMyOrders/ToggleEditMode");
+        match &post.body {
+            Some(RequestBody::Form(f)) => {
+                let names: Vec<&str> = f.iter().map(|(k, _)| k.as_str()).collect();
+                assert_eq!(names, ["editMode"]);
+                assert_eq!(f[0].1, "False"); // echoes the extracted editMode value
+            }
+            other => panic!("expected urlencoded Form body, got {other:?}"),
+        }
     }
 
     #[tokio::test]

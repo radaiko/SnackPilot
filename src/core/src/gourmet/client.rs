@@ -71,6 +71,30 @@ impl GourmetClient {
         Ok(resp.body)
     }
 
+    /// application/x-www-form-urlencoded POST with Origin+Referer. Fields keep insertion order.
+    /// The rebuilt login/logout endpoints (`/Controller/AlaLogin/{Submit,SubmitLogout}`) expect a
+    /// urlencoded body, not multipart — verified live 2026-07-23.
+    pub async fn post_urlencoded(
+        &self,
+        url: &str,
+        fields: Vec<(String, String)>,
+    ) -> CoreResult<String> {
+        let headers = vec![
+            ("Origin".to_string(), GOURMET_ORIGIN.to_string()),
+            ("Referer".to_string(), self.referer(url)),
+        ];
+        let resp = self
+            .transport
+            .send(Request {
+                method: Method::Post,
+                url: self.absolute_url(url),
+                headers,
+                body: Some(RequestBody::Form(fields)),
+            })
+            .await?;
+        Ok(resp.body)
+    }
+
     /// application/json POST with Origin+Referer (§2.3).
     pub async fn post_json(&self, url: &str, body: String) -> CoreResult<String> {
         let headers = vec![
@@ -229,6 +253,55 @@ mod tests {
                 assert_eq!(f[2], ("RememberMe".to_string(), "false".to_string()));
             }
             _ => panic!("expected multipart"),
+        }
+    }
+
+    #[tokio::test]
+    async fn post_urlencoded_carries_origin_referer_and_ordered_form_body() {
+        let t = Arc::new(CapturingTransport::new());
+        t.queue_response(ok_body("login page")); // GET response
+        t.queue_response(ok_body("<html>ok</html>")); // POST response
+        let client = GourmetClient::new(t.clone());
+
+        client
+            .get("https://alaclickneu.gourmet.at/start/", &[])
+            .await
+            .unwrap();
+        client
+            .post_urlencoded(
+                "https://alaclickneu.gourmet.at/Controller/AlaLogin/Submit",
+                vec![
+                    ("Email".into(), "u".into()),
+                    ("Password".into(), "p".into()),
+                    ("RememberMe".into(), "false".into()),
+                ],
+            )
+            .await
+            .unwrap();
+
+        let post = &t.requests()[1];
+        assert_eq!(post.method, Method::Post);
+        assert_eq!(
+            post.url,
+            "https://alaclickneu.gourmet.at/Controller/AlaLogin/Submit"
+        );
+        let hdr = |k: &str| {
+            post.headers
+                .iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(hdr("Origin"), Some("https://alaclickneu.gourmet.at"));
+        assert_eq!(
+            hdr("Referer"),
+            Some("https://alaclickneu.gourmet.at/start/")
+        );
+        match &post.body {
+            Some(RequestBody::Form(f)) => {
+                assert_eq!(f[0], ("Email".to_string(), "u".to_string()));
+                assert_eq!(f[2], ("RememberMe".to_string(), "false".to_string()));
+            }
+            _ => panic!("expected urlencoded form"),
         }
     }
 

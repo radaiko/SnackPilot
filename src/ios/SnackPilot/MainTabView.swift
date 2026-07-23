@@ -6,30 +6,86 @@ struct MainTabView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        TabView(selection: $model.selectedTab) {
-            MenusView()
-                .tabItem { Label("Menüs", systemImage: "fork.knife") }
-                .tag(0)
-            OrdersView()
-                .tabItem { Label("Bestellungen", systemImage: "checklist") }
-                .tag(1)
-            BillingView()
-                .tabItem { Label("Abrechnung", systemImage: "eurosign.circle") }
-                .tag(2)
-            SettingsView()
-                .tabItem { Label("Einstellungen", systemImage: "gearshape") }
-                .tag(3)
-        }
-        // Small global spinner while a foreground refresh (orders + billing) runs.
-        .overlay(alignment: .top) {
-            if model.refreshing {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, 4)
+        // Banner + tabs stacked vertically so the banner is part of the layout flow and pushes the
+        // whole tab UI down (matches Android's Column), rather than floating over the content.
+        VStack(spacing: 0) {
+            // Operator broadcast banner (e.g. "breaking change — update the app"). Shown only when
+            // the gist is non-empty. Login-independent. Swipe up / tap × to dismiss.
+            if model.showBroadcast, let message = model.broadcast {
+                BroadcastBanner(message: message) { withAnimation { model.dismissBroadcast() } }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            TabView(selection: $model.selectedTab) {
+                MenusView()
+                    .tabItem { Label("Menüs", systemImage: "fork.knife") }
+                    .tag(0)
+                OrdersView()
+                    .tabItem { Label("Bestellungen", systemImage: "checklist") }
+                    .tag(1)
+                BillingView()
+                    .tabItem { Label("Abrechnung", systemImage: "eurosign.circle") }
+                    .tag(2)
+                SettingsView()
+                    .tabItem { Label("Einstellungen", systemImage: "gearshape") }
+                    .tag(3)
+            }
+            // Small global spinner while a foreground refresh (orders + billing) runs. Tucked into
+            // the bottom-trailing corner (above the tab bar) so it never overlaps a tab's top
+            // header (e.g. the Menüs day navigator).
+            .overlay(alignment: .bottomTrailing) {
+                if model.refreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 12)
+                }
             }
         }
+        .animation(.default, value: model.showBroadcast)
+    }
+}
+
+/// A full-width informational banner for operator broadcasts. Accent-tinted so it reads as an
+/// intentional, app-level notice (not an error); theme-aware via system materials. Swipe up (or
+/// tap the ×) to dismiss until the next foreground return.
+struct BroadcastBanner: View {
+    let message: String
+    var onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "megaphone.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.tint)
+            Text(message)
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "xmark")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .onTapGesture(perform: onDismiss)
+                .accessibilityLabel("Hinweis ausblenden")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+        .contentShape(Rectangle())
+        // Swipe up to dismiss (the banner is anchored to the top, so an upward swipe hides it).
+        .gesture(
+            DragGesture(minimumDistance: 10)
+                .onEnded { value in
+                    if value.translation.height < -20 { onDismiss() }
+                }
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "Ausblenden", onDismiss)
     }
 }
 

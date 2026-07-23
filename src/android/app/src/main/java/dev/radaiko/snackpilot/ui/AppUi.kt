@@ -36,9 +36,11 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.RemoveCircle
@@ -168,6 +170,11 @@ private fun MainScaffold(vm: AppViewModel) {
     ) { inner ->
         Box(modifier = Modifier.padding(inner)) {
             Column {
+                // Operator broadcast banner (e.g. "breaking change — update the app"). Shown only
+                // when the gist is non-blank and not swiped away; sits above the tab content.
+                // Login-independent.
+                vm.broadcast?.takeIf { it.isNotBlank() && !vm.broadcastDismissed }
+                    ?.let { BroadcastBanner(it, onDismiss = vm::dismissBroadcast) }
                 when (vm.selectedTab) {
                     0 -> MenusScreen(vm)
                     1 -> OrdersScreen(vm)
@@ -182,6 +189,46 @@ private fun MainScaffold(vm: AppViewModel) {
                     strokeWidth = 2.dp
                 )
             }
+        }
+    }
+}
+
+/**
+ * Full-width informational banner for operator broadcasts. Tonal `primaryContainer` background so
+ * it reads as an intentional, app-level notice (not an error); theme-aware via MaterialTheme.
+ * Swipe horizontally (or tap the ×) to dismiss until the next foreground return.
+ */
+@Composable
+private fun BroadcastBanner(message: String, onDismiss: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            // Swipe (a horizontal drag past a small threshold) hides the banner.
+            .pointerInput(Unit) {
+                var dragged = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { dragged = 0f },
+                    onDragEnd = { if (kotlin.math.abs(dragged) > 60f) onDismiss() }
+                ) { _, delta -> dragged += delta }
+            }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(10.dp))
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "Hinweis ausblenden",
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable(onClick = onDismiss)
+            )
         }
     }
 }
@@ -243,9 +290,23 @@ private fun MenusScreen(vm: AppViewModel) {
                 },
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
         ) {
+            val hasMainMenus = dayItems.any {
+                it.category == MenuCategory.MENU1 || it.category == MenuCategory.MENU2 ||
+                    it.category == MenuCategory.MENU3
+            }
             CATEGORY_ORDER.forEach { cat ->
                 val group = dayItems.filter { it.category == cat }
                 if (group.isNotEmpty()) {
+                    // Visual break before Suppe & Salat — it's an add-on, not one of the main menus.
+                    if (cat == MenuCategory.SOUP_AND_SALAD && hasMainMenus) {
+                        item(key = "sep-$selected") {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                thickness = 2.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        }
+                    }
                     // Suppress the SUPPE & SALAT heading (menus §5); other groups show their heading.
                     if (cat != MenuCategory.SOUP_AND_SALAD) {
                         item(key = "h-$selected-$cat") { SectionHeader(categoryHeading(cat)) }
@@ -339,12 +400,16 @@ private fun DayNavigator(dates: List<String>, selected: String?, onSelect: (Stri
             if (index < 0) onSelect(dates[0]) else if (nextEnabled) onSelect(dates[index + 1])
         }
     }
-    // "Heute" only when today is actually a menu day and we're not already on it — otherwise the
-    // nearest day is a future day and labeling a jump to it "Heute" would mislead (menus §4.1).
-    val todayIsAvailable = dates.contains(todayKey)
-    if (todayIsAvailable && selected != todayKey) {
+    // "Heute" is a badge that marks the current day when you're viewing it (menus §4.1). To return
+    // to today from another day, tap the centre date (jumps to the nearest menu day).
+    if (selected == todayKey) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            TextButton(onClick = { onSelect(nearest) }) { Text("Heute") }
+            Text(
+                "Heute",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

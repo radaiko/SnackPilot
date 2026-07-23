@@ -2,6 +2,7 @@
 //! notification decisions). Behavior traces to v1.4.5 (main @ 6997c44); see
 //! docs/requirements/ and docs/architecture/v2-architecture.md.
 
+pub mod broadcast;
 pub mod datetime;
 pub mod demo;
 pub mod domain;

@@ -69,11 +69,9 @@ struct MenusView: View {
         let position = idx.map { $0 + 1 } ?? 0
         let prevDisabled = (idx ?? 0) <= 0
         let nextDisabled = idx.map { $0 >= dates.count - 1 } ?? false
-        // "Heute" jumps to today's menu (menus §4.1). Only meaningful when today is actually a menu
-        // day: on weekends/holidays today has no menu, the view opens on the nearest upcoming day,
-        // and labeling a jump to it "Heute" would be wrong — so hide the button then.
+        // "Heute" is a badge that marks the current day when you're viewing it (menus §4.1). To
+        // return to today from another day, tap the centre date (jumps to the nearest menu day).
         let todayKey = AppModel.todayKey()
-        let todayIsAvailable = dates.contains(todayKey)
         let onToday = model.selectedDay == todayKey
 
         VStack(spacing: 4) {
@@ -105,9 +103,10 @@ struct MenusView: View {
                 .opacity(nextDisabled ? 0.3 : 1)
             }
 
-            if todayIsAvailable && !onToday {
-                Button("Heute") { model.goToToday() }
-                    .font(.caption)
+            if onToday {
+                Text("Heute")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tint)
             }
         }
         .padding(.horizontal)
@@ -120,6 +119,8 @@ struct MenusView: View {
     @ViewBuilder private func dayList(_ s: MenuSnapshot) -> some View {
         let day = model.selectedDay
         let dayItems = day.map { d in s.items.filter { $0.day == d } } ?? []
+        // Whether the day has any main menu (I–III) — used to draw a break before Suppe & Salat.
+        let hasMainMenus = dayItems.contains { [.menu1, .menu2, .menu3].contains($0.category) }
         List {
             ForEach(Self.categoryOrder, id: \.self) { cat in
                 let group = dayItems.filter { $0.category == cat }
@@ -131,6 +132,12 @@ struct MenusView: View {
                     } header: {
                         if let heading = Self.categoryHeading(cat) {
                             Text(heading)
+                        } else if cat == .soupAndSalad && hasMainMenus {
+                            // Visual break: Suppe & Salat is an add-on, not one of the main menus.
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.35))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 2)
                         }
                     }
                 }

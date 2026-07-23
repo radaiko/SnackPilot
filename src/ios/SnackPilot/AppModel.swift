@@ -29,6 +29,15 @@ final class AppModel: ObservableObject {
     @Published var demoMode = false
     @Published var selectedTab = 0
 
+    /// Operator broadcast message (from the gist). `nil`/empty → no banner. Refreshed at launch
+    /// and on every foreground return so a "breaking change" notice reaches users promptly.
+    @Published var broadcast: String?
+    /// Set when the user swipes the banner away; resets on every `loadBroadcast()` (launch +
+    /// foreground) so a dismissed banner reappears the next time the app comes to the foreground.
+    @Published var broadcastDismissed = false
+    /// Whether the banner should currently show.
+    var showBroadcast: Bool { !(broadcast ?? "").isEmpty && !broadcastDismissed }
+
     /// Live auth flags mirrored from the core (settings §3.7 no-wall navigation). Per-tab empty
     /// states key off these; the root never gates on them.
     @Published var gourmetAuthenticated = false
@@ -94,6 +103,9 @@ final class AppModel: ObservableObject {
         // Cache-first display (caching §4): publish any cached menus/orders/billing before the
         // network fetches so returning users see content instantly.
         loadCached()
+
+        // Broadcast banner: fetch the operator message (independent of login) at launch.
+        Task { await loadBroadcast() }
 
         NotificationService.shared.configure()
         Task {
@@ -527,12 +539,28 @@ final class AppModel: ObservableObject {
     /// device (a new order, a cancellation) show up without a manual pull. Fire-and-forget; the
     /// small global spinner (`refreshing`) is the only affordance. Re-entrancy-guarded.
     func refreshOnForeground() async {
+        // The broadcast is login-independent, so refresh it on every foreground return.
+        await loadBroadcast()
         guard gourmetAuthenticated || ventopayAuthenticated, !refreshing else { return }
         refreshing = true
         defer { refreshing = false }
         if gourmetAuthenticated { await loadOrders() }
         // force:false → refetches the current month, respects cached past months (they don't change).
         await loadBilling(offset: selectedOffset, force: false)
+    }
+
+    /// Fetch the operator broadcast message from the core (best-effort; the core returns nil on any
+    /// error or an empty gist). Only publishes a non-empty, trimmed message.
+    func loadBroadcast() async {
+        let message = await core.fetchBroadcast()
+        broadcast = message.flatMap { $0.isEmpty ? nil : $0 }
+        // A fresh load (launch / foreground) un-dismisses so the banner shows again.
+        broadcastDismissed = false
+    }
+
+    /// Hide the banner until the next `loadBroadcast()` (i.e. the next foreground return).
+    func dismissBroadcast() {
+        broadcastDismissed = true
     }
 
     private func loadBilling(offset: UInt8, force: Bool = false) async {

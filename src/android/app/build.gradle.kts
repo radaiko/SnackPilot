@@ -17,13 +17,15 @@ val keystoreProperties = Properties().apply {
 
 android {
     namespace = "dev.radaiko.snackpilot"
-    compileSdk = 35
+    // Android 16 — Google Play requires targetSdk within one year of the latest release; from
+    // 31 Aug 2026 API 35 (Android 15) is non-compliant, so target API 36 (07-release).
+    compileSdk = 36
 
     defaultConfig {
         // v1 identity — an in-place Play update, required for credential takeover (07-release §2).
         applicationId = "dev.radaiko.gourmetclient"
         minSdk = 29          // Android 10
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 34
         versionName = "2.0.5"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }

@@ -312,6 +312,18 @@ impl SnackPilotCore {
         .await)
     }
 
+    // ---- Broadcast banner ----
+    /// Fetch the operator broadcast message (from the public gist), or `None` when the gist is
+    /// empty or unreachable. Best-effort: the shell shows a banner only when this returns a
+    /// non-empty string. Uses a fresh cookieless session (redirects followed — the gist raw URL
+    /// 302s to a CDN host).
+    pub async fn fetch_broadcast(&self) -> Option<String> {
+        let tx: Arc<dyn Transport> = Arc::new(ReqwestTransport::new(false, true).ok()?);
+        // Per-call cache-buster (epoch-ms) so the raw-gist CDN never serves a stale copy.
+        let cache_buster = self.clock.now_epoch_ms().to_string();
+        crate::broadcast::fetch_broadcast(tx.as_ref(), &cache_buster).await
+    }
+
     // ---- Diagnostic log ----
     pub fn log_activate(&self, hours: u32) {
         log::activate_log(self.kv.as_ref(), self.clock.as_ref(), hours);

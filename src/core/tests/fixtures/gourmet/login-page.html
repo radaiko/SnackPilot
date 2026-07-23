@@ -1,19 +1,24 @@
 <!DOCTYPE html>
-<html>
-<head><title>AlaClick - Login</title></head>
+<html lang="de">
+<head><title>Login - Jetzt anmelden - À la Click</title></head>
 <body>
 <div class="container">
-  <form method="post" action="/start/" enctype="multipart/form-data">
+  <!-- Rebuilt AngularJS login form (2026-07-23): urlencoded POST to a controller endpoint,
+       Email/Password/RememberMe, NO ufprt/__ncforminfo tokens. -->
+  <form method="post" action="/Controller/AlaLogin/Submit" class="ng-pristine ng-valid">
     <div class="form-group">
-      <input type="text" name="Username" placeholder="Benutzername" />
+      <input type="text" name="Email" id="Email" />
     </div>
     <div class="form-group">
-      <input type="password" name="Password" placeholder="Passwort" />
+      <input type="password" name="Password" id="Password" />
     </div>
+    <input type="checkbox" name="RememberMe" id="RememberMe" value="true" />
     <input type="hidden" name="RememberMe" value="false" />
-    <input type="hidden" name="ufprt" value="CSRF-TOKEN-LOGIN-ABC123" />
-    <input type="hidden" name="__ncforminfo" value="NCFORM-TOKEN-LOGIN-XYZ789" />
-    <button type="submit">Login</button>
+    <button type="submit" id="login">Anmelden</button>
+  </form>
+  <form method="post" action="/Controller/AlaForgotPassword/ForgotPassword">
+    <input type="text" name="Username" id="Username" placeholder="Benutzername oder E-Mail" />
+    <button type="submit" id="forgotPasswordBtn">Abschicken</button>
   </form>
 </div>
 </body>

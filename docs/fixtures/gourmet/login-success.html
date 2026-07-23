@@ -1,13 +1,12 @@
 <!DOCTYPE html>
-<html>
-<head><title>AlaClick - Menüs</title></head>
+<html lang="de">
+<head><title>Menüs - À la Click</title></head>
 <body>
 <nav class="navbar">
   <span class="loginname">TestUser</span>
-  <a href="https://alaclickneu.gourmet.at/einstellungen/" class="navbar-link">Einstellungen</a>
-  <form method="post" action="/start/" enctype="multipart/form-data">
-    <input type="hidden" name="ufprt" value="CSRF-TOKEN-LOGOUT-DEF456" />
-    <input type="hidden" name="__ncforminfo" value="NCFORM-TOKEN-LOGOUT-UVW012" />
+  <a href="https://alaclickneu.gourmet.at/de/einstellungen/" class="navbar-link">Einstellungen</a>
+  <!-- Rebuilt logout form (2026-07-23): tokenless empty POST to a controller endpoint. -->
+  <form method="post" action="/Controller/AlaLogin/SubmitLogout">
     <button type="submit" id="btnHeaderLogout">Logout</button>
   </form>
 </nav>

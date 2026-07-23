@@ -112,6 +112,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var selectedTab by mutableIntStateOf(0)
 
+    /** Operator broadcast message (from the gist). null/blank → no banner. Refreshed at launch and
+     *  on every foreground return so a "breaking change" notice reaches users promptly. */
+    var broadcast by mutableStateOf<String?>(null)
+        private set
+    /** Set when the user swipes the banner away; reset on every [loadBroadcast] (launch +
+     *  foreground) so a dismissed banner reappears the next time the app comes to the foreground. */
+    var broadcastDismissed by mutableStateOf(false)
+        private set
+
     // Appearance (themes §1) — two independent, persisted settings. Held as observable state so a
     // change recomposes the whole UI (theme is rebuilt from these in MainActivity's setContent).
     var themePreference by mutableStateOf(ThemePreference.SYSTEM)
@@ -211,6 +220,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         accentColor = prefs.getString("accent_color", null)
             ?.let { runCatching { AccentColor.valueOf(it) }.getOrNull() } ?: AccentColor.ORANGE
         loadCachedData()
+        // Broadcast banner: fetch the operator message (independent of login) at launch.
+        loadBroadcast()
         // Restore the company geofence on every launch (§9). Idempotent-ish: re-adds without an
         // initial Enter trigger so a restart never re-fires a spurious in-zone notification (§3.2).
         companyLocation = runCatching { core.companyLocation() }.getOrNull()
@@ -658,6 +669,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Refresh orders + billing when the app returns to the foreground so a second device's changes
      *  (a new order, a cancellation) appear without a manual pull. Re-entrancy-guarded. */
     fun refreshOnForeground() {
+        // The broadcast is login-independent, so refresh it on every foreground return.
+        loadBroadcast()
         if (!(gourmetAuthenticated || ventopayAuthenticated) || refreshing) return
         viewModelScope.launch {
             refreshing = true
@@ -688,6 +701,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } finally {
             billingLoading = false
         }
+    }
+
+    /** Fetch the operator broadcast message from the core (best-effort; the core returns null on any
+     *  error or an empty gist). Only publishes a non-empty, trimmed message. */
+    fun loadBroadcast() {
+        viewModelScope.launch {
+            broadcast = runCatching { core.fetchBroadcast() }.getOrNull()?.takeIf { it.isNotBlank() }
+            // A fresh load (launch / foreground) un-dismisses so the banner shows again.
+            broadcastDismissed = false
+        }
+    }
+
+    /** Hide the banner until the next [loadBroadcast] (i.e. the next foreground return). */
+    fun dismissBroadcast() {
+        broadcastDismissed = true
     }
 
     /** Offline demo session (button / debug hook) — routes through the same login path. */

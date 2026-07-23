@@ -186,8 +186,6 @@ pub struct CancelFormData {
     pub position_id: String,
     pub eating_cycle_id: String,
     pub date: String,
-    pub ufprt: String,
-    pub ncforminfo: String,
 }
 
 /// Parse ordered menus (01 §9.1). Approved iff a `.fa-check` or `.checkmark` descendant exists.
@@ -263,7 +261,9 @@ pub fn extract_edit_mode(html: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Extract the cancel form for a position (01 §9.4). Tokens required; ec/date default to "".
+/// Extract the cancel form for a position (rebuilt orders §9.4). The cancel form
+/// (`form#form_{id}_cp` → `/Controller/AlaMyOrders/CancelPosition`) carries `cp_PositionId`,
+/// `cp_EatingCycleId_{id}`, `cp_Date_{id}` and — since the 2026 rebuild — NO CSRF tokens.
 pub fn extract_cancel_form_data(html: &str, position_id: &str) -> CoreResult<CancelFormData> {
     let doc = Html::parse_document(html);
     let not_found = || {
@@ -280,8 +280,6 @@ pub fn extract_cancel_form_data(html: &str, position_id: &str) -> CoreResult<Can
 
     let ec_sel = Selector::parse(r#"input[name^="cp_EatingCycleId_"]"#).unwrap();
     let date_sel = Selector::parse(r#"input[name^="cp_Date_"]"#).unwrap();
-    let ufprt_sel = Selector::parse(r#"input[name="ufprt"]"#).unwrap();
-    let ncform_sel = Selector::parse(r#"input[name="__ncforminfo"]"#).unwrap();
 
     let eating_cycle_id = form
         .select(&ec_sel)
@@ -295,50 +293,11 @@ pub fn extract_cancel_form_data(html: &str, position_id: &str) -> CoreResult<Can
         .and_then(|e| e.value().attr("value"))
         .unwrap_or("")
         .to_string();
-    let ufprt = form
-        .select(&ufprt_sel)
-        .next()
-        .and_then(|e| e.value().attr("value"));
-    let ncform = form
-        .select(&ncform_sel)
-        .next()
-        .and_then(|e| e.value().attr("value"));
-    let (ufprt, ncform) = match (ufprt, ncform) {
-        (Some(u), Some(n)) => (u.to_string(), n.to_string()),
-        _ => return Err(not_found()),
-    };
     Ok(CancelFormData {
         position_id: position_id.to_string(),
         eating_cycle_id,
         date,
-        ufprt,
-        ncforminfo: ncform,
     })
-}
-
-/// Logout-form tokens (01 §11). The form holding the header logout button.
-pub fn extract_logout_form_tokens(html: &str) -> CoreResult<(String, String)> {
-    let doc = Html::parse_document(html);
-    let form = Selector::parse(r#"form:has(button#btnHeaderLogout)"#)
-        .ok()
-        .and_then(|s| doc.select(&s).next())
-        .or_else(|| find_logout_form_by_text(&doc))
-        .ok_or_else(|| parse_err("Could not find logout form"))?;
-
-    let ufprt_sel = Selector::parse(r#"input[name="ufprt"]"#).unwrap();
-    let ncform_sel = Selector::parse(r#"input[name="__ncforminfo"]"#).unwrap();
-    let ufprt = form
-        .select(&ufprt_sel)
-        .next()
-        .and_then(|e| e.value().attr("value"));
-    let ncform = form
-        .select(&ncform_sel)
-        .next()
-        .and_then(|e| e.value().attr("value"));
-    match (ufprt, ncform) {
-        (Some(u), Some(n)) => Ok((u.to_string(), n.to_string())),
-        _ => Err(parse_err("Could not extract logout form tokens")),
-    }
 }
 
 fn find_cancel_form_by_position<'a>(doc: &'a Html, position_id: &str) -> Option<ElementRef<'a>> {
@@ -347,15 +306,6 @@ fn find_cancel_form_by_position<'a>(doc: &'a Html, position_id: &str) -> Option<
     doc.select(&form_sel).find(|form| {
         form.select(&pos_sel)
             .any(|i| i.value().attr("value") == Some(position_id))
-    })
-}
-
-fn find_logout_form_by_text<'a>(doc: &'a Html) -> Option<ElementRef<'a>> {
-    let form_sel = Selector::parse("form").unwrap();
-    let button_sel = Selector::parse("button").unwrap();
-    doc.select(&form_sel).find(|form| {
-        form.select(&button_sel)
-            .any(|b| b.text().collect::<String>().contains("Logout"))
     })
 }
 
@@ -387,10 +337,23 @@ mod tests {
         include_str!("../../tests/fixtures/gourmet/orders-page-edit-mode.html");
 
     #[test]
-    fn extracts_login_form_tokens() {
-        let (ufprt, ncform) = extract_form_tokens(LOGIN_PAGE, "form:first-of-type").unwrap();
-        assert_eq!(ufprt, "CSRF-TOKEN-LOGIN-ABC123");
-        assert_eq!(ncform, "NCFORM-TOKEN-LOGIN-XYZ789");
+    fn extracts_form_tokens_from_edit_mode_form() {
+        // The rebuilt login form no longer carries tokens, but the orders edit-mode/cancel forms
+        // still do — `extract_form_tokens` remains in use for those (post_toggle / cancel loop).
+        let (ufprt, ncform) = extract_form_tokens(ORDERS_PAGE, "form.form-toggleEditMode").unwrap();
+        assert_eq!(ufprt, "CSRF-TOKEN-EDITMODE-555");
+        assert_eq!(ncform, "NCFORM-TOKEN-EDITMODE-666");
+    }
+
+    #[test]
+    fn rebuilt_login_page_has_no_form_tokens() {
+        // Guards the site-change assumption: the new login form is tokenless, so the old
+        // token-extraction path (had it survived) would fail loudly rather than silently.
+        let err = extract_form_tokens(LOGIN_PAGE, "form:first-of-type").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Could not find ufprt in form: form:first-of-type"
+        );
     }
 
     #[test]
@@ -474,20 +437,12 @@ mod tests {
         if let Some(first) = orders.first() {
             let data = extract_cancel_form_data(ORDERS_EDIT, &first.position_id).unwrap();
             assert_eq!(data.position_id, first.position_id);
-            assert!(!data.ufprt.is_empty());
-            assert!(!data.ncforminfo.is_empty());
+            assert!(!data.eating_cycle_id.is_empty());
         }
         let err = extract_cancel_form_data(ORDERS_EDIT, "NOPE-999").unwrap_err();
         assert_eq!(
             err.to_string(),
             "Could not extract cancel form data for position: NOPE-999"
         );
-    }
-
-    #[test]
-    fn logout_tokens_from_authenticated_page() {
-        let (ufprt, ncform) = extract_logout_form_tokens(LOGIN_SUCCESS).unwrap();
-        assert!(!ufprt.is_empty());
-        assert!(!ncform.is_empty());
     }
 }
