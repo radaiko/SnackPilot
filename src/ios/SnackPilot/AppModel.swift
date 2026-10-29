@@ -20,6 +20,9 @@ final class AppModel: ObservableObject {
     /// True while a foreground refresh (orders + billing) runs — drives the small global spinner so
     /// a second device's changes are pulled in when the app returns to the foreground.
     @Published var refreshing = false
+    /// Background new-menu checks (BGTaskScheduler / debug button) scrape with their OWN fresh
+    /// session; this flag keeps a second concurrent check from starting (v1's single-flight rule).
+    private var menuCheckRunning = false
     /// The positionId currently being cancelled — drives the per-row delete spinner and guards
     /// against a second cancel starting mid-flight (orders §6.2).
     @Published var cancellingId: String?
@@ -56,10 +59,13 @@ final class AppModel: ObservableObject {
     @Published var accent: AccentColor =
         AccentColor(rawValue: UserDefaults.standard.string(forKey: "accent_color") ?? "") ?? .orange
 
-    // Notification preferences (shell-owned; fed to the core's decision fns)
-    @Published var dailyReminderEnabled = UserDefaults.standard.bool(forKey: "daily_reminder_enabled")
-    @Published var reminderHour = UserDefaults.standard.object(forKey: "daily_reminder_hour") as? Int ?? 8
-    @Published var reminderMinute = UserDefaults.standard.object(forKey: "daily_reminder_minute") as? Int ?? 0
+    // Notification preferences (daily-reminder settings live in the core KV, notifications-daily-reminder §9;
+    // these are mirrors for the UI. Defaults per §234/§243: enabled off, time 11:00 — the picker range is
+    // 11:00–13:45 and the core refuses to fire at/after the target, so an earlier default could never fire.)
+    @Published var dailyReminderEnabled: Bool = false
+    @Published var reminderHour: Int = 11
+    @Published var reminderMinute: Int = 0
+
 
     // Location notifications (notifications-location). `companyLocation != nil` is the on/off state
     // (§1); the geofence itself lives in `LocationService`. `locationBusy` drives the "wird
@@ -103,6 +109,13 @@ final class AppModel: ObservableObject {
         // Cache-first display (caching §4): publish any cached menus/orders/billing before the
         // network fetches so returning users see content instantly.
         loadCached()
+
+        // Hydrate the reminder UI from the core KV (§9) — the core is the single source of truth,
+        // so a background task or the other shell changing the settings shows up on next launch.
+        let reminderSettings = core.dailyReminderSettings()
+        dailyReminderEnabled = reminderSettings.enabled
+        reminderHour = reminderSettings.hour.map(Int.init) ?? 11
+        reminderMinute = reminderSettings.minute.map(Int.init) ?? 0
 
         // Broadcast banner: fetch the operator message (independent of login) at launch.
         Task { await loadBroadcast() }
@@ -310,7 +323,7 @@ final class AppModel: ObservableObject {
             await runMenuCheck()
         }
         if ProcessInfo.processInfo.arguments.contains("-uiTestReminder") {
-            setDailyReminder(enabled: true, hour: 8, minute: 30)
+            setDailyReminder(enabled: true, hour: 11, minute: 30)
         }
         #endif
     }
@@ -333,7 +346,11 @@ final class AppModel: ObservableObject {
     // MARK: Orders
 
     func loadOrders() async {
-        try? await core.fetchOrders()
+        // The core runs the post-fetch reminder hooks on success and returns the commands
+        // (notifications-daily-reminder §2 step 2, notifications-cancel-reminder §2 step 1).
+        if let commands = try? await core.fetchOrders() {
+            for command in commands { NotificationService.shared.execute(command) }
+        }
         ordersSplit = core.splitOrders()
         ordersError = core.ordersError()
     }
@@ -643,15 +660,15 @@ final class AppModel: ObservableObject {
 
     // MARK: Notification preferences
 
-    /// Persist the daily-reminder preference and (re)apply it through the core decision fn.
+    /// Persist the daily-reminder preference in the core KV (§9 step 2: time **before** the
+    /// enabled flag — both write through the core so headless background callers read them)
+    /// and (re)apply it through the core decision fn.
     func setDailyReminder(enabled: Bool, hour: Int, minute: Int) {
         dailyReminderEnabled = enabled
         reminderHour = hour
         reminderMinute = minute
-        let d = UserDefaults.standard
-        d.set(enabled, forKey: "daily_reminder_enabled")
-        d.set(hour, forKey: "daily_reminder_hour")
-        d.set(minute, forKey: "daily_reminder_minute")
+        core.setDailyReminderTime(hour: UInt8(hour), minute: UInt8(minute))
+        core.setDailyReminderEnabled(enabled: enabled)
         applyDailyReminder()
     }
 
@@ -659,8 +676,9 @@ final class AppModel: ObservableObject {
     /// When disabled, cancel any previously scheduled reminder (the core returns nil when off).
     func applyDailyReminder() {
         if dailyReminderEnabled {
-            let settings = DailyReminderSettings(
-                enabled: true, hour: UInt8(reminderHour), minute: UInt8(reminderMinute))
+            // The settings are persisted in the core KV (§9), so read them back from there —
+            // one source of truth with the headless background callers.
+            let settings = core.dailyReminderSettings()
             if let command = core.dailyReminderCommand(settings: settings) {
                 NotificationService.shared.execute(command)
             }
@@ -763,12 +781,32 @@ final class AppModel: ObservableObject {
 
     /// Run the background new-menu check on demand (records diagnostic-log entries). Uses the
     /// current credentials; in demo mode the core short-circuits it (logs `demo_credentials_skip`).
+    /// The returned FireNow command (new menu detected) is delivered here — v1 parity: the check
+    /// posts its own notification, the result was previously discarded. Single-flight: a second
+    /// concurrent scrape would be bot-like traffic against Gourmet (ban rules), so callers that
+    /// fire from the background just wait instead of piling up.
     func runMenuCheck() async {
+        guard !menuCheckRunning else { return }
+        menuCheckRunning = true
+        defer { menuCheckRunning = false }
         let creds = KeychainStore.savedGourmet().map {
             Credentials(username: $0.username, password: $0.password)
         }
-        _ = try? await core.runMenuCheck(creds: creds)
+        if let result = try? await core.runMenuCheck(creds: creds),
+           let command = result.notification {
+            NotificationService.shared.execute(command)
+        }
         refreshLog()
+    }
+
+    /// Body of the BGAppRefreshTask (docs/architecture §4.4, notifications-new-menu §3):
+    /// scrape menus in the background and evaluate the order-driven reminders from the cache.
+    /// Safe to call from any launch, including a background relaunch with no UI attached.
+    func performBackgroundSync() async {
+        await runMenuCheck()
+        for command in core.runOrderSyncCheck() {
+            NotificationService.shared.execute(command)
+        }
     }
 
     private func tabIndex(_ name: String) -> Int {

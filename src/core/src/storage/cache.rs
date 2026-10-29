@@ -53,6 +53,55 @@ pub fn save_is_at_company(kv: &dyn Kv, value: bool) {
     let _ = kv.set(IS_AT_COMPANY_KEY, if value { "true" } else { "false" });
 }
 
+// ---- Daily-reminder settings (notifications-daily-reminder §9) ----
+// Persisted in the core KV (docs/architecture §5.3) so headless background entry points
+// (BGTask handler / WorkManager worker) read them with no shell-side state. The storage
+// keys and value formats match v1's AsyncStorage keys exactly (§9 table).
+
+pub const DAILY_REMINDER_ENABLED_KEY: &str = "daily_reminder_enabled";
+pub const DAILY_REMINDER_TIME_KEY: &str = "daily_reminder_time";
+
+/// §9 getters: enabled defaults to **false**; the time is only honoured when it parses to
+/// an object with numeric `hour` and `minute` — anything else is "not configured" (None).
+pub fn load_daily_reminder_settings(kv: &dyn Kv) -> crate::notify::DailyReminderSettings {
+    let enabled = kv
+        .get(DAILY_REMINDER_ENABLED_KEY)
+        .ok()
+        .flatten()
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let time = kv
+        .get(DAILY_REMINDER_TIME_KEY)
+        .ok()
+        .flatten()
+        .and_then(|raw| {
+            serde_json::from_str::<Option<serde_json::Value>>(&raw)
+                .ok()
+                .flatten()
+        })
+        .and_then(|v| {
+            let (h, m) = (v.get("hour")?.as_u64()?, v.get("minute")?.as_u64()?);
+            u8::try_from(h).ok().zip(u8::try_from(m).ok())
+        });
+    crate::notify::DailyReminderSettings {
+        enabled,
+        hour: time.map(|(h, _)| h),
+        minute: time.map(|(_, m)| m),
+    }
+}
+/// §9 setters (the settings screen writes through these; the toggle persists the time
+/// **before** the enabled flag — order matters per §9 step 2, the caller owns that).
+pub fn set_daily_reminder_enabled(kv: &dyn Kv, enabled: bool) {
+    let _ = kv.set(
+        DAILY_REMINDER_ENABLED_KEY,
+        if enabled { "true" } else { "false" },
+    );
+}
+pub fn set_daily_reminder_time(kv: &dyn Kv, hour: u8, minute: u8) {
+    let json = format!("{{\"hour\":{hour},\"minute\":{minute}}}");
+    let _ = kv.set(DAILY_REMINDER_TIME_KEY, &json);
+}
+
 /// Austrian German month names (caching §2.5), 1-based index via `[m-1]`.
 const MONTH_NAMES: [&str; 12] = [
     "Jänner",
@@ -197,6 +246,39 @@ mod tests {
         kv.set(MENUS_KEY, "not json").unwrap();
         assert_eq!(load_menus(&kv), None);
         assert_eq!(kv.get(MENUS_KEY).unwrap(), None); // removed
+    }
+
+    #[test]
+    fn daily_reminder_settings_round_trip() {
+        let kv = MemoryKv::new();
+        // §9 defaults: disabled + unconfigured.
+        let s = load_daily_reminder_settings(&kv);
+        assert!(!s.enabled);
+        assert_eq!((s.hour, s.minute), (None, None));
+        set_daily_reminder_time(&kv, 11, 30);
+        set_daily_reminder_enabled(&kv, true);
+        let s = load_daily_reminder_settings(&kv);
+        assert!(s.enabled);
+        assert_eq!((s.hour, s.minute), (Some(11), Some(30)));
+        // v1-exact storage format (§9 table): JSON object + "true"/"false" strings.
+        assert_eq!(
+            kv.get(DAILY_REMINDER_TIME_KEY).unwrap().as_deref(),
+            Some(r#"{"hour":11,"minute":30}"#)
+        );
+        assert_eq!(
+            kv.get(DAILY_REMINDER_ENABLED_KEY).unwrap().as_deref(),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn daily_reminder_time_ignores_garbage() {
+        let kv = MemoryKv::new();
+        for bad in ["not json", "null", r#"{"hour":"x","minute":0}"#, "[1,2]"] {
+            kv.set(DAILY_REMINDER_TIME_KEY, bad).unwrap();
+            let s = load_daily_reminder_settings(&kv);
+            assert_eq!((s.hour, s.minute), (None, None), "for {bad}");
+        }
     }
 
     #[test]

@@ -107,6 +107,14 @@ struct PlaceholderView: View {
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
 
+    /// Allowed daily-reminder window, 11:00–13:45 (notifications-daily-reminder §234/§243).
+    static let reminderWindow: ClosedRange<Date> = {
+        let cal = Calendar.current
+        let start = cal.date(from: DateComponents(hour: 11, minute: 0))!
+        let end = cal.date(from: DateComponents(hour: 13, minute: 45))!
+        return start...end
+    }()
+
     var body: some View {
         NavigationStack {
             Form {
@@ -143,10 +151,14 @@ struct SettingsView: View {
                                     hour: model.reminderHour, minute: model.reminderMinute)) ?? Date()
                             },
                             set: {
+                                // Clamp to the spec window 11:00–13:45 (notifications-daily-reminder §243).
                                 let c = Calendar.current.dateComponents([.hour, .minute], from: $0)
-                                model.setDailyReminder(enabled: true, hour: c.hour ?? 8, minute: c.minute ?? 0)
+                                var hour = min(max(c.hour ?? 11, 11), 13)
+                                var minute = min(max(c.minute ?? 0, 0), 59)
+                                if hour == 13 { minute = min(minute, 45) }
+                                model.setDailyReminder(enabled: true, hour: hour, minute: minute)
                             }
-                        ), displayedComponents: .hourAndMinute)
+                        ), in: Self.reminderWindow, displayedComponents: .hourAndMinute)
                     }
                 }
 
@@ -181,6 +193,11 @@ struct SettingsView: View {
                                    value: model.logActive ? "Aktiv" : "Inaktiv")
                     Button("Protokoll aktivieren (24 h)") { model.activateLog() }
                     Button("Menü-Check ausführen") { Task { await model.runMenuCheck() } }
+                    // Manual run of the background task body (menu scrape + reminder checks) so
+                    // the BGTask path is device-verifiable without waiting for iOS's schedule.
+                    Button("Hintergrund-Sync ausführen") {
+                        Task { await model.performBackgroundSync() }
+                    }
                     if !model.logEntries.isEmpty {
                         // Let a sideloaded tester ship the log to the dev when something breaks.
                         ShareLink("Protokoll teilen", item: logShareText)

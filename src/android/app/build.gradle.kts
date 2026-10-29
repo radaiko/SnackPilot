@@ -86,10 +86,13 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")   // LocalLifecycleOwner / foreground refresh
+    // Periodic background sync (docs/architecture §4.4): WorkManager ≥15-min interval, survives reboot.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     // UniFFI Kotlin runtime deps.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("net.java.dev.jna:jna:5.14.0@aar")
     // Geofencing + one-shot location fix (notifications-location).
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.github.aptabase:aptabase-kotlin:0.0.8")   // self-hosted analytics
+    testImplementation("junit:junit:4.13.2")
 }

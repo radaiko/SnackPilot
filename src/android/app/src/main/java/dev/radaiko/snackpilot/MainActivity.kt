@@ -7,6 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.radaiko.snackpilot.ui.RootScreen
 import dev.radaiko.snackpilot.ui.SnackPilotTheme
@@ -14,15 +16,37 @@ import uniffi.snackpilot_core.NotificationCommand
 
 class MainActivity : ComponentActivity() {
     private val notifications by lazy { NotificationService(this) }
+    // The grant result matters (API 33+): the notification half of the location setup flow
+    // (§7.2) and every background delivery path depend on it, so surface a denial instead of
+    // discarding it. Resolved through the Activity's ViewModelStore with the same factory the
+    // composition uses, so this returns the SAME instance the UI holds.
     private val requestNotifPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) {
+                activityVMs[AppViewModel::class.java].onNotificationPermissionDenied()
+            }
+        }
+
+    private val activityVMs: ViewModelProvider by lazy {
+        ViewModelProvider(this, object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(
+                modelClass: Class<T>,
+                extras: CreationExtras
+            ): T = AppViewModel(application) as T
+        })
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestNotifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                requestNotifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         } else {
             notifications // ensure channels exist on older versions
         }
