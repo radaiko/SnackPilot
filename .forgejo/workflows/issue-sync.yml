@@ -1,0 +1,22 @@
+name: issue-sync
+
+# One-way copy of the public GitHub issues into Forgejo. Forgejo never writes back to GitHub.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: python
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy issues
+        env:
+          FORGEJO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORGEJO_API: ${{ github.api_url }}
+          FORGEJO_REPO: ${{ github.repository }}
+          GITHUB_REPO: radaiko/SnackPilot
+        run: python3 .forgejo/scripts/issue_sync.py

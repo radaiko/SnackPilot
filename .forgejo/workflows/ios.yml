@@ -1,0 +1,58 @@
+name: ios
+
+# Runs on the MacBook. While it is offline the job waits in the queue, which is expected.
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/core/**", "src/ios/**", ".forgejo/workflows/ios.yml"]
+  pull_request:
+    paths: ["src/core/**", "src/ios/**", ".forgejo/workflows/ios.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos
+    timeout-minutes: 50
+    env:
+      DEVICE_NAME: CI iPhone
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the core and generate the Xcode project
+        run: ./bootstrap.sh
+        working-directory: src/ios
+
+      - name: Build for the simulator
+        run: |
+          xcodebuild -scheme SnackPilot -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/ci CODE_SIGNING_ALLOWED=NO build
+        working-directory: src/ios
+
+      - name: Smoke test on a simulator
+        working-directory: src/ios
+        run: |
+          mkdir -p build/ci/smoke
+          runtime=$(xcrun simctl list runtimes available -j | python3 -c "import json,sys; print([r['identifier'] for r in json.load(sys.stdin)['runtimes'] if r['platform']=='iOS'][-1])")
+          devtype=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; print([d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name'].startswith('iPhone')][-1])")
+          udid=$(xcrun simctl create "$DEVICE_NAME $GITHUB_RUN_NUMBER" "$devtype" "$runtime")
+          trap 'xcrun simctl shutdown "$udid" || true; xcrun simctl delete "$udid" || true' EXIT
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid"
+          app=$(find build/ci/Build/Products -name '*.app' -maxdepth 2 | head -1)
+          bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          xcrun simctl install "$udid" "$app"
+          xcrun simctl launch "$udid" "$bundle"
+          sleep 10
+          xcrun simctl spawn "$udid" launchctl list | grep -q "$bundle"
+          xcrun simctl io "$udid" screenshot build/ci/smoke/launch.png
+          xcrun simctl spawn "$udid" log show --last 2m --predicate "subsystem CONTAINS '$bundle'" > build/ci/smoke/app.log || true
+          (cd "$(dirname "$app")" && zip -qry "$OLDPWD/build/ci/smoke/SnackPilot.app.zip" "$(basename "$app")")
+
+      - name: Upload app, screenshot and log
+        if: always()
+        uses: https://data.forgejo.org/forgejo/upload-artifact@v4
+        with:
+          name: ios-simulator
+          path: src/ios/build/ci/smoke/
