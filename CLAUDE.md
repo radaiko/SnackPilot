@@ -39,3 +39,7 @@ src/android/           Compose app (planned)
 iOS bundle ID and Android package are `dev.radaiko.gourmetclient` and MUST NOT
 change — v2 ships as a store update to v1 installs and imports v1 credentials
 (see `docs/requirements/05-platform-services.md`).
+
+## Specs (OpenSpec)
+- Specs in `openspec/` are written only by the `spec` agent. A build session applying a change may only tick boxes in `tasks.md`.
+- If the code cannot match the spec, stop and send the question back to a spec session. Never rewrite the spec from a build session.

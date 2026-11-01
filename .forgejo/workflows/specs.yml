@@ -1,0 +1,19 @@
+name: specs
+
+on:
+  push:
+    paths: ["openspec/**", ".forgejo/workflows/specs.yml"]
+  pull_request:
+    paths: ["openspec/**", ".forgejo/workflows/specs.yml"]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: node
+    timeout-minutes: 10
+    env:
+      OPENSPEC_TELEMETRY: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install -g @fission-ai/openspec@1.15.0
+      - run: openspec validate --all --strict --no-interactive
