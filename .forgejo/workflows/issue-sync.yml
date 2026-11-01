@@ -9,7 +9,7 @@ on:
 
 jobs:
   sync:
-    runs-on: python
+    runs-on: node
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
