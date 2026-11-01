@@ -34,8 +34,7 @@ jobs:
         working-directory: src/ios
         run: |
           mkdir -p build/ci/smoke
-          runtime=$(xcrun simctl list runtimes available -j | python3 -c "import json,sys; print([r['identifier'] for r in json.load(sys.stdin)['runtimes'] if r['platform']=='iOS'][-1])")
-          devtype=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; print([d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name'].startswith('iPhone')][-1])")
+          read -r runtime devtype < <(xcrun simctl list runtimes available -j | python3 -c "import json,sys; r=[r for r in json.load(sys.stdin)['runtimes'] if r['platform']=='iOS'][-1]; print(r['identifier'],[d['identifier'] for d in r['supportedDeviceTypes'] if d['productFamily']=='iPhone'][-1])")
           udid=$(xcrun simctl create "$DEVICE_NAME $GITHUB_RUN_NUMBER" "$devtype" "$runtime")
           trap 'xcrun simctl shutdown "$udid" || true; xcrun simctl delete "$udid" || true' EXIT
           xcrun simctl boot "$udid"
