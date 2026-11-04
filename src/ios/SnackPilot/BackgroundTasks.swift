@@ -28,7 +28,12 @@ enum BackgroundTasks {
         let request = BGAppRefreshTaskRequest(identifier: refreshIdentifier)
         // Earliest acceptable next run — a hint, not a guarantee; iOS picks the moment.
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
-        try? BGTaskScheduler.shared.submit(request)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            // A silently dropped request means the task never runs again; make it visible.
+            NSLog("SnackPilot BGTask: submit failed: %@", String(describing: error))
+        }
     }
 
     private static func handle(_ task: BGAppRefreshTask) {
