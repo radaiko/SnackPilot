@@ -35,22 +35,24 @@ enum BackgroundTasks {
         // Queue the NEXT run up front: if this process is killed before completing, iOS still
         // has a pending request for the following opportunity.
         scheduleRefresh()
-        let started = DispatchSemaphore(value: 0)
-        var success = false
-        // AppModel is @MainActor; hop to the main actor without blocking it (the background
-        // thread waits on the semaphore instead).
-        Task { @MainActor in
+        NSLog("SnackPilot BGTask: handler invoked for %@", task.identifier)
+        // Never block here: the launch handler runs on the main queue (register using: nil),
+        // so a semaphore wait would wedge the very queue the @MainActor work needs (validated:
+        // the sync never started). Apple's pattern — async work + expirationHandler cancels it.
+        let work = Task { @MainActor in
             // Model init wires the core (storage dir, KV, geofence handlers) exactly like a
             // normal launch; nothing here touches UI.
             let model = AppModel()
             await model.performBackgroundSync()
-            success = true
-            started.signal()
+            return true
         }
-        task.expirationHandler = { started.signal() } // time's up → complete with what we have
-        started.wait()
-        // Report the real outcome: success only when the sync ran to completion — a run that
-        // hit its expiration must not claim success (iOS throttles tasks that lie).
-        task.setTaskCompleted(success: success)
+        task.expirationHandler = { work.cancel() } // time's up → stop the sync
+        Task {
+            // Report the real outcome: success only when the sync ran to completion — a run
+            // that hit its expiration must not claim success (iOS throttles tasks that lie).
+            let success = (await work.value) == true && !work.isCancelled
+            NSLog("SnackPilot BGTask: completing success=%d", success)
+            task.setTaskCompleted(success: success)
+        }
     }
 }
