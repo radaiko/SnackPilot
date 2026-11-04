@@ -13,8 +13,9 @@ brew install xcodegen        # once
 open SnackPilot.xcodeproj
 ```
 
-`bootstrap.sh` produces three git-ignored things — the XCFramework, the generated
-`snackpilot_core.swift`, and `SnackPilot.xcodeproj`. Re-run it whenever the core changes.
+`bootstrap.sh` produces four git-ignored things — the XCFramework, the generated
+`snackpilot_core.swift`, `SnackPilot.xcodeproj`, and `Info.plist` (from the `info:` block in
+`project.yml`). Re-run it whenever the core changes.
 
 ## Layout
 
