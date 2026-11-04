@@ -45,12 +45,13 @@ targets:
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um deinen Firmenstandort zu speichern."
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um dich an Bestellungen zu erinnern, wenn du im Büro bist."
         # Background execution (docs/architecture §4.4): one BGAppRefreshTask runs the new-menu
-        # scrape + order-sync reminder checks while suspended. "processing" is required for
-        # BGTaskScheduler; region monitoring itself still needs no mode (notifications-location §10).
-        UIBackgroundModes:
-          - processing
-        BGTaskSchedulerPermittedIdentifiers:
-          - dev.radaiko.gourmetclient.menu-refresh
+        # scrape + order-sync reminder checks while suspended. BGAppRefreshTask requires the
+        # "fetch" mode (processing is only for BGProcessingTask); region monitoring itself still
+        # needs no mode (notifications-location §10). They must be INFOPLIST_KEY_* settings —
+        # plain plist-style keys never reach the GENERATE_INFOPLIST_FILE output (validated:
+        # the packaged Info.plist silently lacked them).
+        INFOPLIST_KEY_UIBackgroundModes: fetch
+        INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers: dev.radaiko.gourmetclient.menu-refresh
         # rustls-tls core links no Apple TLS, but reqwest/ring still need libc++.
         OTHER_LDFLAGS: "-lc++"
   SnackPilotTests:

@@ -45,6 +45,20 @@ final class NotificationPipelineTests: XCTestCase {
         )
     }
 
+    func testPackagedInfoPlistPermitsBackgroundRefresh() throws {
+        // The GENERATE_INFOPLIST_FILE pipeline silently drops plist keys that are not set as
+        // INFOPLIST_KEY_* build settings (validated: the packaged app lacked both keys, so
+        // BGTaskScheduler.register failed). Unit tests run in the app host, so Bundle.main is
+        // the shipped Info.plist — the only place this contract can be pinned.
+        let info = try XCTUnwrap(Bundle.main.infoDictionary)
+        let modes = try XCTUnwrap(info["UIBackgroundModes"] as? [String],
+                                  "BGAppRefreshTask needs the fetch background mode")
+        XCTAssertEqual(modes, ["fetch"], "processing is only for BGProcessingTask")
+        let ids = try XCTUnwrap(info["BGTaskSchedulerPermittedIdentifiers"] as? [String],
+                                "BGTaskScheduler.submit needs the permitted identifier")
+        XCTAssertEqual(ids, [BackgroundTasks.refreshIdentifier])
+    }
+
     func testCoreExposesHeadlessSyncCheckAndSettings() throws {
         // The background path calls these without any UI state; pin their existence & shape so
         // a binding regeneration that drops them breaks the build instead of silently disabling

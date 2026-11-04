@@ -153,7 +153,7 @@ struct SettingsView: View {
                             set: {
                                 // Clamp to the spec window 11:00–13:45 (notifications-daily-reminder §243).
                                 let c = Calendar.current.dateComponents([.hour, .minute], from: $0)
-                                var hour = min(max(c.hour ?? 11, 11), 13)
+                                let hour = min(max(c.hour ?? 11, 11), 13)
                                 var minute = min(max(c.minute ?? 0, 0), 59)
                                 if hour == 13 { minute = min(minute, 45) }
                                 model.setDailyReminder(enabled: true, hour: hour, minute: minute)
