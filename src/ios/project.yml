@@ -31,6 +31,10 @@ targets:
     info:
       path: Info.plist
       properties:
+        # xcodegen writes its own defaults for these unless pinned to the build settings —
+        # ship.sh bumps MARKETING_VERSION/CURRENT_PROJECT_VERSION per build.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: SnackPilot
         # Export compliance: the app uses only standard HTTPS/TLS (exempt encryption), so declare
         # NO to skip the export-compliance prompt on every TestFlight/App Store upload.
