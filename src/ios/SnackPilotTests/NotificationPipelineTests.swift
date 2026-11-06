@@ -1,4 +1,5 @@
 import XCTest
+import UserNotifications
 @testable import SnackPilot
 
 /// Unit tests for the notification-pipeline glue that lives in the shell (the decision logic
@@ -8,6 +9,7 @@ import XCTest
 /// the "Hintergrund-Sync ausführen" debug button and the `uiTestNotify`/`uiTestSchedule` hooks.
 final class NotificationPipelineTests: XCTestCase {
 
+    // @req REQ-NTF-08
     func testFireNowCommandCarriesPayload() {
         let command = NotificationCommand.fireNow(
             id: "menu-1", title: "Neues Menü", body: "Das Menü ist online.",
@@ -23,6 +25,7 @@ final class NotificationPipelineTests: XCTestCase {
         _ = body
     }
 
+    // @req REQ-NTF-08
     func testScheduleAtCommandCarriesFireTime() {
         let command = NotificationCommand.scheduleAt(
             id: "rem-1", title: "Erinnerung", body: "Bestellen!",
@@ -34,6 +37,57 @@ final class NotificationPipelineTests: XCTestCase {
         XCTAssertEqual(id, "rem-1")
         XCTAssertEqual(channelId, "order-reminders")
         XCTAssertEqual(fireAtEpochMs, 1_000)
+    }
+
+    // @req REQ-NTF-09
+    func testFireNowRequestHasNoTrigger() throws {
+        // FireNow must produce a triggerless request so it shows immediately (spec "Immediate
+        // request"). Goes through execute() so the wiring, not just the builder, is pinned:
+        // a regression to after: 0.1 gives a time-interval trigger and fails here.
+        var added: [UNNotificationRequest] = []
+        let service = NotificationService(add: { added.append($0) }, remove: { _ in })
+        service.execute(.fireNow(id: "menu-1", title: "Neues Menü", body: "Das Menü ist online.",
+                                 channelId: nil, screen: nil))
+        XCTAssertEqual(added.count, 1, "execute(.fireNow) must add exactly one request")
+        let request = try XCTUnwrap(added.first)
+        XCTAssertEqual(request.identifier, "menu-1")
+        XCTAssertNil(request.trigger, "FireNow must have no trigger (immediate display)")
+        XCTAssertEqual(request.content.title, "Neues Menü")
+        XCTAssertEqual(request.content.body, "Das Menü ist online.")
+        XCTAssertEqual(request.content.sound, .default)
+    }
+
+    // @req REQ-NTF-09
+    func testScheduleAtRequestUsesTimeIntervalTrigger() throws {
+        // Spec "Scheduled request": 600 s ahead → non-repeating time-interval trigger ~600 s.
+        var added: [UNNotificationRequest] = []
+        let service = NotificationService(add: { added.append($0) }, remove: { _ in })
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        service.execute(.scheduleAt(id: "rem-1", title: "Erinnerung", body: "Bestellen!",
+                                    channelId: nil, fireAtEpochMs: nowMs + 600_000, screen: nil))
+        XCTAssertEqual(added.count, 1, "execute(.scheduleAt) must add exactly one request")
+        let request = try XCTUnwrap(added.first)
+        let trigger = try XCTUnwrap(request.trigger as? UNTimeIntervalNotificationTrigger,
+                                    "ScheduleAt must use a time-interval trigger")
+        XCTAssertFalse(trigger.repeats, "the trigger must not repeat")
+        XCTAssertEqual(trigger.timeInterval, 600, accuracy: 1)
+    }
+
+    // @req REQ-NTF-09
+    func testDelayForCommands() {
+        // Pure delay mapping: fireNow → 0 (no trigger), past scheduleAt → 1 s floor,
+        // 600 s ahead → ~600.
+        let fireNow = NotificationCommand.fireNow(id: "a", title: "t", body: "b",
+                                                  channelId: nil, screen: nil)
+        XCTAssertEqual(NotificationService.delay(for: fireNow, nowMs: 1_000), 0)
+        let past = NotificationCommand.scheduleAt(id: "a", title: "t", body: "b",
+                                                  channelId: nil, fireAtEpochMs: 0, screen: nil)
+        XCTAssertEqual(NotificationService.delay(for: past, nowMs: 1_000_000), 1,
+                       "a past fire time keeps the 1 s floor")
+        let ahead = NotificationCommand.scheduleAt(id: "a", title: "t", body: "b",
+                                                   channelId: nil, fireAtEpochMs: 1_600_000,
+                                                   screen: nil)
+        XCTAssertEqual(NotificationService.delay(for: ahead, nowMs: 1_000_000), 600, accuracy: 0.001)
     }
 
     // @req REQ-NTF-06 @req REQ-NTF-07
