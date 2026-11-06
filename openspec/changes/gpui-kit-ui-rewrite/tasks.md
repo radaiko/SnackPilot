@@ -48,7 +48,7 @@ Conventions for every task below:
   - check: `make check`; additionally `tools/devops/ui-android-build.sh` and `cd src/ui/android && ./gradlew :app:assembleDebug --no-daemon`
   - proof: android workflow build (extended in 6.2) plus the emulator evidence in the handoff
 
-- [ ] 2.2 iOS embed spike: the same `Root` runs in a simulator via UIKit containment
+- [x] 2.2 iOS embed spike: the same `Root` runs in a simulator via UIKit containment
   - tier: hard
   - host: Linux (edit), Mac (build and run)
   - files: `src/ui/app/src/mobile.rs`, `src/ui/app/src/lib.rs`, `src/ui/ios/project.yml`, `src/ui/ios/Host/App.swift`, `src/ui/ios/Host/Embedding.h`, `src/ui/ios/bootstrap.sh`, `src/ui/ios/UITests/SpikeTapTests.swift`, `src/ui/ios/.gitignore`, `openspec/changes/gpui-kit-ui-rewrite/design.md` (append "Spike result: iOS"), `docs/evidence/gpui-kit-ui-rewrite/2.2/*.png`
