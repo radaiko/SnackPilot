@@ -142,7 +142,12 @@ struct SettingsView: View {
                 Section("Benachrichtigungen") {
                     Toggle("Tägliche Bestell-Erinnerung", isOn: Binding(
                         get: { model.dailyReminderEnabled },
-                        set: { model.setDailyReminder(enabled: $0, hour: model.reminderHour, minute: model.reminderMinute) }
+                        set: { on in
+                            // Turning on goes through the permission gate (REQ-NTF-05, design D9);
+                            // on denial the alert shows and dailyReminderEnabled stays false.
+                            if on { Task { await model.requestEnableDailyReminder() } }
+                            else { model.setDailyReminder(enabled: false, hour: model.reminderHour, minute: model.reminderMinute) }
+                        }
                     ))
                     if model.dailyReminderEnabled {
                         DatePicker("Uhrzeit", selection: Binding(
@@ -151,12 +156,10 @@ struct SettingsView: View {
                                     hour: model.reminderHour, minute: model.reminderMinute)) ?? Date()
                             },
                             set: {
-                                // Clamp to the spec window 11:00–13:45 (notifications-daily-reminder §243).
+                                // Clamp to the spec window 11:00–13:45 by nearest bound (design D10).
                                 let c = Calendar.current.dateComponents([.hour, .minute], from: $0)
-                                let hour = min(max(c.hour ?? 11, 11), 13)
-                                var minute = min(max(c.minute ?? 0, 0), 59)
-                                if hour == 13 { minute = min(minute, 45) }
-                                model.setDailyReminder(enabled: true, hour: hour, minute: minute)
+                                let clamped = ReminderWindow.clamp(hour: c.hour ?? 11, minute: c.minute ?? 0)
+                                model.setDailyReminder(enabled: true, hour: clamped.hour, minute: clamped.minute)
                             }
                         ), in: Self.reminderWindow, displayedComponents: .hourAndMinute)
                     }

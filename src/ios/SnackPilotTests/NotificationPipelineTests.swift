@@ -185,6 +185,66 @@ final class NotificationPipelineTests: XCTestCase {
         XCTAssertEqual(id, "cancel-order-reminder")
     }
 
+    // @req REQ-NTF-04
+    func testReminderClampUsesNearestBound() {
+        // Design D10 (nearest bound): a time outside 11:00–13:45 snaps to the NEAREST bound as a
+        // whole time. The old independent hour/minute clamp turned 08:30 into 11:30 — a bug; this
+        // pins 08:30 → 11:00 and both upper cases → 13:45, and that an in-window time is untouched.
+        var c = ReminderWindow.clamp(hour: 8, minute: 30)
+        XCTAssertEqual(c.hour, 11); XCTAssertEqual(c.minute, 0)
+        c = ReminderWindow.clamp(hour: 13, minute: 50)
+        XCTAssertEqual(c.hour, 13); XCTAssertEqual(c.minute, 45)
+        c = ReminderWindow.clamp(hour: 14, minute: 30)
+        XCTAssertEqual(c.hour, 13); XCTAssertEqual(c.minute, 45)
+        c = ReminderWindow.clamp(hour: 12, minute: 20)
+        XCTAssertEqual(c.hour, 12); XCTAssertEqual(c.minute, 20)
+    }
+
+    // @req REQ-NTF-04
+    func testReminderHydrationDefaultsAndStoredValues() {
+        // No stored time (fresh install / core defaults) hydrates to the spec default 11:00 off;
+        // stored values pass through unchanged (shared source of truth with the core KV).
+        let fresh = ReminderWindow.hydrate(DailyReminderSettings(enabled: false, hour: nil, minute: nil))
+        XCTAssertEqual(fresh.enabled, false)
+        XCTAssertEqual(fresh.hour, 11)
+        XCTAssertEqual(fresh.minute, 0)
+        let stored = ReminderWindow.hydrate(DailyReminderSettings(enabled: true, hour: 12, minute: 20))
+        XCTAssertEqual(stored.enabled, true)
+        XCTAssertEqual(stored.hour, 12)
+        XCTAssertEqual(stored.minute, 20)
+    }
+
+    // @req REQ-NTF-05
+    func testEnableDeniedPersistsNothing() async throws {
+        // Permission denied → enable returns false and the core KV keeps its previous values
+        // (spec "Permission denied": switch stays off, nothing written).
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("snackpilot-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = try SnackPilotCore(config: CoreConfig(storageDir: dir.path), analytics: nil)
+        let ok = await ReminderWindow.enable(core: core, hour: 12, minute: 0, requestPermission: { false })
+        XCTAssertFalse(ok, "a denied permission must report false")
+        let settings = core.dailyReminderSettings()
+        XCTAssertFalse(settings.enabled, "denied enable must not set the enabled flag")
+        XCTAssertNil(settings.hour, "denied enable must not write the time")
+    }
+
+    // @req REQ-NTF-05
+    func testEnableGrantedWritesTimeThenFlag() async throws {
+        // Permission granted → enable returns true and the settings are enabled at the given time
+        // (the time-before-flag write order is the implementation contract, spec "Write order").
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("snackpilot-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = try SnackPilotCore(config: CoreConfig(storageDir: dir.path), analytics: nil)
+        let ok = await ReminderWindow.enable(core: core, hour: 12, minute: 20, requestPermission: { true })
+        XCTAssertTrue(ok, "a granted permission must report true")
+        let settings = core.dailyReminderSettings()
+        XCTAssertTrue(settings.enabled)
+        XCTAssertEqual(settings.hour, 12)
+        XCTAssertEqual(settings.minute, 20)
+    }
+
     // @req REQ-NTF-13
     @MainActor
     func testBackgroundRunIsSingleFlight() async throws {
