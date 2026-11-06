@@ -80,7 +80,7 @@ Conventions for every task below:
   - check: `make check`; additionally `IOS_TEST`
   - proof: XCTest run above; simulator banner screenshot in 4.1
 
-- [ ] 2.4 iOS reminder settings through the core, picker window and permission gate
+- [x] 2.4 iOS reminder settings through the core, picker window and permission gate
   - status: partial (core-backed settings, 11:00 default and window clamp implemented; the permission gate and the nearest-bound rule are new)
   - tier: normal
   - host: Mac
