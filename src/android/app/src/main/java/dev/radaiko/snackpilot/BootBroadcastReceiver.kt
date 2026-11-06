@@ -23,10 +23,16 @@ class BootBroadcastReceiver : BroadcastReceiver() {
 
 /** Single place that owns the WorkManager schedule for [BackgroundSyncWorker]. */
 object BackgroundSync {
-    /** Periodic menu/order-sync job. The interval floor is 15 min (WorkManager minimum). */
+    /** Periodic cadence: the WorkManager minimum for a periodic job (REQ-NTF-10). */
+    const val INTERVAL_MINUTES = 15L
+
+    /** Don't scrape the instant the device wakes/boots. */
+    const val INITIAL_DELAY_MINUTES = 5L
+
+    /** Periodic menu/order-sync job. */
     fun schedule(context: Context) {
-        val request = PeriodicWorkRequestBuilder<BackgroundSyncWorker>(Duration.ofMinutes(15))
-            .setInitialDelay(Duration.ofMinutes(5)) // don't scrape the instant the device wakes
+        val request = PeriodicWorkRequestBuilder<BackgroundSyncWorker>(Duration.ofMinutes(INTERVAL_MINUTES))
+            .setInitialDelay(Duration.ofMinutes(INITIAL_DELAY_MINUTES))
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             BackgroundSyncWorker.UNIQUE_NAME,

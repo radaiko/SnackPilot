@@ -114,7 +114,8 @@ fun RootScreen(
     initialTab: String? = null,
     autoOrder: Boolean = false,
     autoLog: Boolean = false,
-    autoReminder: Boolean = false
+    autoReminder: Boolean = false,
+    autoBackgroundSync: Boolean = false
 ) {
     LaunchedEffect(Unit) {
         if (autoDemo) {
@@ -127,6 +128,7 @@ fun RootScreen(
             vm.debugAutoOrder = autoOrder
             vm.debugAutoLog = autoLog
             vm.debugAutoReminder = autoReminder
+            vm.debugAutoBackgroundSync = autoBackgroundSync
             vm.loadDemo()
         } else {
             vm.attemptAutoLogin()

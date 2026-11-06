@@ -151,6 +151,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var debugAutoOrder = false
     var debugAutoLog = false
     var debugAutoReminder = false
+    var debugAutoBackgroundSync = false
 
     // Notification preferences (mirrors of the core KV settings, notifications-daily-reminder §9;
     // defaults per spec: disabled + 11:00 — the picker window is 11:00–13:45 and the core refuses
@@ -313,6 +314,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (BuildConfig.DEBUG && debugAutoReminder) {
             setDailyReminder(enabled = true, hour = 11, minute = 30)
+        }
+        if (BuildConfig.DEBUG && debugAutoBackgroundSync) {
+            runBackgroundSyncAsync()
         }
     }
 
@@ -497,7 +501,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun runMenuCheck() {
         val saved = creds.savedGourmet()
         val c = saved?.let { Credentials(username = it.first, password = it.second) }
-        runCatching { core.runMenuCheck(c) }.getOrNull()?.notification?.let { notifications.execute(it) }
+        // Single-flight with the background worker (REQ-NTF-13): rejected while a scrape runs.
+        SyncGate.runExclusive {
+            runCatching { core.runMenuCheck(c) }.getOrNull()?.notification?.let { notifications.execute(it) }
+        }
         refreshLog()
     }
 
