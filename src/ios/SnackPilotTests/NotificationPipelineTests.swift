@@ -87,6 +87,7 @@ final class NotificationPipelineTests: XCTestCase {
         }
     }
 
+    // @req REQ-NTF-03 @req REQ-NTF-01
     func testCoreExposesHeadlessSyncCheckAndSettings() throws {
         // The background path calls these without any UI state; pin their existence & shape so
         // a binding regeneration that drops them breaks the build instead of silently disabling
@@ -103,5 +104,51 @@ final class NotificationPipelineTests: XCTestCase {
             return XCTFail("expected cancelPending for the cancel reminder, got \(commands)")
         }
         XCTAssertEqual(id, "cancel-order-reminder")
+    }
+
+    // @req REQ-NTF-13 @req REQ-NTF-14
+    @MainActor
+    func testHeadlessRunDeliversOrderSyncCommandsWithoutNetwork() async throws {
+        // The shared background body must run with nothing but its arguments: a temp-dir core,
+        // demo credentials (the core short-circuits the scrape → no host is contacted) and a
+        // recording deliver. The only command is the order-sync result from the empty cache
+        // (design D5; REQ-NTF-13 "Background body is headless on iOS").
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("snackpilot-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = try SnackPilotCore(config: CoreConfig(storageDir: dir.path), analytics: nil)
+        var delivered: [NotificationCommand] = []
+        let ran = await BackgroundTasks.runSync(
+            core: core,
+            credentials: Credentials(username: "demo", password: "demo1234!"),
+            deliver: { delivered.append($0) }
+        )
+        XCTAssertTrue(ran, "runSync must report it ran")
+        XCTAssertEqual(delivered.count, 1, "only the order-sync result may be delivered, got \(delivered)")
+        guard case .cancelPending(let id) = delivered.first else {
+            return XCTFail("expected cancelPending for the cancel reminder, got \(delivered)")
+        }
+        XCTAssertEqual(id, "cancel-order-reminder")
+    }
+
+    // @req REQ-NTF-13
+    @MainActor
+    func testBackgroundRunIsSingleFlight() async throws {
+        // A second concurrent run (task, manual button or foreground check sharing the gate)
+        // must return false immediately without any call — no scrape, no delivery.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("snackpilot-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = try SnackPilotCore(config: CoreConfig(storageDir: dir.path), analytics: nil)
+        BackgroundTasks.isRunning = true
+        defer { BackgroundTasks.isRunning = false }
+        var delivered: [NotificationCommand] = []
+        let ran = await BackgroundTasks.runSync(
+            core: core,
+            credentials: Credentials(username: "demo", password: "demo1234!"),
+            deliver: { delivered.append($0) }
+        )
+        XCTAssertFalse(ran, "a run while the gate is held must report false")
+        XCTAssertTrue(delivered.isEmpty, "the busy run must deliver nothing, got \(delivered)")
     }
 }
