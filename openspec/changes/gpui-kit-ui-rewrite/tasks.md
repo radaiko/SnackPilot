@@ -37,7 +37,7 @@ Conventions for every task below:
 
 ## 2. Spikes (go/no-go)
 
-- [ ] 2.1 Android spike: a gpui-kit `Root` runs on the `headless` emulator
+- [x] 2.1 Android spike: a gpui-kit `Root` runs on the `headless` emulator
   - tier: hard
   - host: Linux + Emulator
   - files: `src/ui/app/Cargo.toml`, `src/ui/app/src/lib.rs`, `src/ui/app/src/mobile.rs`, `src/ui/app/src/assets.rs`, `src/ui/app/assets/fonts/Inter-Regular.ttf`, `src/ui/app/assets/fonts/Inter-SemiBold.ttf`, `src/ui/app/assets/fonts/Inter-Bold.ttf`, `src/ui/app/assets/fonts/OFL.txt`, `src/ui/android/**` (new Gradle host project, NativeActivity based, application id `dev.radaiko.gourmetclient`), `tools/devops/ui-android-build.sh`, `tools/devops/doctor.sh`, `openspec/changes/gpui-kit-ui-rewrite/design.md` (append "Spike result: Android"), `docs/evidence/gpui-kit-ui-rewrite/2.1/*.png`
