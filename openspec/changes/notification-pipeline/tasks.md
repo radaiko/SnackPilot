@@ -56,7 +56,7 @@ Conventions for every task below:
   - check: `make check`; additionally `IOS_TEST`, then on the Mac `/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString'` and `-c 'Print :CFBundleVersion'` on the built `.app/Info.plist` compared with `grep -E 'MARKETING_VERSION|CURRENT_PROJECT_VERSION' src/ios/project.yml`
   - proof: ios workflow (`bootstrap.sh` then simulator build) plus the XCTest run above
 
-- [ ] 2.2 iOS background refresh task with a headless body
+- [x] 2.2 iOS background refresh task with a headless body
   - status: partial (registration, requeue, non-blocking completion, manual button implemented in `f836f12`, `01b0db9`, `53b0f4a`; the headless runner and the shared single-flight are new)
   - tier: hard
   - host: Mac
