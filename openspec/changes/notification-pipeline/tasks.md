@@ -18,7 +18,7 @@ Conventions for every task below:
 
 ## 1. Core
 
-- [ ] 1.1 Daily-reminder settings in the core KV
+- [x] 1.1 Daily-reminder settings in the core KV
   - status: verify (implemented in `f836f12`)
   - tier: trivial
   - host: Linux
