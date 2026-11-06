@@ -30,7 +30,7 @@ Conventions for every task below:
   - check: `make check`
   - proof: core workflow (`make test`)
 
-- [ ] 1.2 Post-fetch checks, geofence-notice cancel and one headless check
+- [x] 1.2 Post-fetch checks, geofence-notice cancel and one headless check
   - status: partial (post-fetch commands and the headless check are implemented; the geofence cancel and the single implementation are new)
   - tier: normal
   - host: Linux
