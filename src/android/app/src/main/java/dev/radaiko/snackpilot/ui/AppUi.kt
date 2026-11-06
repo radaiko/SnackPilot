@@ -1012,7 +1012,12 @@ private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Un
                 TextButton(onClick = {
                     TimePickerDialog(
                         ctx,
-                        { _, h, m -> vm.setDailyReminder(true, h, m) },
+                        // Clamp to the spec window 11:00–13:45 (notifications-daily-reminder §243).
+                        { _, h, m ->
+                            val hour = h.coerceIn(11, 13)
+                            val minute = if (hour == 13) m.coerceAtMost(45) else m.coerceIn(0, 59)
+                            vm.setDailyReminder(true, hour, minute)
+                        },
                         vm.reminderHour, vm.reminderMinute, true
                     ).show()
                 }) {
@@ -1077,6 +1082,9 @@ private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Un
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { vm.activateLog() }) { Text("Aktivieren (24 h)") }
                 TextButton(onClick = { vm.runMenuCheckAsync() }) { Text("Menü-Check") }
+                // Manual run of the WorkManager body (menu scrape + reminder checks) so the
+                // background path is device-verifiable without waiting for the next window.
+                TextButton(onClick = { vm.runBackgroundSyncAsync() }) { Text("Hintergrund-Sync") }
                 if (vm.logEntries.isNotEmpty()) {
                     TextButton(onClick = { vm.clearLog() }) {
                         Text("Leeren", color = MaterialTheme.colorScheme.error)

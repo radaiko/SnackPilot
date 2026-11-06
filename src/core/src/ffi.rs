@@ -211,7 +211,7 @@ impl SnackPilotCore {
     pub fn load_cached_orders(&self) {
         self.orders.load_cached_orders();
     }
-    pub async fn fetch_orders(&self) -> Result<(), CoreError> {
+    pub async fn fetch_orders(&self) -> Result<Vec<NotificationCommand>, CoreError> {
         self.orders.fetch_orders().await
     }
     pub fn orders(&self) -> Vec<OrderedMenu> {
@@ -264,11 +264,44 @@ impl SnackPilotCore {
     ) -> Option<NotificationCommand> {
         check_daily_reminder(self.clock.as_ref(), &settings, &self.orders.orders())
     }
+    /// Headless order-sync job (docs/architecture §4.4; notifications-daily-reminder §2,
+    /// notifications-location §6): the background task body — loads **cached** orders (no
+    /// network, v1's "no concurrent scraping" rule) and returns the daily + cancel reminder
+    /// commands to deliver. Called from BGTaskScheduler / WorkManager with no UI attached.
+    pub fn run_order_sync_check(&self) -> Vec<NotificationCommand> {
+        self.orders.load_cached_orders();
+        let orders = self.orders.orders();
+        let settings = cache::load_daily_reminder_settings(self.kv.as_ref());
+        let mut commands = Vec::new();
+        if let Some(c) = check_daily_reminder(self.clock.as_ref(), &settings, &orders) {
+            commands.push(c);
+        }
+        // Cancel-reminder check (§6): reads the persisted `is_at_company` flag.
+        let at_company = cache::load_is_at_company(self.kv.as_ref());
+        if let Some(c) = check_cancel_reminder(self.clock.as_ref(), at_company, &orders) {
+            commands.push(c);
+        }
+        commands
+    }
     pub fn cancel_reminder_command(&self, is_at_company: bool) -> Option<NotificationCommand> {
         check_cancel_reminder(self.clock.as_ref(), is_at_company, &self.orders.orders())
     }
     pub fn geofence_commands(&self, event: GeofenceEvent) -> Vec<NotificationCommand> {
         handle_geofence_event(event, self.clock.as_ref(), &self.orders.orders())
+    }
+
+    // ---- Daily-reminder settings (notifications-daily-reminder §9; persisted in core KV so
+    // headless background entry points need no shell-side state, docs/architecture §5.3) ----
+    pub fn daily_reminder_settings(&self) -> DailyReminderSettings {
+        cache::load_daily_reminder_settings(self.kv.as_ref())
+    }
+    /// The settings toggle persists the time **before** the enabled flag (§9 step 2); callers
+    /// invoke `set_daily_reminder_time` first, then this.
+    pub fn set_daily_reminder_enabled(&self, enabled: bool) {
+        cache::set_daily_reminder_enabled(self.kv.as_ref(), enabled);
+    }
+    pub fn set_daily_reminder_time(&self, hour: u8, minute: u8) {
+        cache::set_daily_reminder_time(self.kv.as_ref(), hour, minute);
     }
 
     // ---- Company location (notifications-location §1) ----

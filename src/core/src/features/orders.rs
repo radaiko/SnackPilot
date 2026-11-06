@@ -1,14 +1,18 @@
 //! Orders feature service (03-features/orders.md §8). Fetch/confirm/cancel orchestration,
 //! upcoming/past split at device-local midnight, cache write-through.
 //!
-//! NOTE: the post-fetch notification hooks (geofence-cancel, daily-reminder, cancel-reminder)
-//! are `notify::*` decisions wired in Phase 1e; `fetch_orders` currently performs the
-//! fetch + cache only. The hook integration point is marked below.
+//! The post-fetch notification hooks (daily reminder / cancel reminder) run inside
+//! `fetch_orders` after a successful fetch (Phase 1e; notifications-daily-reminder §2 trigger 2,
+//! notifications-location §5 retraction path 2) and are returned as commands for the shell to
+//! deliver — errors there never affect orders state.
 use crate::datetime::Clock;
 use crate::domain::{OrderedMenu, OrdersSplit};
 use crate::error::CoreResult;
 use crate::features::AnalyticsSink;
 use crate::gourmet::provider::GourmetProvider;
+use crate::notify::cancel_reminder::check_cancel_reminder;
+use crate::notify::daily_reminder::check_daily_reminder;
+use crate::notify::NotificationCommand;
 use crate::storage::{cache, Kv};
 use chrono::{Local, TimeZone};
 use std::collections::HashMap;
@@ -73,10 +77,13 @@ impl OrderStore {
     }
 
     /// §8 — always a network fetch; in-flight guard; cache write-through; on failure keep
-    /// existing orders and set `error`.
-    pub async fn fetch_orders(&self) -> CoreResult<()> {
+    /// existing orders and set `error`. After a **successful** fetch, re-run the notification
+    /// checks (notifications-daily-reminder §2 trigger 2: `fetchOrders` → `checkDailyReminder`;
+    /// notifications-location §5 retraction path 2) and return the commands for the shell to
+    /// deliver. All errors are swallowed — a notification failure never affects orders/error.
+    pub async fn fetch_orders(&self) -> CoreResult<Vec<NotificationCommand>> {
         if *self.loading.lock().unwrap() {
-            return Ok(()); // in-flight guard
+            return Ok(vec![]); // in-flight guard
         }
         *self.loading.lock().unwrap() = true;
         match self.gourmet.get_orders().await {
@@ -84,9 +91,8 @@ impl OrderStore {
                 *self.orders.lock().unwrap() = orders.clone();
                 *self.loading.lock().unwrap() = false;
                 let _ = cache::save_orders(self.kv.as_ref(), &orders);
-                // NOTE (Phase 1e): run notify hooks here (geofence-cancel / daily / cancel
-                // reminder) inside one swallow-all block; they must not affect orders/error.
-                Ok(())
+                // Phase 1e hooks, in one swallow-all block: they must not affect orders/error.
+                Ok(self.post_fetch_notifications(&orders))
             }
             Err(e) => {
                 let msg = match e.to_string().as_str() {
@@ -95,9 +101,34 @@ impl OrderStore {
                 };
                 *self.error.lock().unwrap() = Some(msg);
                 *self.loading.lock().unwrap() = false;
-                Ok(()) // failure captured in `error`; existing orders kept
+                Ok(vec![]) // failure captured in `error`; existing orders kept
             }
         }
+    }
+
+    /// The post-fetch notification decisions (daily reminder reschedule + geofence/cancel-reminder
+    /// retraction). Settings come from the core KV so background callers need no shell state.
+    fn post_fetch_notifications(&self, orders: &[OrderedMenu]) -> Vec<NotificationCommand> {
+        let settings = cache::load_daily_reminder_settings(self.kv.as_ref());
+        let at_company = cache::load_is_at_company(self.kv.as_ref());
+        let mut commands = Vec::new();
+        if let Some(c) = check_daily_reminder(self.clock.as_ref(), &settings, orders) {
+            commands.push(c);
+        }
+        if let Some(c) = check_cancel_reminder(self.clock.as_ref(), at_company, orders) {
+            commands.push(c);
+        }
+        commands
+    }
+
+    /// Headless order-sync check (§4.4): evaluate both order-driven reminders against the
+    /// CURRENT cached/in-memory orders without any network call. This is what the iOS
+    /// BGTaskScheduler handler and the Android WorkManager worker run in the background —
+    /// it needs no shell state because the daily-reminder settings live in the core KV.
+    /// Loads the cache first so a freshly-started background process sees real orders.
+    pub fn run_order_sync_check(&self) -> Vec<NotificationCommand> {
+        self.load_cached_orders();
+        self.post_fetch_notifications(&self.orders())
     }
 
     /// §5.3 — confirm: clear error, call the API confirm, re-fetch.
@@ -110,7 +141,8 @@ impl OrderStore {
             });
             return Ok(());
         }
-        self.fetch_orders().await
+        self.fetch_orders().await?;
+        Ok(())
     }
 
     /// §6.2 — cancel one position: mark cancelling, call the API, re-fetch, clear marker.
@@ -122,7 +154,8 @@ impl OrderStore {
         match result {
             Ok(()) => {
                 self.emit_cancelled(1);
-                self.fetch_orders().await
+                self.fetch_orders().await?;
+                Ok(())
             }
             Err(e) => {
                 *self.error.lock().unwrap() = Some(match e.to_string().as_str() {
@@ -146,7 +179,8 @@ impl OrderStore {
         match result {
             Ok(()) => {
                 self.emit_cancelled(count);
-                self.fetch_orders().await
+                self.fetch_orders().await?;
+                Ok(())
             }
             Err(e) => {
                 *self.error.lock().unwrap() = Some(match e.to_string().as_str() {
@@ -191,7 +225,16 @@ mod tests {
     use crate::domain::Credentials;
     use crate::gourmet::api::GourmetApi;
     use crate::http::{CapturingTransport, HttpResponse};
+    use crate::notify::{CANCEL_REMINDER_ID, DAILY_REMINDER_ID};
     use crate::storage::MemoryKv;
+
+    fn vienna_ms(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> i64 {
+        chrono_tz::Europe::Vienna
+            .with_ymd_and_hms(y, mo, d, h, mi, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis()
+    }
 
     /// Wrap a live GourmetApi in a provider (stores now take `Arc<GourmetProvider>`).
     fn gp(api: Arc<GourmetApi>) -> Arc<GourmetProvider> {
@@ -258,6 +301,63 @@ mod tests {
         store.fetch_orders().await.unwrap();
         assert!(store.error().is_some());
         assert_eq!(store.orders().len(), 1);
+    }
+
+    /// Phase 1e wiring: a successful fetch runs the post-fetch hooks (spec
+    /// notifications-daily-reminder §2 step 2 / cancel-reminder §2 step 1) and hands the
+    /// commands back to the caller. Clock fixed at 08:00 Vienna on 2026-02-10, reminder
+    /// at 11:00 → before target with an order today → ScheduleAt for the daily id; the
+    /// cancel hook is not at company with an order today before its 08:45 target →
+    /// ScheduleAt for the cancel id too. The headless run_order_sync_check reads the same
+    /// cache without any network call.
+    #[tokio::test]
+    async fn fetch_emits_post_fetch_notification_commands() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = logged_in_gourmet(&t).await;
+        let kv = Arc::new(MemoryKv::new());
+        let clock = Arc::new(FixedClock {
+            epoch_ms: vienna_ms(2026, 2, 10, 8, 0),
+        });
+        cache::set_daily_reminder_enabled(kv.as_ref(), true);
+        cache::set_daily_reminder_time(kv.as_ref(), 11, 0);
+        let store = OrderStore::new(g, kv.clone(), clock);
+        t.queue_response(ok(ORDERS_PAGE));
+        let cmds = store.fetch_orders().await.unwrap();
+        assert!(store.error().is_none());
+        assert!(cmds.iter().any(|c| matches!(
+            c,
+            NotificationCommand::ScheduleAt { id, .. } if id == DAILY_REMINDER_ID
+        )));
+        assert!(cmds.iter().any(|c| matches!(
+            c,
+            NotificationCommand::ScheduleAt { id, .. } if id == CANCEL_REMINDER_ID
+        )));
+
+        // Headless check: same commands from the cache alone, no further network calls
+        // (the transport has nothing queued — a request would error, and `error` stays clear).
+        let again = store.run_order_sync_check();
+        assert!(again.iter().any(|c| matches!(
+            c,
+            NotificationCommand::ScheduleAt { id, .. } if id == DAILY_REMINDER_ID
+        )));
+        assert!(store.error().is_none());
+    }
+
+    #[tokio::test]
+    async fn fetch_on_failure_emits_no_commands() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = logged_in_gourmet(&t).await;
+        let kv = Arc::new(MemoryKv::new());
+        let clock = Arc::new(FixedClock {
+            epoch_ms: vienna_ms(2026, 2, 10, 11, 30),
+        });
+        cache::set_daily_reminder_enabled(kv.as_ref(), true);
+        cache::set_daily_reminder_time(kv.as_ref(), 11, 0);
+        let store = OrderStore::new(g, kv.clone(), clock);
+        // no queued response → fetch fails → hooks must NOT run (spec: only after success)
+        let cmds = store.fetch_orders().await.unwrap();
+        assert!(cmds.is_empty());
+        assert!(store.error().is_some());
     }
 
     #[tokio::test]

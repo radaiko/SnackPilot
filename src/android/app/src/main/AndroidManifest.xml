@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Background sync (docs/architecture §4.4): WorkManager schedule re-armed after reboot;
+         exact alarms for the reminder windows when the OS grants them (canScheduleExactAlarms
+         is checked at runtime, with an inexact fallback). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".SnackPilotApp"
@@ -97,6 +101,15 @@
         <receiver
             android:name=".AlarmReceiver"
             android:exported="false" />
+
+        <!-- Re-arms the periodic background sync after reboot (docs/architecture §4.4). -->
+        <receiver
+            android:name=".BootBroadcastReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Company geofence Enter/Exit (notifications-location §4). Explicit-component
              PendingIntent, so it stays unexported. -->

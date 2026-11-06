@@ -41,6 +41,12 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         content.title = title
         content.body = body
         content.sound = .default
+        if after <= 0 {
+            // Immediate display (background task / FireNow while the process is alive): a
+            // time-interval trigger needs ≥1 s and would delay what should show right away.
+            center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+            return
+        }
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: after, repeats: false)
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }

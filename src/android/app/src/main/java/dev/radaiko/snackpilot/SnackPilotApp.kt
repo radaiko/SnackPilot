@@ -25,6 +25,8 @@ class SnackPilotApp : Application() {
         // Per-launch event → drives user/device/session counts (the core only emits on business
         // actions, so without this a passive install would be invisible in the dashboard).
         Aptabase.instance.trackEvent("app.launched")
+        // Periodic background sync (docs/architecture §4.4): menu scrape + reminder checks.
+        BackgroundSync.schedule(this)
     }
 }
 

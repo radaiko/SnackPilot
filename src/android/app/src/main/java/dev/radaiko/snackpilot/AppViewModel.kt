@@ -152,10 +152,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var debugAutoLog = false
     var debugAutoReminder = false
 
-    // Notification preferences (shell-owned; fed to the core's decision fns)
+    // Notification preferences (mirrors of the core KV settings, notifications-daily-reminder §9;
+    // defaults per spec: disabled + 11:00 — the picker window is 11:00–13:45 and the core refuses
+    // to fire at/after the target, so an earlier default could never fire).
     var dailyReminderEnabled by mutableStateOf(false)
         private set
-    var reminderHour by mutableStateOf(8)
+    var reminderHour by mutableStateOf(11)
         private set
     var reminderMinute by mutableStateOf(0)
         private set
@@ -212,9 +214,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     init {
         val dir = File(app.filesDir, "snackpilot").apply { mkdirs() }
         core = SnackPilotCore(CoreConfig(storageDir = dir.absolutePath), analytics = AptabaseSink())
-        dailyReminderEnabled = prefs.getBoolean("daily_reminder_enabled", false)
-        reminderHour = prefs.getInt("daily_reminder_hour", 8)
-        reminderMinute = prefs.getInt("daily_reminder_minute", 0)
+        // Daily-reminder settings live in the core KV (§9) — hydrate the UI from there so the
+        // headless worker and this shell share one source of truth. Defaults 11:00 per spec §243.
+        val reminderSettings = runCatching { core.dailyReminderSettings() }.getOrNull()
+        dailyReminderEnabled = reminderSettings?.enabled ?: false
+        reminderHour = reminderSettings?.hour?.toInt() ?: 11
+        reminderMinute = reminderSettings?.minute?.toInt() ?: 0
         themePreference = prefs.getString("theme_preference", null)
             ?.let { runCatching { ThemePreference.valueOf(it) }.getOrNull() } ?: ThemePreference.SYSTEM
         accentColor = prefs.getString("accent_color", null)
@@ -307,7 +312,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             runMenuCheck()
         }
         if (BuildConfig.DEBUG && debugAutoReminder) {
-            setDailyReminder(enabled = true, hour = 8, minute = 30)
+            setDailyReminder(enabled = true, hour = 11, minute = 30)
         }
     }
 
@@ -368,24 +373,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // Notification preferences
 
+    /** Persist the daily-reminder settings in the core KV (§9 step 2: time **before** the
+     *  enabled flag) so headless background callers read them without shell state. */
     fun setDailyReminder(enabled: Boolean, hour: Int, minute: Int) {
         dailyReminderEnabled = enabled
         reminderHour = hour
         reminderMinute = minute
-        prefs.edit()
-            .putBoolean("daily_reminder_enabled", enabled)
-            .putInt("daily_reminder_hour", hour)
-            .putInt("daily_reminder_minute", minute)
-            .apply()
+        runCatching {
+            core.setDailyReminderTime(hour.toUByte(), minute.toUByte())
+            core.setDailyReminderEnabled(enabled)
+        }
         applyDailyReminder()
     }
 
     /** Ask the core for the daily-reminder command and deliver it; cancel when disabled. */
     fun applyDailyReminder() {
         if (dailyReminderEnabled) {
-            val settings = DailyReminderSettings(
-                enabled = true, hour = reminderHour.toUByte(), minute = reminderMinute.toUByte()
-            )
+            // Read back from the core KV — one source of truth with the background worker.
+            val settings = runCatching { core.dailyReminderSettings() }.getOrNull()
+                ?: DailyReminderSettings(
+                    enabled = true, hour = reminderHour.toUByte(), minute = reminderMinute.toUByte()
+                )
             core.dailyReminderCommand(settings)?.let { notifications.execute(it) }
         } else {
             notifications.execute(NotificationCommand.CancelPending("daily-order-reminder"))
@@ -438,6 +446,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /** POST_NOTIFICATIONS denied (API 33+, §5.1/§7.2). Reminders cannot be delivered without it;
+     *  surface the same style of hint the iOS flow shows so the user knows where to fix it. */
+    fun onNotificationPermissionDenied() {
+        locationDialog = LocationDialog(
+            "Berechtigung fehlt",
+            "Benachrichtigungen werden für Erinnerungen benötigt. " +
+                "Bitte in den Einstellungen aktivieren."
+        )
+    }
+
     /** "Standort entfernen" (§8): stop the geofence and clear the saved location (also resets
      *  `is_at_company` in the core, §1). No confirmation dialog, matching v1. */
     fun clearCompanyLocation() {
@@ -474,11 +492,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Run the background new-menu check on demand (records diagnostic-log entries). In demo the
-     *  core short-circuits it, logging `demo_credentials_skip`. */
+     *  core short-circuits it, logging `demo_credentials_skip`. The returned FireNow command (new
+     *  menu detected) is delivered here — v1 parity: the check posts its own notification. */
     suspend fun runMenuCheck() {
         val saved = creds.savedGourmet()
         val c = saved?.let { Credentials(username = it.first, password = it.second) }
-        runCatching { core.runMenuCheck(c) }
+        runCatching { core.runMenuCheck(c) }.getOrNull()?.notification?.let { notifications.execute(it) }
         refreshLog()
     }
 
@@ -486,10 +505,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { runMenuCheck() }
     }
 
+    /** Manual counterpart of [BackgroundSyncWorker]'s body (menu scrape + order-sync reminder
+     *  checks), for device verification without waiting for the WorkManager window. */
+    fun runBackgroundSyncAsync() {
+        viewModelScope.launch {
+            runMenuCheck()
+            runCatching { core.runOrderSyncCheck() }.getOrNull()
+                ?.forEach { notifications.execute(it) }
+        }
+    }
+
     // MARK: Orders
 
     suspend fun loadOrders() {
-        runCatching { core.fetchOrders() }
+        // The core runs the post-fetch reminder hooks on success and returns the commands
+        // (notifications-daily-reminder §2 step 2, notifications-cancel-reminder §2 step 1).
+        runCatching { core.fetchOrders() }.getOrNull()?.forEach { notifications.execute(it) }
         ordersSplit = core.splitOrders()
         ordersError = core.ordersError()
     }
