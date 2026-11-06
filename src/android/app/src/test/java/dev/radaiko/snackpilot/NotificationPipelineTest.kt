@@ -1,7 +1,9 @@
 package dev.radaiko.snackpilot
 
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,11 +19,62 @@ import uniffi.snackpilot_core.NotificationCommand
  */
 class NotificationPipelineTest {
 
+    /** @req REQ-NTF-12 */
     @Test
     fun channelIdsMatchSpecNames() {
         // notifications-daily-reminder §/notifications-new-menu: German channel names, ids stable.
         assertEquals("order-reminders", NotificationService.CHANNEL_ORDER_REMINDERS)
         assertEquals("menu-updates", NotificationService.CHANNEL_MENU_UPDATES)
+    }
+
+    /** @req REQ-NTF-12 */
+    @Test
+    fun channelDefinitionsMatchSpec() {
+        // 05-platform-services §5.3: exact names, importance and vibration, pinned via the
+        // named constants NotificationService creates its channels from.
+        assertEquals("Bestellungs-Erinnerungen", NotificationService.CHANNEL_ORDER_REMINDERS_NAME)
+        assertEquals(4, NotificationService.IMPORTANCE_ORDER_REMINDERS) // IMPORTANCE_HIGH
+        assertArrayEquals(
+            longArrayOf(0, 250, 250, 250),
+            NotificationService.CHANNEL_ORDER_REMINDERS_VIBRATION,
+        )
+        assertEquals("Neue Menüs", NotificationService.CHANNEL_MENU_UPDATES_NAME)
+        assertEquals(3, NotificationService.IMPORTANCE_MENU_UPDATES) // IMPORTANCE_DEFAULT
+    }
+
+    /** @req REQ-NTF-12 */
+    @Test
+    fun alarmModeIsExactBelowApi31() {
+        // Below API 31 exact alarms need no grant, so always exact-while-idle.
+        assertEquals(AlarmMode.EXACT_IDLE, NotificationService.alarmMode(30, canScheduleExact = false))
+    }
+
+    /** @req REQ-NTF-12 */
+    @Test
+    fun alarmModeFallsBackWhenExactNotPermitted() {
+        // API 31+ without the exact-alarm grant: inexact allow-while-idle, may fire minutes late
+        // under Doze (design D8 — SCHEDULE_EXACT_ALARM stays undeclared).
+        assertEquals(AlarmMode.INEXACT_IDLE, NotificationService.alarmMode(31, canScheduleExact = false))
+    }
+
+    /** @req REQ-NTF-12 */
+    @Test
+    fun alarmModeIsExactWhenPermitted() {
+        assertEquals(AlarmMode.EXACT_IDLE, NotificationService.alarmMode(34, canScheduleExact = true))
+    }
+
+    /** @req REQ-NTF-11 */
+    @Test
+    fun notificationsAllowedBelowApi33Always() {
+        // POST_NOTIFICATIONS only exists on API 33+; below it delivery is never gated.
+        assertTrue(NotificationService.notificationsAllowed(32, granted = false))
+    }
+
+    /** @req REQ-NTF-11 */
+    @Test
+    fun notificationsDeniedBlocksOnApi33() {
+        assertFalse(NotificationService.notificationsAllowed(33, granted = false))
+        assertTrue(NotificationService.notificationsAllowed(33, granted = true))
     }
 
     /** @req REQ-NTF-08 */
