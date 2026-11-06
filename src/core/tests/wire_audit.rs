@@ -270,10 +270,7 @@ async fn ventopay_client_keeps_302_session_cookie() {
 
     // Login POST → server replies 302 (Set-Cookie ASP.NET_SessionId) → client follows to /landing.
     let body = client
-        .post_form(
-            &format!("{base}/login-302"),
-            vec![("TxtUsername".into(), "user".into())],
-        )
+        .post_json(&format!("{base}/login-302"), "{}".into())
         .await
         .unwrap();
     assert_eq!(

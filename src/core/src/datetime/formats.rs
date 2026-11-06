@@ -46,10 +46,18 @@ pub fn parse_orders_date(s: &str) -> Option<i64> {
     local_epoch_ms(d.and_time(t))
 }
 
-/// "YYYY-MM-DD" -> "dd.MM.yyyy" (Ventopay wire, 02 §5).
-pub fn format_ventopay_date(date_key: &str) -> String {
+/// "YYYY-MM-DD" -> "YYYY-MM-DDT00:00:00" (Ventopay `fromDate`, 02 §5). "" if malformed.
+pub fn ventopay_from(date_key: &str) -> String {
     match NaiveDate::parse_from_str(date_key, "%Y-%m-%d") {
-        Ok(d) => format!("{:02}.{:02}.{:04}", d.day(), d.month(), d.year()),
+        Ok(d) => format!("{d}T00:00:00"),
+        Err(_) => String::new(),
+    }
+}
+
+/// "YYYY-MM-DD" -> "YYYY-MM-DDT23:59:59" (Ventopay `untilDate`, 02 §5). "" if malformed.
+pub fn ventopay_until(date_key: &str) -> String {
+    match NaiveDate::parse_from_str(date_key, "%Y-%m-%d") {
+        Ok(d) => format!("{d}T23:59:59"),
         Err(_) => String::new(),
     }
 }
@@ -183,7 +191,9 @@ mod tests {
 
     #[test]
     fn ventopay_date_format() {
-        assert_eq!(format_ventopay_date("2026-02-28"), "28.02.2026");
+        assert_eq!(ventopay_from("2026-02-28"), "2026-02-28T00:00:00");
+        assert_eq!(ventopay_until("2026-02-28"), "2026-02-28T23:59:59");
+        assert_eq!(ventopay_from("garbage"), "");
     }
 
     #[test]

@@ -14,6 +14,7 @@ pub use fake::CapturingTransport;
 pub enum Method {
     Get,
     Post,
+    Delete,
 }
 
 #[derive(Debug, Clone, PartialEq)]

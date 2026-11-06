@@ -1,14 +1,15 @@
 //! Ventopay HTTP primitives over the foundation Transport with the app-owned cookie jar
-//! (02-ventopay-scraping §2). url-encoded POSTs, Origin/Referer, lastPageUrl.
+//! (02-ventopay-scraping §2). JSON POSTs, Origin/Referer, Bearer token, lastPageUrl.
 use crate::error::CoreResult;
 use crate::http::cookie_jar::CookieJar;
 use crate::http::{HttpResponse, Method, Request, RequestBody, Transport};
-use crate::ventopay::{VENTOPAY_BASE_URL, VENTOPAY_ORIGIN};
+use crate::ventopay::{VENTOPAY_ORIGIN, VENTOPAY_WEB_URL};
 use std::sync::{Arc, Mutex};
 
 pub struct VentopayClient {
     transport: Arc<dyn Transport>,
     jar: Mutex<CookieJar>,
+    bearer: Mutex<Option<String>>,
     last_page_url: Mutex<String>,
 }
 
@@ -17,6 +18,7 @@ impl VentopayClient {
         Self {
             transport,
             jar: Mutex::new(CookieJar::new()),
+            bearer: Mutex::new(None),
             last_page_url: Mutex::new(String::new()),
         }
     }
@@ -25,13 +27,19 @@ impl VentopayClient {
         self.last_page_url.lock().unwrap().clone()
     }
 
-    /// Clears BOTH the cookie jar and lastPageUrl (logout, 02 §4).
+    /// Clears the cookie jar, the bearer token and lastPageUrl (logout, 02 §4).
     pub fn reset(&self) {
         self.jar.lock().unwrap().clear();
+        self.bearer.lock().unwrap().take();
         self.last_page_url.lock().unwrap().clear();
     }
 
-    /// GET with optional query params. No Origin/Referer. Records lastPageUrl (query-stripped).
+    /// Stores the access token sent as `authorization: Bearer …` on every later request (02 §2.5).
+    pub fn set_bearer(&self, token: Option<String>) {
+        *self.bearer.lock().unwrap() = token;
+    }
+
+    /// GET with optional query params. Records lastPageUrl (query-stripped).
     pub async fn get(&self, url: &str, params: &[(&str, &str)]) -> CoreResult<String> {
         let base = self.absolute_url(url);
         let full = if params.is_empty() {
@@ -56,8 +64,8 @@ impl VentopayClient {
         Ok(resp.body)
     }
 
-    /// url-encoded POST with Origin + Referer (§2.4). Field order preserved.
-    pub async fn post_form(&self, url: &str, fields: Vec<(String, String)>) -> CoreResult<String> {
+    /// JSON POST with Origin + Referer (§2.4). The transport sets Content-Type.
+    pub async fn post_json(&self, url: &str, body: String) -> CoreResult<String> {
         let headers = vec![
             ("Origin".to_string(), VENTOPAY_ORIGIN.to_string()),
             ("Referer".to_string(), self.referer(url)),
@@ -67,23 +75,42 @@ impl VentopayClient {
                 method: Method::Post,
                 url: self.absolute_url(url),
                 headers,
-                body: Some(RequestBody::Form(fields)),
+                body: Some(RequestBody::Json(body)),
             })
             .await?;
         Ok(resp.body)
     }
 
-    /// Inject the Cookie header from the jar, send, capture Set-Cookie into the jar (§2.2), and
-    /// FOLLOW 3xx redirects manually (up to 5). The transport is built with redirects OFF for
-    /// Ventopay: reqwest's auto-follow hides intermediate `Set-Cookie` headers, so the session
-    /// cookie the login POST sets on its 302 would be dropped (verified by tests/wire_audit). By
-    /// following here, the jar captures every hop's cookies and the follow-up GET resends them.
+    /// DELETE with Origin + Referer (logout, §4).
+    pub async fn delete(&self, url: &str) -> CoreResult<String> {
+        let headers = vec![
+            ("Origin".to_string(), VENTOPAY_ORIGIN.to_string()),
+            ("Referer".to_string(), self.referer(url)),
+        ];
+        let resp = self
+            .send(Request {
+                method: Method::Delete,
+                url: self.absolute_url(url),
+                headers,
+                body: None,
+            })
+            .await?;
+        Ok(resp.body)
+    }
+
+    /// Inject the Cookie header from the jar and the Bearer token, send, capture Set-Cookie into
+    /// the jar (§2.2), and FOLLOW 3xx redirects manually (up to 5). The transport is built with
+    /// redirects OFF for Ventopay: reqwest's auto-follow hides intermediate `Set-Cookie` headers.
     async fn send(&self, req: Request) -> CoreResult<HttpResponse> {
         let mut next = req;
         let mut hops = 0u8;
         loop {
             if let Some(h) = self.jar.lock().unwrap().header() {
                 next.headers.push(("Cookie".to_string(), h));
+            }
+            if let Some(t) = self.bearer.lock().unwrap().as_ref() {
+                next.headers
+                    .push(("authorization".to_string(), format!("Bearer {t}")));
             }
             let resp = self.transport.send(next).await?;
             let set_cookies: Vec<String> = resp
@@ -95,8 +122,8 @@ impl VentopayClient {
             if !set_cookies.is_empty() {
                 self.jar.lock().unwrap().capture(&set_cookies);
             }
-            // A 3xx with a Location → follow as a GET (matches 302/303 forms-auth redirects),
-            // carrying the just-captured cookies. Non-redirects (and after 5 hops) return as-is.
+            // A 3xx with a Location → follow as a GET, carrying the just-captured cookies.
+            // Non-redirects (and after 5 hops) return as-is.
             if (300..400).contains(&resp.status) && hops < 5 {
                 if let Some(loc) = resp
                     .headers
@@ -119,14 +146,14 @@ impl VentopayClient {
     }
 
     /// Resolve a redirect `Location` (absolute, root-relative, or path-relative) against the
-    /// Ventopay origin/base. Query strings are preserved (unlike `absolute_url`).
+    /// web origin. Query strings are preserved (unlike `absolute_url`).
     fn resolve_redirect(&self, loc: &str) -> String {
         if loc.starts_with("http") {
             loc.to_string()
         } else if loc.starts_with('/') {
-            format!("{VENTOPAY_ORIGIN}{loc}")
+            format!("{VENTOPAY_WEB_URL}{loc}")
         } else {
-            format!("{VENTOPAY_BASE_URL}/{loc}")
+            format!("{VENTOPAY_WEB_URL}/{loc}")
         }
     }
 
@@ -134,7 +161,7 @@ impl VentopayClient {
         if url.starts_with("http") {
             url.split('?').next().unwrap_or(url).to_string()
         } else {
-            format!("{}/{}", VENTOPAY_BASE_URL, url.trim_start_matches('/'))
+            format!("{VENTOPAY_WEB_URL}/{}", url.trim_start_matches('/'))
         }
     }
 
@@ -148,8 +175,9 @@ impl VentopayClient {
     }
 }
 
-/// Query encoding leaving RFC3986 unreserved chars (incl. '.') unencoded — Ventopay date
-/// params are `dd.MM.yyyy` and the '.' must NOT be percent-encoded (02 §2.3).
+/// Query encoding leaving RFC3986 unreserved chars unencoded (02 §2.3). Ventopay date params
+/// are ISO `YYYY-MM-DDTHH:mm:ss`; the ':' becomes %3A, matching the web app's
+/// encodeURIComponent serializer.
 fn encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -186,7 +214,7 @@ mod tests {
         let t = Arc::new(CapturingTransport::new());
         t.queue_response(resp_with_cookie(
             "login",
-            Some("ASP.NET_SessionId=abc; path=/"),
+            Some("RefreshToken=abc; path=/; secure; httponly"),
         ));
         let client = VentopayClient::new(t.clone());
 
@@ -197,18 +225,24 @@ mod tests {
         assert_eq!(body, "login");
         let req = &t.requests()[0];
         assert_eq!(req.method, Method::Get);
-        assert_eq!(req.url, "https://my.ventopay.com/mocca.website/Login.aspx");
+        assert_eq!(
+            req.url,
+            "https://xperience-trumpf.ventopay.cloud/auth/login"
+        );
         assert!(req.headers.iter().all(|(k, _)| k != "Cookie"));
         assert_eq!(
             client.last_page_url(),
-            "https://my.ventopay.com/mocca.website/Login.aspx"
+            "https://xperience-trumpf.ventopay.cloud/auth/login"
         );
     }
 
     #[tokio::test]
     async fn second_request_injects_captured_cookie() {
         let t = Arc::new(CapturingTransport::new());
-        t.queue_response(resp_with_cookie("a", Some("ASP.NET_SessionId=abc; path=/")));
+        t.queue_response(resp_with_cookie(
+            "a",
+            Some("RefreshToken=abc; path=/; secure"),
+        ));
         t.queue_response(resp_with_cookie("b", None));
         let client = VentopayClient::new(t.clone());
 
@@ -217,7 +251,7 @@ mod tests {
             .await
             .unwrap();
         client
-            .get(crate::ventopay::VENTOPAY_TRANSACTIONS_URL, &[])
+            .get(crate::ventopay::VENTOPAY_ACCESS_TOKEN_URL, &[])
             .await
             .unwrap();
 
@@ -227,49 +261,48 @@ mod tests {
             .iter()
             .find(|(k, _)| k == "Cookie")
             .map(|(_, v)| v.as_str());
-        assert_eq!(cookie, Some("ASP.NET_SessionId=abc"));
+        assert_eq!(cookie, Some("RefreshToken=abc"));
     }
 
     #[tokio::test]
-    async fn get_query_keeps_dots_and_strips_from_last_page() {
+    async fn get_query_percent_encodes_colon_in_iso_dates() {
         let t = Arc::new(CapturingTransport::new());
         t.queue_response(resp_with_cookie("x", None));
         let client = VentopayClient::new(t.clone());
         client
             .get(
                 crate::ventopay::VENTOPAY_TRANSACTIONS_URL,
-                &[("fromDate", "01.02.2026"), ("untilDate", "28.02.2026")],
+                &[
+                    ("fromDate", "2026-02-01T00:00:00"),
+                    ("untilDate", "2026-02-28T23:59:59"),
+                ],
             )
             .await
             .unwrap();
         assert_eq!(
             t.requests()[0].url,
-            "https://my.ventopay.com/mocca.website/Transaktionen.aspx?fromDate=01.02.2026&untilDate=28.02.2026"
+            "https://gw-trumpf.ventopay.cloud/Customers/v1/person/bons?fromDate=2026-02-01T00%3A00%3A00&untilDate=2026-02-28T23%3A59%3A59"
         );
         assert_eq!(
             client.last_page_url(),
-            "https://my.ventopay.com/mocca.website/Transaktionen.aspx"
+            "https://gw-trumpf.ventopay.cloud/Customers/v1/person/bons"
         );
     }
 
     #[tokio::test]
-    async fn post_form_is_urlencoded_with_origin_and_referer() {
+    async fn post_json_is_json_with_origin_and_referer() {
         let t = Arc::new(CapturingTransport::new());
-        t.queue_response(resp_with_cookie("login page", None)); // GET
-        t.queue_response(resp_with_cookie("<html>Ausloggen.aspx</html>", None)); // POST
+        t.queue_response(resp_with_cookie("ok", None)); // GET seeds lastPageUrl
+        t.queue_response(resp_with_cookie("{}", None)); // POST
         let client = VentopayClient::new(t.clone());
         client
-            .get(crate::ventopay::VENTOPAY_LOGIN_URL, &[])
+            .get(crate::ventopay::VENTOPAY_WEB_URL, &[])
             .await
             .unwrap();
         client
-            .post_form(
+            .post_json(
                 crate::ventopay::VENTOPAY_LOGIN_URL,
-                vec![
-                    ("__VIEWSTATE".into(), "vs".into()),
-                    ("TxtUsername".into(), "u".into()),
-                    ("BtnLogin".into(), "Login".into()),
-                ],
+                r#"{"username":"u","password":"p"}"#.into(),
             )
             .await
             .unwrap();
@@ -282,17 +315,50 @@ mod tests {
                 .find(|(n, _)| n == k)
                 .map(|(_, v)| v.as_str())
         };
-        assert_eq!(hdr("Origin"), Some("https://my.ventopay.com"));
+        assert_eq!(
+            hdr("Origin"),
+            Some("https://xperience-trumpf.ventopay.cloud")
+        );
         assert_eq!(
             hdr("Referer"),
-            Some("https://my.ventopay.com/mocca.website/Login.aspx")
+            Some("https://xperience-trumpf.ventopay.cloud")
         );
         match &post.body {
-            Some(RequestBody::Form(f)) => {
-                assert_eq!(f[0].0, "__VIEWSTATE");
-                assert_eq!(f[2], ("BtnLogin".to_string(), "Login".to_string()));
-            }
-            _ => panic!("expected url-encoded form"),
+            Some(RequestBody::Json(b)) => assert!(b.contains("\"username\":\"u\"")),
+            _ => panic!("expected json body"),
         }
+    }
+
+    #[tokio::test]
+    async fn bearer_is_attached_after_set() {
+        let t = Arc::new(CapturingTransport::new());
+        t.queue_response(resp_with_cookie("{}", None));
+        let client = VentopayClient::new(t.clone());
+        client.set_bearer(Some("TOK".into()));
+        client
+            .get(crate::ventopay::VENTOPAY_TRANSACTIONS_URL, &[])
+            .await
+            .unwrap();
+        let req = &t.requests()[0];
+        assert!(req
+            .headers
+            .iter()
+            .any(|(k, v)| k == "authorization" && v == "Bearer TOK"));
+        client.reset();
+        assert!(client.bearer.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_sends_origin_and_referer() {
+        let t = Arc::new(CapturingTransport::new());
+        t.queue_response(resp_with_cookie("", None));
+        let client = VentopayClient::new(t.clone());
+        client
+            .delete(crate::ventopay::VENTOPAY_LOGOUT_URL)
+            .await
+            .unwrap();
+        let req = &t.requests()[0];
+        assert_eq!(req.method, Method::Delete);
+        assert!(req.headers.iter().any(|(k, _)| k == "Origin"));
     }
 }

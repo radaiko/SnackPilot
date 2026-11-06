@@ -18,9 +18,10 @@ pub enum CoreError {
     /// Parser errors, incl. missing-token messages, carried verbatim.
     #[error("{detail}")]
     Parse { detail: String },
-    /// Transport-level failure or HTTP status >= 400.
+    /// Transport-level failure or HTTP status >= 400. `status` is Some(status) for a real
+    /// HTTP status response, None for transport-level failures (DNS, timeout, …).
     #[error("{detail}")]
-    Http { detail: String },
+    Http { detail: String, status: Option<u16> },
     #[error("{detail}")]
     Storage { detail: String },
 }

@@ -38,13 +38,23 @@ impl Transport for CapturingTransport {
     ) -> Pin<Box<dyn Future<Output = CoreResult<HttpResponse>> + Send + 'a>> {
         Box::pin(async move {
             self.requests.lock().unwrap().push(req);
-            self.responses
-                .lock()
-                .unwrap()
-                .pop_front()
-                .ok_or_else(|| CoreError::Http {
-                    detail: "no queued response".into(),
-                })
+            let resp =
+                self.responses
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .ok_or_else(|| CoreError::Http {
+                        detail: "no queued response".into(),
+                        status: None,
+                    })?;
+            // Mirror the production transport contract: status 200-399 = success, >= 400 = Http error.
+            if resp.status >= 400 {
+                return Err(CoreError::Http {
+                    detail: format!("HTTP {}", resp.status),
+                    status: Some(resp.status),
+                });
+            }
+            Ok(resp)
         })
     }
 }

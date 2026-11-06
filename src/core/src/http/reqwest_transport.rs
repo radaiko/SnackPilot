@@ -43,6 +43,7 @@ impl ReqwestTransport {
             .build()
             .map_err(|e| CoreError::Http {
                 detail: e.to_string(),
+                status: None,
             })?;
         Ok(Self { client })
     }
@@ -57,6 +58,7 @@ impl Transport for ReqwestTransport {
             let method = match req.method {
                 Method::Get => reqwest::Method::GET,
                 Method::Post => reqwest::Method::POST,
+                Method::Delete => reqwest::Method::DELETE,
             };
             let mut rb = self
                 .client
@@ -82,11 +84,13 @@ impl Transport for ReqwestTransport {
             };
             let resp = rb.send().await.map_err(|e| CoreError::Http {
                 detail: e.to_string(),
+                status: None,
             })?;
             let status = resp.status().as_u16();
             if status >= 400 {
                 return Err(CoreError::Http {
                     detail: format!("HTTP {status}"),
+                    status: Some(status),
                 });
             }
             let headers = resp
@@ -96,6 +100,7 @@ impl Transport for ReqwestTransport {
                 .collect();
             let body = resp.text().await.map_err(|e| CoreError::Http {
                 detail: e.to_string(),
+                status: None,
             })?;
             Ok(HttpResponse {
                 status,

@@ -1,0 +1,71 @@
+{
+  "error": "ERR_NONE",
+  "bons": [
+    {
+      "id": "687efd5d-0fe5-4149-9e61-7183b9a616a3",
+      "bonNumber": "100/800009/INTERNAL/115001",
+      "bonTotal": 1.8,
+      "bonType": "Consumption",
+      "restaurantName": "Caf\u00e9 + Co. Automaten",
+      "cashPointName": "Halle 3 Snackautomat",
+      "cashPointNumber": 800009,
+      "originalBonCreationDate": "2026-02-09T11:49:00",
+      "bonCreationDate": "2026-02-09T11:49:01.123"
+    },
+    {
+      "id": "b1e3a2c4-1111-4a5b-8c9d-0e1f2a3b4c5d",
+      "bonNumber": "100/800009/INTERNAL/115002",
+      "bonTotal": 3.66,
+      "bonType": "Consumption",
+      "restaurantName": "Caf\u00e9 + Co. Automaten",
+      "cashPointName": "Halle 3 Snackautomat",
+      "cashPointNumber": 800009,
+      "originalBonCreationDate": "2026-02-05T07:55:12",
+      "bonCreationDate": "2026-02-05T07:55:13.597"
+    },
+    {
+      "id": "c2f4b3d5-2222-4b6c-9d0e-1f2a3b4c5d6e",
+      "bonNumber": "100/800010/INTERNAL/115003",
+      "bonTotal": 0.9,
+      "bonType": "Consumption",
+      "restaurantName": "Caf\u00e9 + Co. Automaten",
+      "cashPointName": "Halle 8 Getr\u00e4nkeautomat",
+      "cashPointNumber": 800010,
+      "originalBonCreationDate": "2026-02-03T08:50:02",
+      "bonCreationDate": "2026-02-03T08:50:03.010"
+    },
+    {
+      "id": "d3a5c4e6-3333-4c7d-8e1f-2a3b4c5d6e7f",
+      "bonNumber": "100/800011/INTERNAL/115004",
+      "bonTotal": 2.4,
+      "bonType": "Consumption",
+      "restaurantName": "Caf\u00e9 + Co. Automaten",
+      "cashPointName": "Halle 3 Getr\u00e4nkeautomat",
+      "cashPointNumber": 800011,
+      "originalBonCreationDate": "2026-02-02T13:52:40",
+      "bonCreationDate": "2026-02-02T13:52:41.204"
+    },
+    {
+      "id": "e4b6d5f7-4444-4d8e-9f2a-3b4c5d6e7f80",
+      "bonNumber": "100/800009/INTERNAL/115005",
+      "bonTotal": 1.2,
+      "bonType": "Consumption",
+      "restaurantName": "Caf\u00e9 + Co. Automaten",
+      "cashPointName": "Halle 3 Snackautomat",
+      "cashPointNumber": 800009,
+      "originalBonCreationDate": "2026-02-02T07:43:56",
+      "bonCreationDate": "2026-02-02T07:43:57.001"
+    },
+    {
+      "id": "f5c7e6a8-5555-4e9f-8a3b-4c5d6e7f8091",
+      "bonNumber": "28168-10051125",
+      "bonTotal": 6.4,
+      "bonType": "Consumption",
+      "restaurantName": "Gourmet Betriebsverpflegung",
+      "cashPointName": "Gourmet Kasse",
+      "cashPointNumber": 28168,
+      "originalBonCreationDate": "2026-02-04T09:01:00",
+      "bonCreationDate": "2026-02-04T09:01:02.543"
+    }
+  ]
+}

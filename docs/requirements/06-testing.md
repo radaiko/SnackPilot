@@ -106,26 +106,19 @@ Sentinel values listed here are asserted verbatim by tests — do not alter the 
 | `gourmet/billing-current.json` | `GetMyBillings` response, `Billings` wrapper array with 2 bills: `BillNr` 10001 (2 `BillingItemInfo` items, `Billing: 4.50`; item fields `Id`, `ArticleId`, `Count`, `Description`, `Total`, `Subsidy`, `DiscountValue`, `IsCustomMenu`) and 10002 (1 item, `Billing: 3.00`); `BillDate` ISO local (`2026-02-10T12:00:00`), `Location: "Betriebsrestaurant Wien"`. |
 | `gourmet/billing-last-month.json` | Same shape, 1 bill (`BillNr: 9501`, January date). Recorded/used for the `checkLastMonthNumber: '1'` variant. |
 
-### Ventopay (4 files)
+### Ventopay (2 files)
 
 | File | Contents / what it covers |
 |---|---|
-| `ventopay/login-page.html` | `Login.aspx` form with the six ASP.NET hidden inputs: `__LASTFOCUS=""`, `__EVENTTARGET=""`, `__EVENTARGUMENT=""`, `__VIEWSTATE="VIEWSTATE-TOKEN-LONG-BASE64-STRING-ABC123"`, `__VIEWSTATEGENERATOR="ABCD1234"`, `__EVENTVALIDATION="EVENTVALIDATION-TOKEN-XYZ789"`, plus `select name="DropDownList1"` (option value = the hardcoded company UUID `0da8d3ec-0178-47d5-9ccd-a996f04acb61`), `TxtUsername`, `TxtPassword`, `BtnLogin`, `languageRadio value="DE"`. |
-| `ventopay/login-success.html` | Authenticated page containing the verification anchor `<a href="Ausloggen.aspx">Ausloggen</a>`. |
-| `ventopay/transactions-page.html` | `Transaktionen.aspx` list with **6** `div.transact` entries inside `div.content`, ids are the base64-looking transaction IDs `dHhuLTAwMQ==`…`dHhuLTAwNg==`. Each entry: `<div class="transact_title">€ 1,80 (Café + Co. Automaten)</div>` and `<div class="transact_timestamp">09. Feb 2026 - 11:49 Uhr</div>`. Covers: German amount parsing (`1,80`→1.8), restaurant extraction from parentheses, timestamp parsing incl. Austrian month abbreviations `Mrz` (March) and `Jän` (January), and the Gourmet filter — the entry `€ 5,50 (Gourmet Betriebsrestaurant)` must be dropped (6→5) while both `Kaffeeautomat EG` entries are kept. |
-| `ventopay/transactions-empty.html` | List page with no `div.transact` (text "Keine Transaktionen in diesem Zeitraum.") → parser must return `[]`. |
+| `ventopay/bons.json` | `GET /Customers/v1/person/bons` response, `error: "ERR_NONE"` + **6** bons: 5 × `Café + Co. Automaten` + 1 × `Gourmet Betriebsverpflegung` (must be dropped by the Gourmet filter, 6→5). First bon: id `687efd5d-0fe5-4149-9e61-7183b9a616a3`, `bonTotal` 1.8, `originalBonCreationDate` `2026-02-09T11:49:00` (ISO local → local time). Covers the skip rules, the Gourmet filter and the output model of `02-ventopay-scraping.md` §5. |
+| `ventopay/bons-empty.json` | `{"error":"ERR_NONE","bons":[]}` → parser must return `[]`. |
 
-**Coverage gap to note**: there is no fixture for `Rechnung.aspx` (transaction detail),
-and no v1 code fetches or navigates to it. The only references are a lowercase
-`rechnung.aspx?id=...` URL in a JSDoc comment documenting the list-page markup
-(ventopayParser.ts:116) and the anchor hrefs inside the transaction fixtures — nothing
-scrapes it. The only Ventopay page URLs *defined* besides `Login.aspx` are
-`VENTOPAY_TRANSACTIONS_URL` and `VENTOPAY_LOGOUT_URL`, alongside `VENTOPAY_BASE_URL`,
-`VENTOPAY_LOGIN_URL`, and `VENTOPAY_COMPANY_ID` (v1: src/app/src-rn/utils/constants.ts:16-20;
-no `Rechnung.aspx` constant exists). CLAUDE.md's "Transaction Details" section
-(Rechnung.aspx, item-row columns) describes behavior that does not exist in v1 code —
-code wins; v1 parses amount/restaurant/date directly from the list page. See
-`02-ventopay-scraping.md` for the authoritative spec.
+**2026-11 migration note**: the four ASP.NET-era fixtures (`login-page.html`,
+`login-success.html`, `transactions-page.html`, `transactions-empty.html`) were removed
+with the xperience migration — the auth flow is JSON (fixtures inlined in unit tests) and
+transactions come from the bons API. The recorder sequence below is kept as the v1
+historical record; re-recording Ventopay fixtures must follow `02-ventopay-scraping.md`
+§3/§5 instead.
 
 ---
 
@@ -181,7 +174,10 @@ Note the recorder does **not** record `gourmet/login-failed.html` or
 `gourmet/orders-page-edit-mode.html` (those exist only as hand-authored fixtures), and it
 never POSTs orders/cancellations (safe against real account state).
 
-### Ventopay recording sequence (v1: scripts/record-fixtures.ts:194-284)
+### Ventopay recording sequence (v1: scripts/record-fixtures.ts:194-284) — historical
+
+> Superseded 2026-11 by the xperience migration; kept as the v1 record. Current contract:
+> `02-ventopay-scraping.md`.
 
 Base `https://my.ventopay.com/mocca.website`.
 

@@ -294,7 +294,8 @@ need regeneration.
   **self-hosted Aptabase** instance (anonymous by design — no user/device IDs, no IDFA,
   no cross-app tracking; GDPR Recital 26). The v2 privacy policy + in-app "Datenschutz"
   summary must describe Aptabase, NOT TelemetryDeck, and the "network connections" list is
-  now `alaclickneu.gourmet.at`, `my.ventopay.com`, and the Aptabase ingest host
+  now `alaclickneu.gourmet.at`, `xperience-trumpf.ventopay.cloud`,
+  `gw-trumpf.ventopay.cloud`, and the Aptabase ingest host
   (`hetzner-server-1.ibex-dory.ts.net`, reached via Tailscale Funnel). See
   `03-features/analytics.md` and the vault doc "Snackpilot - Aptabase Self-Host".
 - **Store disclosures (both platforms):** declare *Product interaction / App activity*,

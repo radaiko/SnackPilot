@@ -1,280 +1,174 @@
-//! Pure Ventopay HTML/text parsing (02-ventopay-scraping §3-§6). No network, no async.
-use crate::datetime::{local_epoch_from_parts, parse_bill_date};
+//! Pure Ventopay JSON parsing (02-ventopay-scraping §3, §5). No network, no async.
+use crate::datetime::parse_bill_date;
 use crate::domain::VentopayTransaction;
 use crate::error::{CoreError, CoreResult};
-use regex::Regex;
-use scraper::{Html, Selector};
+use serde::Deserialize;
 
 fn parse_err(msg: impl Into<String>) -> CoreError {
-    CoreError::Parse { detail: msg.into() }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AspNetState {
-    pub last_focus: String,
-    pub event_target: String,
-    pub event_argument: String,
-    pub viewstate: String,
-    pub viewstate_generator: String,
-    pub event_validation: String,
-}
-
-/// §3 Step 2 — six hidden inputs by id; three required-non-empty.
-pub fn extract_aspnet_state(html: &str) -> CoreResult<AspNetState> {
-    let doc = Html::parse_document(html);
-    let by_id = |id: &str| -> String {
-        Selector::parse(&format!("#{id}"))
-            .ok()
-            .and_then(|s| doc.select(&s).next())
-            .and_then(|e| e.value().attr("value"))
-            .unwrap_or("")
-            .to_string()
-    };
-    let viewstate = by_id("__VIEWSTATE");
-    let viewstate_generator = by_id("__VIEWSTATEGENERATOR");
-    let event_validation = by_id("__EVENTVALIDATION");
-    if viewstate.is_empty() || viewstate_generator.is_empty() || event_validation.is_empty() {
-        return Err(parse_err("Could not extract ASP.NET state from page"));
+    CoreError::Parse {
+        detail: format!("Ventopay: {}", msg.into()),
     }
-    Ok(AspNetState {
-        last_focus: by_id("__LASTFOCUS"),
-        event_target: by_id("__EVENTTARGET"),
-        event_argument: by_id("__EVENTARGUMENT"),
-        viewstate,
-        viewstate_generator,
-        event_validation,
-    })
 }
 
-/// §3 Step 4 — logout link presence, case-insensitive.
-pub fn is_logged_in(html: &str) -> bool {
-    Regex::new(r#"(?i)href="Ausloggen\.aspx""#)
-        .unwrap()
-        .is_match(html)
+/// §3 — login response. `otP_ID` non-null means 2FA, which the app does not support.
+#[derive(Debug, Deserialize)]
+struct LoginResponse {
+    #[serde(rename = "otP_ID")]
+    otp_id: Option<serde_json::Value>,
 }
 
-/// §6 — parse the transactions list. `now_epoch_ms` is used when a timestamp is empty.
-pub fn parse_transactions(html: &str, now_epoch_ms: i64) -> Vec<VentopayTransaction> {
-    let doc = Html::parse_document(html);
-    let tx_sel = Selector::parse("div.transact").unwrap();
-    let title_sel = Selector::parse(".transact_title").unwrap();
-    let ts_sel = Selector::parse(".transact_timestamp").unwrap();
-    let title_re = Regex::new(r"€\s*([\d,]+)\s*\((.+)\)").unwrap();
-
-    let mut out = Vec::new();
-    for el in doc.select(&tx_sel) {
-        let id = match el.value().attr("id") {
-            Some(v) if !v.is_empty() => v.to_string(),
-            _ => continue, // skip: no id (§6.1)
-        };
-        let title = el
-            .select(&title_sel)
-            .next()
-            .map(|t| t.text().collect::<String>().trim().to_string())
-            .unwrap_or_default();
-        if title.is_empty() {
-            continue; // skip: empty title (§6.1)
-        }
-        let ts_text = el
-            .select(&ts_sel)
-            .next()
-            .map(|t| t.text().collect::<String>().trim().to_string())
-            .unwrap_or_default();
-
-        let (amount, restaurant) = match title_re.captures(&title) {
-            Some(c) => (parse_german_amount(&c[1]), c[2].trim().to_string()),
-            None => (parse_german_amount(&title), title.clone()),
-        };
-        // §6.5 Gourmet filter.
-        if restaurant.to_lowercase().contains("gourmet") {
-            continue;
-        }
-        let date_epoch_ms = parse_ventopay_timestamp(&ts_text, now_epoch_ms);
-        out.push(VentopayTransaction {
-            id,
-            date_epoch_ms,
-            amount,
-            restaurant: restaurant.clone(),
-            location: restaurant, // §6.6 location == restaurant
+/// §3 — validate the POST /auth/login response. Errors: 2FA unsupported.
+pub fn check_login_response(json: &str) -> CoreResult<()> {
+    let resp: LoginResponse =
+        serde_json::from_str(json).map_err(|e| parse_err(format!("login response: {e}")))?;
+    if matches!(&resp.otp_id, Some(v) if !v.is_null()) {
+        return Err(CoreError::LoginFailed {
+            detail: "Ventopay login failed: two-factor authentication is not supported".into(),
         });
     }
-    out
+    Ok(())
 }
 
-/// §6.3 — strip to [0-9,-], first ',' → '.', then parseFloat-prefix parse.
-fn parse_german_amount(text: &str) -> f64 {
-    let cleaned: String = text
-        .chars()
-        .filter(|c| c.is_ascii_digit() || *c == ',' || *c == '-')
-        .collect();
-    let replaced = match cleaned.find(',') {
-        Some(i) => {
-            let mut s = cleaned.clone();
-            s.replace_range(i..i + 1, ".");
-            s
+/// §3 — extract `accessToken` from GET /auth/accessToken.
+pub fn parse_access_token(json: &str) -> CoreResult<String> {
+    let v: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| parse_err(format!("access token: {e}")))?;
+    v.get("accessToken")
+        .and_then(|t| t.as_str())
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_string())
+        .ok_or_else(|| parse_err("accessToken missing from response"))
+}
+
+#[derive(Debug, Deserialize)]
+struct BonsResponse {
+    #[serde(default)]
+    error: String,
+    #[serde(default)]
+    bons: Vec<Bon>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Bon {
+    #[serde(default)]
+    id: String,
+    #[serde(rename = "bonTotal", default)]
+    bon_total: f64,
+    #[serde(rename = "restaurantName", default)]
+    restaurant_name: String,
+    #[serde(rename = "originalBonCreationDate", default)]
+    original_bon_creation_date: String,
+}
+
+/// §5 — parse the bons list. `now_epoch_ms` is used when the date is missing or unparseable.
+/// Skips bons without an id and Gourmet bons (the app covers Gourmet separately).
+pub fn parse_transactions(json: &str, now_epoch_ms: i64) -> CoreResult<Vec<VentopayTransaction>> {
+    let resp: BonsResponse =
+        serde_json::from_str(json).map_err(|e| parse_err(format!("bons response: {e}")))?;
+    if resp.error != "ERR_NONE" {
+        return Err(parse_err(format!("bons error: {}", resp.error)));
+    }
+    let mut out = Vec::new();
+    for b in resp.bons {
+        if b.id.is_empty() {
+            continue; // no id (§5.1)
         }
-        None => cleaned,
-    };
-    parse_float_prefix(&replaced)
-}
-
-/// JavaScript parseFloat semantics: longest leading numeric prefix; no leading number → 0.
-fn parse_float_prefix(s: &str) -> f64 {
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    if i < bytes.len() && (bytes[i] == b'-' || bytes[i] == b'+') {
-        i += 1;
-    }
-    let mut seen_dot = false;
-    let mut last_digit_end = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'0'..=b'9' => {
-                i += 1;
-                last_digit_end = i;
-            }
-            b'.' if !seen_dot => {
-                seen_dot = true;
-                i += 1;
-            }
-            _ => break,
+        if b.restaurant_name.to_lowercase().contains("gourmet") {
+            continue; // Gourmet filter (§5.2)
         }
+        let date_epoch_ms = parse_bill_date(&b.original_bon_creation_date).unwrap_or(now_epoch_ms);
+        out.push(VentopayTransaction {
+            id: b.id,
+            date_epoch_ms,
+            amount: b.bon_total,
+            restaurant: b.restaurant_name.clone(),
+            location: b.restaurant_name, // §5.3 location == restaurant
+        });
     }
-    if last_digit_end == 0 {
-        return 0.0;
-    }
-    s[..last_digit_end].parse::<f64>().unwrap_or(0.0)
-}
-
-/// §6.4 — German timestamp; empty → now; no regex match → ISO fallback → now.
-fn parse_ventopay_timestamp(text: &str, now_epoch_ms: i64) -> i64 {
-    let t = text.trim();
-    if t.is_empty() {
-        return now_epoch_ms;
-    }
-    let re =
-        Regex::new(r"(\d{1,2})\.\s*(\p{L}{3})\p{L}*\s+(\d{4})\s*-\s*(\d{1,2}):(\d{2})").unwrap();
-    if let Some(c) = re.captures(t) {
-        let day: u32 = c[1].parse().unwrap_or(1);
-        let month = german_month(&c[2].to_lowercase()) + 1; // 1-based for chrono
-        let year: i32 = c[3].parse().unwrap_or(1970);
-        let hour: u32 = c[4].parse().unwrap_or(0);
-        let minute: u32 = c[5].parse().unwrap_or(0);
-        if let Some(ms) = local_epoch_from_parts(year, month, day, hour, minute) {
-            return ms;
-        }
-    }
-    // ISO-8601 fallback, else now (undefined in v1).
-    parse_bill_date(t).unwrap_or(now_epoch_ms)
-}
-
-/// §6.4 — 0-based German month index; unknown → 0 (January).
-fn german_month(m: &str) -> u32 {
-    match m {
-        "jan" | "jän" => 0,
-        "feb" => 1,
-        "mär" | "mar" | "mrz" => 2,
-        "apr" => 3,
-        "mai" => 4,
-        "jun" => 5,
-        "jul" => 6,
-        "aug" => 7,
-        "sep" => 8,
-        "okt" => 9,
-        "nov" => 10,
-        "dez" => 11,
-        _ => 0,
-    }
+    Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const LOGIN_PAGE: &str = include_str!("../../tests/fixtures/ventopay/login-page.html");
-    const LOGIN_SUCCESS: &str = include_str!("../../tests/fixtures/ventopay/login-success.html");
-    const TX_PAGE: &str = include_str!("../../tests/fixtures/ventopay/transactions-page.html");
-    const TX_EMPTY: &str = include_str!("../../tests/fixtures/ventopay/transactions-empty.html");
+    const BONS: &str = include_str!("../../tests/fixtures/ventopay/bons.json");
+    const BONS_EMPTY: &str = include_str!("../../tests/fixtures/ventopay/bons-empty.json");
 
     #[test]
-    fn extracts_aspnet_state() {
-        let s = extract_aspnet_state(LOGIN_PAGE).unwrap();
-        assert_eq!(s.viewstate, "VIEWSTATE-TOKEN-LONG-BASE64-STRING-ABC123");
-        assert_eq!(s.viewstate_generator, "ABCD1234");
-        assert_eq!(s.event_validation, "EVENTVALIDATION-TOKEN-XYZ789");
+    fn login_response_ok_without_otp() {
+        let json = r#"{"person":{"id":"p"},"otP_ID":null,"entityType":1}"#;
+        assert!(check_login_response(json).is_ok());
     }
 
     #[test]
-    fn missing_required_state_errors() {
-        let html =
-            r#"<input id="__VIEWSTATE" value=""><input id="__VIEWSTATEGENERATOR" value="g">"#;
-        let err = extract_aspnet_state(html).unwrap_err();
-        assert_eq!(err.to_string(), "Could not extract ASP.NET state from page");
+    fn login_response_rejects_otp() {
+        let json = r#"{"otP_ID":"abc-123"}"#;
+        let err = check_login_response(json).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Ventopay login failed: two-factor authentication is not supported"
+        );
     }
 
     #[test]
-    fn login_check_matches_logout_link() {
-        assert!(is_logged_in(LOGIN_SUCCESS));
-        assert!(is_logged_in(r#"<a href="Ausloggen.aspx">x</a>"#));
-        assert!(!is_logged_in(LOGIN_PAGE));
+    fn access_token_extracted() {
+        assert_eq!(
+            parse_access_token(r#"{"accessToken":"TOK","expires":1}"#).unwrap(),
+            "TOK"
+        );
+        assert!(parse_access_token(r#"{"expires":1}"#).is_err());
+        assert!(parse_access_token("not json").is_err());
     }
 
     #[test]
     fn parses_transactions_and_applies_gourmet_filter() {
-        let txs = parse_transactions(TX_PAGE, 0);
+        let txs = parse_transactions(BONS, 0).unwrap();
         assert_eq!(txs.len(), 5);
         assert!(txs
             .iter()
             .all(|t| !t.restaurant.to_lowercase().contains("gourmet")));
         let first = &txs[0];
-        assert_eq!(first.id, "dHhuLTAwMQ==");
+        assert_eq!(first.id, "687efd5d-0fe5-4149-9e61-7183b9a616a3");
         assert!((first.amount - 1.8).abs() < 1e-9);
         assert_eq!(first.restaurant, "Café + Co. Automaten");
         assert_eq!(first.location, first.restaurant);
+        // 09. Feb 2026 11:49 local
+        assert_eq!(
+            first.date_epoch_ms,
+            crate::datetime::local_epoch_from_parts(2026, 2, 9, 11, 49).unwrap()
+        );
     }
 
     #[test]
-    fn empty_page_yields_no_transactions() {
-        assert_eq!(parse_transactions(TX_EMPTY, 0).len(), 0);
+    fn error_code_fails_parse() {
+        let err = parse_transactions(r#"{"error":"ERR_UNKNOWN","bons":[]}"#, 0).unwrap_err();
+        assert_eq!(err.to_string(), "Ventopay: bons error: ERR_UNKNOWN");
     }
 
     #[test]
-    fn german_month_variants_parse() {
-        assert_eq!(german_month("jän"), 0);
-        assert_eq!(german_month("mrz"), 2);
-        assert_eq!(german_month("mär"), 2);
-        assert_eq!(german_month("zzz"), 0);
+    fn empty_list_yields_no_transactions() {
+        assert_eq!(parse_transactions(BONS_EMPTY, 0).unwrap().len(), 0);
     }
 
     #[test]
-    fn german_amount_prefix_parse() {
-        assert!((parse_german_amount("€ 1,80") - 1.8).abs() < 1e-9);
-        assert!((parse_german_amount("0,50") - 0.5).abs() < 1e-9);
-        assert!((parse_german_amount("1,80 / 2,00") - 1.802).abs() < 1e-9);
-        assert_eq!(parse_german_amount("garbage"), 0.0);
-    }
-
-    #[test]
-    fn title_fallback_when_no_paren_format() {
-        let html = r#"<div class="transact" id="x"><div class="transact_title">1,80</div>
-            <div class="transact_timestamp">09. Feb 2026 - 11:49 Uhr</div></div>"#;
-        let txs = parse_transactions(html, 0);
-        assert_eq!(txs.len(), 1);
-        assert!((txs[0].amount - 1.8).abs() < 1e-9);
-        assert_eq!(txs[0].restaurant, "1,80");
-    }
-
-    #[test]
-    fn skip_rules_and_empty_timestamp_uses_now() {
-        let html = r#"
-            <div class="transact"><div class="transact_title">€ 1,00 (A)</div></div>
-            <div class="transact" id="y"><div class="transact_title"></div></div>
-            <div class="transact" id="z"><div class="transact_title">€ 2,00 (B)</div>
-                <div class="transact_timestamp"></div></div>"#;
+    fn skips_idless_and_bad_date_uses_now() {
+        let json = r#"{"error":"ERR_NONE","bons":[
+            {"id":"","bonTotal":1.0,"restaurantName":"A","originalBonCreationDate":"2026-02-09T11:49:00"},
+            {"id":"z","bonTotal":2.0,"restaurantName":"B","originalBonCreationDate":"garbage"}]}"#;
         let now = 1_700_000_000_000;
-        let txs = parse_transactions(html, now);
+        let txs = parse_transactions(json, now).unwrap();
         assert_eq!(txs.len(), 1);
         assert_eq!(txs[0].id, "z");
         assert_eq!(txs[0].date_epoch_ms, now);
+    }
+
+    #[test]
+    fn scientific_notation_amount_parses() {
+        // .NET serialises zero as 0E-10 — valid JSON number.
+        let json = r#"{"error":"ERR_NONE","bons":[
+            {"id":"a","bonTotal":0E-10,"restaurantName":"B","originalBonCreationDate":"2026-02-09T11:49:00"}]}"#;
+        let txs = parse_transactions(json, 0).unwrap();
+        assert_eq!(txs[0].amount, 0.0);
     }
 }
