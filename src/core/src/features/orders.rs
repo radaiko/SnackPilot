@@ -5,14 +5,14 @@
 //! `fetch_orders` after a successful fetch (Phase 1e; notifications-daily-reminder §2 trigger 2,
 //! notifications-location §5 retraction path 2) and are returned as commands for the shell to
 //! deliver — errors there never affect orders state.
-use crate::datetime::Clock;
+use crate::datetime::{vienna_date_key, Clock};
 use crate::domain::{OrderedMenu, OrdersSplit};
 use crate::error::CoreResult;
 use crate::features::AnalyticsSink;
 use crate::gourmet::provider::GourmetProvider;
 use crate::notify::cancel_reminder::check_cancel_reminder;
 use crate::notify::daily_reminder::check_daily_reminder;
-use crate::notify::NotificationCommand;
+use crate::notify::{NotificationCommand, GEOFENCE_REMINDER_ID};
 use crate::storage::{cache, Kv};
 use chrono::{Local, TimeZone};
 use std::collections::HashMap;
@@ -106,9 +106,29 @@ impl OrderStore {
         }
     }
 
-    /// The post-fetch notification decisions (daily reminder reschedule + geofence/cancel-reminder
-    /// retraction). Settings come from the core KV so background callers need no shell state.
+    /// The post-fetch notification decisions: retract the geofence "no order" notice when an
+    /// order exists for Vienna-today (notifications-location §5 retraction path 2), then the
+    /// two order-driven reminders. Settings come from the core KV so background callers need
+    /// no shell state.
     fn post_fetch_notifications(&self, orders: &[OrderedMenu]) -> Vec<NotificationCommand> {
+        let mut commands = Vec::new();
+        let today = vienna_date_key(self.clock.now_epoch_ms());
+        if orders
+            .iter()
+            .any(|o| vienna_date_key(o.date_epoch_ms) == today)
+        {
+            commands.push(NotificationCommand::CancelPending {
+                id: GEOFENCE_REMINDER_ID.to_string(),
+            });
+        }
+        commands.extend(self.order_reminder_commands(orders));
+        commands
+    }
+
+    /// The single implementation of the two order-driven reminder checks (daily first, then
+    /// cancel), from the KV-backed settings and the persisted at-company flag. Shared by the
+    /// post-fetch path and the headless order-sync check (REQ-NTF-03).
+    fn order_reminder_commands(&self, orders: &[OrderedMenu]) -> Vec<NotificationCommand> {
         let settings = cache::load_daily_reminder_settings(self.kv.as_ref());
         let at_company = cache::load_is_at_company(self.kv.as_ref());
         let mut commands = Vec::new();
@@ -122,13 +142,14 @@ impl OrderStore {
     }
 
     /// Headless order-sync check (§4.4): evaluate both order-driven reminders against the
-    /// CURRENT cached/in-memory orders without any network call. This is what the iOS
+    /// CURRENT cached/in-memory orders without any network call and without the geofence
+    /// retract (that belongs to the fetch path only). This is what the iOS
     /// BGTaskScheduler handler and the Android WorkManager worker run in the background —
     /// it needs no shell state because the daily-reminder settings live in the core KV.
     /// Loads the cache first so a freshly-started background process sees real orders.
     pub fn run_order_sync_check(&self) -> Vec<NotificationCommand> {
         self.load_cached_orders();
-        self.post_fetch_notifications(&self.orders())
+        self.order_reminder_commands(&self.orders())
     }
 
     /// §5.3 — confirm: clear error, call the API confirm, re-fetch.
@@ -225,7 +246,7 @@ mod tests {
     use crate::domain::Credentials;
     use crate::gourmet::api::GourmetApi;
     use crate::http::{CapturingTransport, HttpResponse};
-    use crate::notify::{CANCEL_REMINDER_ID, DAILY_REMINDER_ID};
+    use crate::notify::{CANCEL_REMINDER_ID, DAILY_REMINDER_ID, GEOFENCE_REMINDER_ID};
     use crate::storage::MemoryKv;
 
     fn vienna_ms(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> i64 {
@@ -303,6 +324,7 @@ mod tests {
         assert_eq!(store.orders().len(), 1);
     }
 
+    // @req REQ-NTF-02 (post-fetch commands) and REQ-NTF-03 (headless half below)
     /// Phase 1e wiring: a successful fetch runs the post-fetch hooks (spec
     /// notifications-daily-reminder §2 step 2 / cancel-reminder §2 step 1) and hands the
     /// commands back to the caller. Clock fixed at 08:00 Vienna on 2026-02-10, reminder
@@ -343,6 +365,7 @@ mod tests {
         assert!(store.error().is_none());
     }
 
+    // @req REQ-NTF-02
     #[tokio::test]
     async fn fetch_on_failure_emits_no_commands() {
         let t = Arc::new(CapturingTransport::new());
@@ -358,6 +381,123 @@ mod tests {
         let cmds = store.fetch_orders().await.unwrap();
         assert!(cmds.is_empty());
         assert!(store.error().is_some());
+    }
+
+    /// True when no command in `cmds` carries the geofence notification id.
+    fn no_geofence_command(cmds: &[NotificationCommand]) -> bool {
+        !cmds.iter().any(|c| {
+            let id = match c {
+                NotificationCommand::ScheduleAt { id, .. }
+                | NotificationCommand::FireNow { id, .. }
+                | NotificationCommand::CancelPending { id } => id,
+            };
+            id == GEOFENCE_REMINDER_ID
+        })
+    }
+
+    /// REQ-NTF-02: a fetch whose orders include one for Vienna-today retracts the pending
+    /// geofence "no order" notice FIRST, then the daily-reminder, then the cancel-reminder
+    /// command (orders.md §8, notifications-location §5 retraction path 2).
+    // @req REQ-NTF-02
+    #[tokio::test]
+    async fn fetch_cancels_geofence_notice_when_order_today() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = logged_in_gourmet(&t).await;
+        let kv = Arc::new(MemoryKv::new());
+        let clock = Arc::new(FixedClock {
+            epoch_ms: vienna_ms(2026, 2, 10, 8, 0),
+        });
+        cache::set_daily_reminder_enabled(kv.as_ref(), true);
+        cache::set_daily_reminder_time(kv.as_ref(), 11, 0);
+        let store = OrderStore::new(g, kv.clone(), clock);
+        // ORDERS_PAGE holds an order for 10.02.2026 → today at this clock.
+        t.queue_response(ok(ORDERS_PAGE));
+        let cmds = store.fetch_orders().await.unwrap();
+        assert!(
+            matches!(&cmds[0], NotificationCommand::CancelPending { id } if id == GEOFENCE_REMINDER_ID),
+            "geofence cancel must come first, got {cmds:?}"
+        );
+        assert!(
+            matches!(&cmds[1], NotificationCommand::ScheduleAt { id, .. } if id == DAILY_REMINDER_ID),
+            "daily reminder must follow the geofence cancel, got {cmds:?}"
+        );
+        assert!(
+            matches!(&cmds[2], NotificationCommand::ScheduleAt { id, .. } if id == CANCEL_REMINDER_ID),
+            "cancel reminder must come last, got {cmds:?}"
+        );
+    }
+
+    /// REQ-NTF-02: with no order for Vienna-today the fetch must NOT retract the geofence
+    /// notice. Clock on 2026-02-09: ORDERS_PAGE holds orders only for 10.–12.02.2026.
+    // @req REQ-NTF-02
+    #[tokio::test]
+    async fn fetch_without_order_today_emits_no_geofence_cancel() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = logged_in_gourmet(&t).await;
+        let kv = Arc::new(MemoryKv::new());
+        let clock = Arc::new(FixedClock {
+            epoch_ms: vienna_ms(2026, 2, 9, 8, 0),
+        });
+        cache::set_daily_reminder_enabled(kv.as_ref(), true);
+        cache::set_daily_reminder_time(kv.as_ref(), 11, 0);
+        let store = OrderStore::new(g, kv.clone(), clock);
+        t.queue_response(ok(ORDERS_PAGE));
+        let cmds = store.fetch_orders().await.unwrap();
+        assert!(store.error().is_none());
+        assert!(no_geofence_command(&cmds), "got {cmds:?}");
+    }
+
+    /// REQ-NTF-03: headless check on an empty cache, user not at company → the ONLY command
+    /// retracts the pending cancel reminder (notifications-cancel-reminder §3).
+    // @req REQ-NTF-03
+    #[tokio::test]
+    async fn run_order_sync_check_empty_cache_retracts_cancel_reminder() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = gp(Arc::new(GourmetApi::new(t.clone())));
+        let kv = Arc::new(MemoryKv::new());
+        let clock = Arc::new(FixedClock {
+            epoch_ms: vienna_ms(2026, 2, 10, 8, 0),
+        });
+        let store = OrderStore::new(g, kv, clock);
+        let cmds = store.run_order_sync_check();
+        assert_eq!(cmds.len(), 1, "got {cmds:?}");
+        assert!(
+            matches!(&cmds[0], NotificationCommand::CancelPending { id } if id == CANCEL_REMINDER_ID),
+            "got {cmds:?}"
+        );
+        // no network: the transport never received a request
+        assert!(t.requests().is_empty());
+    }
+
+    /// REQ-NTF-03: the headless check never carries a geofence command, even when the cache
+    /// holds an order for today (the geofence retract belongs to the fetch path only).
+    // @req REQ-NTF-03
+    #[tokio::test]
+    async fn run_order_sync_check_excludes_geofence_cancel() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = gp(Arc::new(GourmetApi::new(t.clone())));
+        let kv = Arc::new(MemoryKv::new());
+        let clock = Arc::new(FixedClock {
+            epoch_ms: vienna_ms(2026, 2, 10, 8, 0),
+        });
+        cache::set_daily_reminder_enabled(kv.as_ref(), true);
+        cache::set_daily_reminder_time(kv.as_ref(), 11, 0);
+        cache::save_orders(
+            kv.as_ref(),
+            &[OrderedMenu {
+                position_id: "P1".into(),
+                eating_cycle_id: String::new(),
+                date_epoch_ms: vienna_ms(2026, 2, 10, 12, 0),
+                title: "MENÜ I".into(),
+                subtitle: String::new(),
+                approved: false,
+            }],
+        )
+        .unwrap();
+        let store = OrderStore::new(g, kv, clock);
+        let cmds = store.run_order_sync_check();
+        assert!(no_geofence_command(&cmds), "got {cmds:?}");
+        assert!(t.requests().is_empty());
     }
 
     #[tokio::test]

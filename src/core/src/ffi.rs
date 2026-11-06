@@ -269,19 +269,7 @@ impl SnackPilotCore {
     /// network, v1's "no concurrent scraping" rule) and returns the daily + cancel reminder
     /// commands to deliver. Called from BGTaskScheduler / WorkManager with no UI attached.
     pub fn run_order_sync_check(&self) -> Vec<NotificationCommand> {
-        self.orders.load_cached_orders();
-        let orders = self.orders.orders();
-        let settings = cache::load_daily_reminder_settings(self.kv.as_ref());
-        let mut commands = Vec::new();
-        if let Some(c) = check_daily_reminder(self.clock.as_ref(), &settings, &orders) {
-            commands.push(c);
-        }
-        // Cancel-reminder check (§6): reads the persisted `is_at_company` flag.
-        let at_company = cache::load_is_at_company(self.kv.as_ref());
-        if let Some(c) = check_cancel_reminder(self.clock.as_ref(), at_company, &orders) {
-            commands.push(c);
-        }
-        commands
+        self.orders.run_order_sync_check()
     }
     pub fn cancel_reminder_command(&self, is_at_company: bool) -> Option<NotificationCommand> {
         check_cancel_reminder(self.clock.as_ref(), is_at_company, &self.orders.orders())
