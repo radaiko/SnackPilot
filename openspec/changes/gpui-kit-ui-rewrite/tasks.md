@@ -13,7 +13,7 @@ Conventions for every task below:
 
 ## 1. Foundation
 
-- [ ] 1.1 Create the `src/ui` workspace, pin the gpui dependency set and add `ui-check`
+- [x] 1.1 Create the `src/ui` workspace, pin the gpui dependency set and add `ui-check`
   - tier: normal
   - host: Linux
   - files: `src/ui/Cargo.toml`, `src/ui/Cargo.lock`, `src/ui/.gitignore`, `src/ui/rust-toolchain.toml` (only if the pinned gpui needs a newer rustc than the installed one; record the version), `src/ui/model/Cargo.toml`, `src/ui/model/src/lib.rs`, `src/ui/model/tests/pins.rs`, `src/ui/app/Cargo.toml`, `src/ui/app/src/lib.rs`, `Makefile`, `.forgejo/workflows/ui.yml`
