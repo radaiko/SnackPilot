@@ -68,7 +68,7 @@ Conventions for every task below:
   - check: `make check`; additionally `IOS_TEST`; additionally `grep -n 'AppModel' src/ios/SnackPilot/BackgroundTasks.swift` prints nothing
   - proof: XCTest run above; Device registration evidence in 4.1
 
-- [ ] 2.3 iOS FireNow shows immediately
+- [x] 2.3 iOS FireNow shows immediately
   - status: gap (the `after <= 0` branch from `f836f12` is unreachable; consuming `FireNow` and post-fetch commands is implemented)
   - tier: normal
   - host: Mac
