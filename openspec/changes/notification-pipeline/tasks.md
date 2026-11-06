@@ -132,7 +132,7 @@ Conventions for every task below:
 
 ## 4. End-to-end evidence
 
-- [ ] 4.1 Device and emulator proof of the pipeline
+- [x] 4.1 Device and emulator proof of the pipeline
   - status: gap (no end-to-end proof exists)
   - tier: normal
   - host: Mac (simulator and Device), Emulator
