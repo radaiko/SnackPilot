@@ -1,0 +1,32 @@
+# make check on the VM, fresh run (task 4.1 re-run of all suites)
+# command: make check (fmt, clippy, cargo test workspace, spec-lint)
+OPENSPEC_TELEMETRY=0 openspec validate --all --strict --no-interactive
+✓ change/gpui-kit-ui-rewrite
+✓ change/notification-pipeline
+Totals: 2 passed, 0 failed (2 items)
+cd src/ui && cargo fmt --all --check
+cd src/ui && cargo clippy -p snackpilot-model --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.58s
+cd src/ui && cargo test -p snackpilot-model
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.60s
+     Running unittests src/lib.rs (target/debug/deps/snackpilot_model-d0a07fe73e7be7df)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pins.rs (target/debug/deps/pins-cd6f72bd1d9ab039)
+
+running 2 tests
+test model_manifest_lists_no_http_client ... ok
+test gpui_dependencies_are_pinned ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests snackpilot_model
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+EXIT=0

@@ -1,0 +1,8 @@
+# IOS_TEST on the Mac, fresh run (task 4.1 re-run of all suites)
+# command: cd ~/vm-sync/SnackPilot/src/ios && ./bootstrap.sh && xcodebuild test -scheme SnackPilotTests -destination "platform=iOS Simulator,name=iPhone 17 Pro" CODE_SIGNING_ALLOWED=NO
+# (a devicectl "passcode protected" discovery-noise line appears in the log; unrelated to the test run)
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.027 (0.035) seconds
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.027 (0.035) seconds
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.027 (0.036) seconds
+** TEST SUCCEEDED **
+EXIT=0

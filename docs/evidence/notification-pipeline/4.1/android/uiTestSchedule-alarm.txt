@@ -1,0 +1,39 @@
+# launch: am start ... --ez uiTestSchedule true (schedules reminder alarm ~3 s out via AlarmManager)
+# app pid 5001, logcat after launch + alarm fire:
+11-06 22:08:39.317   683   787 W InputDispatcher: channel '804d3e7 dev.radaiko.gourmetclient/dev.radaiko.snackpilot.MainActivity' ~ Consumer closed input channel or an error occurred.  events=0x9
+11-06 22:08:39.317   683   787 E InputDispatcher: channel '804d3e7 dev.radaiko.gourmetclient/dev.radaiko.snackpilot.MainActivity' ~ Channel is unrecoverably broken and will be disposed!
+11-06 22:08:39.474   683  2078 I ActivityTaskManager: START u0 {flg=0x10000000 xflg=0x4 cmp=dev.radaiko.gourmetclient/dev.radaiko.snackpilot.MainActivity (has extras)} with LAUNCH_MULTIPLE from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
+11-06 22:08:39.493   683   714 I ActivityManager: Start proc 5001:dev.radaiko.gourmetclient/u0a226 for next-top-activity {dev.radaiko.gourmetclient/dev.radaiko.snackpilot.MainActivity}
+11-06 22:08:39.500  5001  5001 I o.gourmetclient: Late-enabling -Xcheck:jni
+11-06 22:08:39.533  5001  5001 I o.gourmetclient: Using CollectorTypeCMC GC.
+11-06 22:08:39.535  5001  5001 W o.gourmetclient: Unexpected CPU variant for x86: x86_64.
+11-06 22:08:39.535  5001  5001 W o.gourmetclient: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, goldmont-without-sha-xsaves, tremont, kabylake, alderlake, default
+11-06 22:08:39.544  5001  5001 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+11-06 22:08:39.785  5001  5001 D nativeloader: Configuring clns-9 for other apk /data/app/~~9zV2xyPGbNOL7mhA9uXBvQ==/dev.radaiko.gourmetclient-mKfG7LUqxyRddeoyPQsPJw==/base.apk. target_sdk_version=36, uses_libraries=, library_path=/data/app/~~9zV2xyPGbNOL7mhA9uXBvQ==/dev.radaiko.gourmetclient-mKfG7LUqxyRddeoyPQsPJw==/lib/x86_64:/data/app/~~9zV2xyPGbNOL7mhA9uXBvQ==/dev.radaiko.gourmetclient-mKfG7LUqxyRddeoyPQsPJw==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/dev.radaiko.gourmetclient
+11-06 22:08:39.793  5001  5001 I o.gourmetclient: AssetManager2(0x7ebeedc114f8) locale list changing from [] to [en-US]
+11-06 22:08:39.796  5001  5001 V GraphicsEnvironment: Currently set values for:
+11-06 22:08:39.796  5001  5001 V GraphicsEnvironment:   angle_gl_driver_selection_pkgs=[]
+11-06 22:08:39.796  5001  5001 V GraphicsEnvironment:   angle_gl_driver_selection_values=[]
+11-06 22:08:39.796  5001  5001 V GraphicsEnvironment: dev.radaiko.gourmetclient is not listed in per-application setting
+11-06 22:08:39.796  5001  5001 V GraphicsEnvironment: ANGLE allowlist from config: com.dreamgames.royalmatch com.dts.freefiremax com.dxx.firenow com.gramgames.mergedragons com.ludo.king com.mojang.minecraftpe com.my.defense com.nintendo.zaka com.os.airforce com.playrix.fishdomdd.gplay io.teslatech.callbreak jp.konami.prospia net.peakgames.toonblast
+11-06 22:08:39.796  5001  5001 V GraphicsEnvironment: dev.radaiko.gourmetclient is not listed in ANGLE allowlist or settings, returning default
+11-06 22:08:39.797  5001  5001 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+11-06 22:08:39.843  5001  5001 D WM-WrkMgrInitializer: Initializing WorkManager with default configuration.
+11-06 22:08:39.897  5001  5001 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemjob.SystemJobService
+11-06 22:08:39.897  5001  5001 D WM-Schedulers: Created SystemJobScheduler and enabled SystemJobService
+11-06 22:08:39.924  5001  5017 E ashmem  : Pinning is deprecated since Android Q. Please use trim or other methods.
+11-06 22:08:39.971  5001  5001 I o.gourmetclient: AssetManager2(0x7ebeedc0e2f8) locale list changing from [] to [en-US]
+11-06 22:08:39.972  5001  5025 I DisplayManager: Choreographer implicitly registered for the refresh rate.
+11-06 22:08:40.007  5001  5001 D CompatChangeReporter: Compat change id reported: 377864165; UID 10226; state: ENABLED
+11-06 22:08:40.008  5001  5001 D DesktopModeFlags: Toggle override initialized to: OVERRIDE_UNSET
+11-06 22:08:40.014  5001  5025 I EGL_emulation: Opening libGLESv1_CM_emulation.so
+11-06 22:08:40.017  5001  5025 I EGL_emulation: Opening libGLESv2_emulation.so
+11-06 22:08:40.039  5001  5025 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+11-06 22:08:40.071  5001  5001 W HWUI    : Unknown dataspace 0
+FATAL EXCEPTION count: 0
+
+# dumpsys notification shows the alarm-fired reminder posted to order-reminders
+# (re-captured 23:35 after reinstall of versionName=2.2.0; am start --ez uiTestSchedule true, +10 s):
+    NotificationRecord(0x06308b38: pkg=dev.radaiko.gourmetclient user=UserHandle{0} id=-1583938739 tag=null importance=4 key=0|dev.radaiko.gourmetclient|-1583938739|null|10231: Notification(channel=order-reminders shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=AUTO_CANCEL color=0x00000000 vis=PRIVATE))
+                android.title=String (Bestell-Erinnerung)
+                android.text=String (Vergiss nicht, dein Menü zu bestellen.)
