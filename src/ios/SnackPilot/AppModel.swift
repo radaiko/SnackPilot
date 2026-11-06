@@ -109,10 +109,10 @@ final class AppModel: ObservableObject {
 
         // Hydrate the reminder UI from the core KV (§9) — the core is the single source of truth,
         // so a background task or the other shell changing the settings shows up on next launch.
-        let reminderSettings = core.dailyReminderSettings()
-        dailyReminderEnabled = reminderSettings.enabled
-        reminderHour = reminderSettings.hour.map(Int.init) ?? 11
-        reminderMinute = reminderSettings.minute.map(Int.init) ?? 0
+        let hydrated = ReminderWindow.hydrate(core.dailyReminderSettings())
+        dailyReminderEnabled = hydrated.enabled
+        reminderHour = hydrated.hour
+        reminderMinute = hydrated.minute
 
         // Broadcast banner: fetch the operator message (independent of login) at launch.
         Task { await loadBroadcast() }
@@ -674,6 +674,25 @@ final class AppModel: ObservableObject {
         applyDailyReminder()
     }
 
+    /// Toggle-on path (design D9): request notification permission first; on denial show the
+    /// §7.1 alert and change nothing (the toggle binding reads `dailyReminderEnabled`, which is
+    /// untouched, so it stays off). On grant, write time then enabled flag through the core and
+    /// apply the reminder. Turning off and the picker call `setDailyReminder` directly.
+    func requestEnableDailyReminder() async {
+        let granted = await ReminderWindow.enable(
+            core: core, hour: reminderHour, minute: reminderMinute,
+            requestPermission: { await NotificationService.shared.requestPermissionGranted() })
+        guard granted else {
+            locationAlert = LocationAlert(
+                title: "Berechtigung fehlt",
+                message: "Benachrichtigungen werden für diese Funktion benötigt. "
+                    + "Bitte in den Einstellungen aktivieren.")
+            return
+        }
+        dailyReminderEnabled = true
+        applyDailyReminder()
+    }
+
     /// Ask the core for the daily-reminder command given the current orders/time and deliver it.
     /// When disabled, cancel any previously scheduled reminder (the core returns nil when off).
     func applyDailyReminder() {
@@ -821,6 +840,41 @@ final class AppModel: ObservableObject {
         case "settings": return 3
         default: return 0
         }
+    }
+}
+
+/// Daily-reminder window 11:00–13:45 (notifications-daily-reminder §234/§243, design D10):
+/// pure helpers for the shell so the picker, hydration and the permission-gated enable are
+/// unit-testable without UI state.
+enum ReminderWindow {
+    /// Window bounds in minutes since midnight: 11:00 and 13:45.
+    static let startMinutes = 11 * 60
+    static let endMinutes = 13 * 60 + 45
+
+    /// Clamp a picked time to the window by snapping to the NEAREST bound as a whole time
+    /// (design D10; clamping hour and minute independently turns 08:30 into 11:30 — a bug).
+    static func clamp(hour: Int, minute: Int) -> (hour: Int, minute: Int) {
+        let total = hour * 60 + minute
+        if total < startMinutes { return (11, 0) }
+        if total > endMinutes { return (13, 45) }
+        return (hour, minute)
+    }
+
+    /// UI mirrors from the core's stored settings; no stored time gives the spec default 11:00.
+    static func hydrate(_ settings: DailyReminderSettings) -> (enabled: Bool, hour: Int, minute: Int) {
+        (settings.enabled, settings.hour.map(Int.init) ?? 11, settings.minute.map(Int.init) ?? 0)
+    }
+
+    /// Permission-gated enable (REQ-NTF-05): denied → false, nothing written; granted → write the
+    /// time then the enabled flag through the core (spec "Write order") and return true.
+    static func enable(
+        core: SnackPilotCore, hour: Int, minute: Int,
+        requestPermission: () async -> Bool
+    ) async -> Bool {
+        guard await requestPermission() else { return false }
+        core.setDailyReminderTime(hour: UInt8(hour), minute: UInt8(minute))
+        core.setDailyReminderEnabled(enabled: true)
+        return true
     }
 }
 
