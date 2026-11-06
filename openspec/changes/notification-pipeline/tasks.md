@@ -44,7 +44,7 @@ Conventions for every task below:
 
 ## 2. iOS
 
-- [ ] 2.1 Packaged Info.plist from the xcodegen `info:` block
+- [x] 2.1 Packaged Info.plist from the xcodegen `info:` block
   - status: verify (implemented in `1725a19`, `ef4b9d3`, `292e94d`)
   - tier: normal
   - host: Mac
