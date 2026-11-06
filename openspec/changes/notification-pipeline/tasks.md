@@ -106,7 +106,7 @@ Conventions for every task below:
   - check: `make check`; additionally `ANDROID_TEST`; on the emulator, after `adb uninstall dev.radaiko.gourmetclient` then `adb install -r` of the debug APK and one launch, `adb shell dumpsys jobscheduler | grep -c dev.radaiko.gourmetclient` is at least 1, `adb shell cmd jobscheduler run -f dev.radaiko.gourmetclient <jobId>` followed by `adb logcat -d` shows no `FATAL EXCEPTION`, and `adb shell am broadcast -a android.intent.action.BOOT_COMPLETED -n dev.radaiko.gourmetclient/dev.radaiko.snackpilot.BootBroadcastReceiver` leaves exactly one job (if the shell may not target a non-exported receiver, `adb reboot` the emulator and repeat the `dumpsys` count instead; record which)
   - proof: android workflow (`assembleDebug`) plus the JVM unit tests above
 
-- [ ] 3.2 Android delivery: permission gate, channels, Doze-safe alarms
+- [x] 3.2 Android delivery: permission gate, channels, Doze-safe alarms
   - status: verify (implemented in `f836f12`; constants and pure helpers are extracted so they can be tested)
   - tier: normal
   - host: Linux + Emulator
