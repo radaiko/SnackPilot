@@ -3,6 +3,7 @@ package dev.radaiko.snackpilot.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -94,6 +95,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.radaiko.snackpilot.AccentColor
 import dev.radaiko.snackpilot.AppViewModel
 import dev.radaiko.snackpilot.BillingSource
+import dev.radaiko.snackpilot.NotificationService
 import dev.radaiko.snackpilot.ThemePreference
 import uniffi.snackpilot_core.LogSubsystem
 import uniffi.snackpilot_core.MenuCategory
@@ -1002,11 +1004,33 @@ private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Un
 
             Spacer(Modifier.padding(8.dp))
             Text("Benachrichtigungen", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            val notifCtx = LocalContext.current
+            // REQ-NTF-05: turning the reminder on needs POST_NOTIFICATIONS first; a denial shows
+            // the spec alert and leaves the switch off. Turning off requests nothing.
+            val notifPermission = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                if (granted) vm.setDailyReminder(true, vm.reminderHour, vm.reminderMinute)
+                else vm.onNotificationPermissionDenied()
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Tägliche Bestell-Erinnerung", modifier = Modifier.weight(1f))
                 Switch(
                     checked = vm.dailyReminderEnabled,
-                    onCheckedChange = { vm.setDailyReminder(it, vm.reminderHour, vm.reminderMinute) }
+                    onCheckedChange = { on ->
+                        if (!on) {
+                            vm.setDailyReminder(false, vm.reminderHour, vm.reminderMinute)
+                        } else {
+                            val granted = ContextCompat.checkSelfPermission(
+                                notifCtx, Manifest.permission.POST_NOTIFICATIONS
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (NotificationService.notificationsAllowed(Build.VERSION.SDK_INT, granted)) {
+                                vm.setDailyReminder(true, vm.reminderHour, vm.reminderMinute)
+                            } else {
+                                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
+                    }
                 )
             }
             if (vm.dailyReminderEnabled) {
@@ -1014,10 +1038,9 @@ private fun SettingsRootList(vm: AppViewModel, onNavigate: (SettingsRoute) -> Un
                 TextButton(onClick = {
                     TimePickerDialog(
                         ctx,
-                        // Clamp to the spec window 11:00–13:45 (notifications-daily-reminder §243).
+                        // Clamp to the window 11:00–13:45 by nearest bound (design D10).
                         { _, h, m ->
-                            val hour = h.coerceIn(11, 13)
-                            val minute = if (hour == 13) m.coerceAtMost(45) else m.coerceIn(0, 59)
+                            val (hour, minute) = AppViewModel.clampReminder(h, m)
                             vm.setDailyReminder(true, hour, minute)
                         },
                         vm.reminderHour, vm.reminderMinute, true

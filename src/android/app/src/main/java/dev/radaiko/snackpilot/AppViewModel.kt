@@ -216,11 +216,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val dir = File(app.filesDir, "snackpilot").apply { mkdirs() }
         core = SnackPilotCore(CoreConfig(storageDir = dir.absolutePath), analytics = AptabaseSink())
         // Daily-reminder settings live in the core KV (§9) — hydrate the UI from there so the
-        // headless worker and this shell share one source of truth. Defaults 11:00 per spec §243.
+        // headless worker and this shell share one source of truth. Defaults off + 11:00 per spec.
         val reminderSettings = runCatching { core.dailyReminderSettings() }.getOrNull()
-        dailyReminderEnabled = reminderSettings?.enabled ?: false
-        reminderHour = reminderSettings?.hour?.toInt() ?: 11
-        reminderMinute = reminderSettings?.minute?.toInt() ?: 0
+        val (enabled, hour, minute) = hydrateReminder(
+            reminderSettings?.enabled, reminderSettings?.hour?.toInt(), reminderSettings?.minute?.toInt()
+        )
+        dailyReminderEnabled = enabled
+        reminderHour = hour
+        reminderMinute = minute
         themePreference = prefs.getString("theme_preference", null)
             ?.let { runCatching { ThemePreference.valueOf(it) }.getOrNull() } ?: ThemePreference.SYSTEM
         accentColor = prefs.getString("accent_color", null)
@@ -451,13 +454,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** POST_NOTIFICATIONS denied (API 33+, §5.1/§7.2). Reminders cannot be delivered without it;
-     *  surface the same style of hint the iOS flow shows so the user knows where to fix it. */
+     *  surface the spec-worded hint (settings §7.1) so the user knows where to fix it. */
     fun onNotificationPermissionDenied() {
-        locationDialog = LocationDialog(
-            "Berechtigung fehlt",
-            "Benachrichtigungen werden für Erinnerungen benötigt. " +
-                "Bitte in den Einstellungen aktivieren."
-        )
+        locationDialog = LocationDialog(PERMISSION_DENIED_TITLE, PERMISSION_DENIED_MESSAGE)
     }
 
     /** "Standort entfernen" (§8): stop the geofence and clear the saved location (also resets
@@ -832,5 +831,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             ventopayAuthenticated = false
             ventopayError = null
         }
+    }
+
+    companion object {
+        /** Daily-reminder denial alert, verbatim from settings §7.1 (REQ-NTF-05). */
+        const val PERMISSION_DENIED_TITLE = "Berechtigung fehlt"
+        const val PERMISSION_DENIED_MESSAGE =
+            "Benachrichtigungen werden für diese Funktion benötigt. Bitte in den Einstellungen aktivieren."
+
+        /** Clamp a picked time to the window 11:00–13:45 by snapping the WHOLE time to the
+         *  nearest bound (design D10; clamping hour and minute independently turns 08:30 into
+         *  11:30 — a bug). Mirror of iOS `ReminderWindow.clamp`. */
+        fun clampReminder(hour: Int, minute: Int): Pair<Int, Int> {
+            val total = hour * 60 + minute
+            return when {
+                total < 11 * 60 -> 11 to 0
+                total > 13 * 60 + 45 -> 13 to 45
+                else -> hour to minute
+            }
+        }
+
+        /** UI mirrors from the core KV values (REQ-NTF-04): no stored values give the spec
+         *  defaults — off at 11:00. Mirror of iOS `ReminderWindow.hydrate`. */
+        fun hydrateReminder(enabled: Boolean?, hour: Int?, minute: Int?): Triple<Boolean, Int, Int> =
+            Triple(enabled ?: false, hour ?: 11, minute ?: 0)
     }
 }

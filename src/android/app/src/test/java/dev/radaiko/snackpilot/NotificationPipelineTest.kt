@@ -136,4 +136,37 @@ class NotificationPipelineTest {
             assertEquals("second", SyncGate.runExclusive { "second" })
         }
     }
+
+    /** @req REQ-NTF-04 */
+    @Test
+    fun clampReminderUsesNearestBound() {
+        // design D10: the whole time snaps to the NEAREST bound. Clamping hour and minute
+        // independently turned 08:30 into 11:30 — a bug pinned here.
+        assertEquals(11 to 0, AppViewModel.clampReminder(8, 30))
+        assertEquals(13 to 45, AppViewModel.clampReminder(13, 50))
+        assertEquals(13 to 45, AppViewModel.clampReminder(14, 30))
+        assertEquals(12 to 20, AppViewModel.clampReminder(12, 20))
+    }
+
+    /** @req REQ-NTF-04 */
+    @Test
+    fun hydrateReminderFallsBackToSpecDefaults() {
+        // Fresh install / core KV without a stored time: off at the spec default 11:00;
+        // stored values pass through unchanged.
+        assertEquals(Triple(false, 11, 0), AppViewModel.hydrateReminder(null, null, null))
+        assertEquals(Triple(true, 11, 0), AppViewModel.hydrateReminder(true, null, null))
+        assertEquals(Triple(true, 12, 20), AppViewModel.hydrateReminder(true, 12, 20))
+    }
+
+    /** @req REQ-NTF-05 */
+    @Test
+    fun permissionDeniedTextMatchesSpec() {
+        // settings §7.1 verbatim: the denial alert must carry exactly this title and message.
+        assertEquals("Berechtigung fehlt", AppViewModel.PERMISSION_DENIED_TITLE)
+        assertEquals(
+            "Benachrichtigungen werden für diese Funktion benötigt. " +
+                "Bitte in den Einstellungen aktivieren.",
+            AppViewModel.PERMISSION_DENIED_MESSAGE,
+        )
+    }
 }
