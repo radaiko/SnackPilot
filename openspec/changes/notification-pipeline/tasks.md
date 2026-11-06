@@ -94,7 +94,7 @@ Conventions for every task below:
 
 ## 3. Android
 
-- [ ] 3.1 WorkManager worker, boot receiver and single-flight
+- [x] 3.1 WorkManager worker, boot receiver and single-flight
   - status: partial (worker, boot receiver, schedule at app start and the manual button implemented in `f836f12`; `SyncGate`, constants and the debug extra are new)
   - tier: normal
   - host: Linux + Emulator
