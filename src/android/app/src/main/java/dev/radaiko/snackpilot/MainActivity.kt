@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
         val autoOrder = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestOrder", false)
         val autoLog = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestLog", false)
         val autoReminder = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestReminder", false)
+        val autoBackgroundSync = BuildConfig.DEBUG && intent.getBooleanExtra("uiTestBackgroundSync", false)
         val initialTab = intent.getStringExtra("uiTestTab")
         setContent {
             // Hoist the vm above the theme so the appearance settings it holds (preference + accent)
@@ -67,7 +68,8 @@ class MainActivity : ComponentActivity() {
                     initialTab = initialTab,
                     autoOrder = autoOrder,
                     autoLog = autoLog,
-                    autoReminder = autoReminder
+                    autoReminder = autoReminder,
+                    autoBackgroundSync = autoBackgroundSync
                 )
             }
         }
