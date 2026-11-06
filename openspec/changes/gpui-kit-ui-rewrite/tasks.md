@@ -24,7 +24,7 @@ Conventions for every task below:
   - check: `make check`; additionally `cd src/ui && cargo metadata --locked --format-version 1 >/dev/null`
   - proof: ui workflow (`make ui-check`), core workflow unchanged
 
-- [ ] 1.2 Add the worktree-to-Mac rsync script and `make mac-sync`
+- [x] 1.2 Add the worktree-to-Mac rsync script and `make mac-sync`
   - tier: trivial
   - host: Linux, then Mac
   - files: `tools/devops/sync-mac.sh`, `tools/devops/test-sync-mac.sh`, `tools/devops/README.md`, `Makefile`
