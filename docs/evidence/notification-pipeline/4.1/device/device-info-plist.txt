@@ -1,0 +1,81 @@
+# plutil -p of the SIGNED built app Info.plist
+# (/tmp/snackpilot-dd/Build/Products/Debug-iphoneos/SnackPilot.app/Info.plist on the Mac).
+# This is the artifact that failed to INSTALL on the XR (see device-signing-blocked.txt);
+# the on-device installed plist could therefore not be captured. Same bytes as would install.
+
+{
+  "BGTaskSchedulerPermittedIdentifiers" => [
+    0 => "dev.radaiko.gourmetclient.menu-refresh"
+  ]
+  "BuildMachineOSBuild" => "25F84"
+  "CFBundleDevelopmentRegion" => "en"
+  "CFBundleDisplayName" => "SnackPilot"
+  "CFBundleExecutable" => "SnackPilot"
+  "CFBundleIcons" => {
+    "CFBundleAlternateIcons" => {
+      "AppIcon-berry" => {
+        "CFBundleIconName" => "AppIcon-berry"
+      }
+      "AppIcon-emerald" => {
+        "CFBundleIconName" => "AppIcon-emerald"
+      }
+      "AppIcon-golden" => {
+        "CFBundleIconName" => "AppIcon-golden"
+      }
+      "AppIcon-ocean" => {
+        "CFBundleIconName" => "AppIcon-ocean"
+      }
+    }
+    "CFBundlePrimaryIcon" => {
+      "CFBundleIconFiles" => [
+        0 => "AppIcon60x60"
+      ]
+      "CFBundleIconName" => "AppIcon"
+    }
+  }
+  "CFBundleIcons~ipad" => {
+    "CFBundlePrimaryIcon" => {
+      "CFBundleIconFiles" => [
+        0 => "AppIcon60x60"
+        1 => "AppIcon76x76"
+      ]
+    }
+  }
+  "CFBundleIdentifier" => "dev.radaiko.gourmetclient"
+  "CFBundleInfoDictionaryVersion" => "6.0"
+  "CFBundleName" => "SnackPilot"
+  "CFBundlePackageType" => "APPL"
+  "CFBundleShortVersionString" => "2.2.0"
+  "CFBundleSupportedPlatforms" => [
+    0 => "iPhoneOS"
+  ]
+  "CFBundleVersion" => "37"
+  "DTCompiler" => "com.apple.compilers.llvm.clang.1_0"
+  "DTPlatformBuild" => "23C53"
+  "DTPlatformName" => "iphoneos"
+  "DTPlatformVersion" => "26.2"
+  "DTSDKBuild" => "23C53"
+  "DTSDKName" => "iphoneos26.2"
+  "DTXcode" => "2620"
+  "DTXcodeBuild" => "17C52"
+  "ITSAppUsesNonExemptEncryption" => false
+  "MinimumOSVersion" => "17.0"
+  "NSLocationAlwaysAndWhenInUseUsageDescription" => "SnackPilot nutzt deinen Standort, um dich an Bestellungen zu erinnern, wenn du im Büro bist."
+  "NSLocationWhenInUseUsageDescription" => "SnackPilot nutzt deinen Standort, um deinen Firmenstandort zu speichern."
+  "UIApplicationSceneManifest" => {
+    "UIApplicationSupportsMultipleScenes" => true
+    "UISceneConfigurations" => {
+    }
+  }
+  "UIBackgroundModes" => [
+    0 => "fetch"
+  ]
+  "UIDeviceFamily" => [
+    0 => 1
+  ]
+  "UILaunchScreen" => {
+  }
+  "UIRequiredDeviceCapabilities" => [
+    0 => "arm64"
+  ]
+}

@@ -1,0 +1,54 @@
+# Task 4.1 iOS Device part — BLOCKED, handed to the human.
+# Date: 2026-11-07 (night). Device: "Dev iPhone von Aiko" iPhone XR, CoreDevice UUID
+# 45EFA38D-A20E-5712-95A0-A1F97AE5DDDF, USB UDID 00008020-00122D8402FA002E, iOS 18.7.9,
+# state "available (paired)".
+
+## What succeeded
+- xcodebuild device build (generic/platform=iOS, CODE_SIGN_STYLE=Automatic
+  DEVELOPMENT_TEAM=555V4MNLK3, -derivedDataPath /tmp/snackpilot-dd) run from a one-shot
+  LaunchAgent bootstrapped into gui/501 (Aqua session, per the ios-release-archive skill):
+  ** BUILD SUCCEEDED **, EXIT=0. codesign did NOT fail with errSecInternalComponent in this
+  path — the GUI-session LaunchAgent is the documented signing route, not a workaround.
+- The built app is signed and its Info.plist evidence is in device-info-plist.txt.
+
+## What blocks the Device part: provisioning, not keychain/session
+xcrun devicectl device install app --device 45EFA38D-A20E-5712-95A0-A1F97AE5DDDF
+/tmp/snackpilot-dd/Build/Products/Debug-iphoneos/SnackPilot.app — verbatim error:
+```
+00:36:51  Acquired tunnel connection to device.
+00:36:51  Enabling developer disk image services.
+00:36:51  Acquired usage assertion.
+ERROR: Failed to install the app on the device. (com.apple.dt.CoreDeviceError error 3002 (0xBBA))
+       NSURL = file:///tmp/snackpilot-dd/Build/Products/Debug-iphoneos/SnackPilot.app/
+       ----------------------------------------
+           „SnackPilot“ kann nicht installiert werden (IXUserPresentableErrorDomain error 14 (0x0E))
+           NSLocalizedFailureReason = Diese App kann nicht installiert werden, da ihre Integrität nicht verifiziert werden konnte.
+           NSLocalizedRecoverySuggestion = Failed to install embedded profile for dev.radaiko.gourmetclient : 0xe8008012 (This provisioning profile cannot be installed on this device.)
+       ----------------------------------------
+               Failed to install embedded profile for dev.radaiko.gourmetclient : 0xe8008012 (This provisioning profile cannot be installed on this device.) (MIInstallerErrorDomain error 13 (0x0D))
+               FunctionName = -[MIInstallableBundle _installEmbeddedProfilesWithError:]
+               LegacyErrorString = ApplicationVerificationFailed
+               LibMISErrorNumber = -402620398
+               SourceFileLine = 322
+```
+
+## Diagnosis
+- Embedded profile: "iOS Team Provisioning Profile: dev.radaiko.gourmetclient"
+  (fe0c3227-1c79-4094-b359-4977da0bae8a.mobileprovision), created 2026-02-26, expires 2027-02-26.
+  Its ProvisionedDevices list contains exactly one UDID: 00008150-000E2DDA1A40401C
+  (the iPhone 17 Pro). The Dev iPhone XR (00008020-00122D8402FA002E) is NOT in it.
+- The XR IS registered in team 555V4MNLK3 (cached profiles for other apps from May-Jul 2026
+  list it), so only the Xcode-managed dev profile for this AppID is stale.
+- It cannot be refreshed from the VM: -allowProvisioningUpdates is unusable (Xcode has no
+  Apple account on that machine -> "No Accounts", per the macbook-build skill), and
+  PROVISIONING_PROFILE_SPECIFIER must never be set. No profile injection was attempted.
+
+## Handoff (human, in Xcode on the Mac)
+Sign into the Apple ID in Xcode > Settings > Accounts for team 555V4MNLK3 (or run any build
+with -allowProvisioningUpdates once) so Xcode regenerates the Xcode-managed
+"iOS Team Provisioning Profile: dev.radaiko.gourmetclient" to include the XR, then re-run:
+  xcodebuild ... (same flags) via the gui/501 LaunchAgent, then
+  xcrun devicectl device install app --device 45EFA38D-A20E-5712-95A0-A1F97AE5DDDF <app>
+  xcrun devicectl device process launch --console -t 60 dev.radaiko.gourmetclient
+and save the 60 s capture; it must contain no "SnackPilot BGTask: submit failed" line
+(that string is the NSLog in src/ios/SnackPilot/BackgroundTasks.swift:41).

@@ -1,0 +1,6 @@
+# ANDROID_TEST on the VM, fresh run (task 4.1 re-run of all suites)
+# command: ANDROID_NDK_HOME=... JAVA_HOME=... ./bootstrap.sh && ./gradlew :app:testDebugUnitTest --rerun :app:assembleDebug --no-daemon
+> Task :app:testDebugUnitTest
+BUILD SUCCESSFUL in 26s
+43 actionable tasks: 1 executed, 42 up-to-date
+EXIT=0
