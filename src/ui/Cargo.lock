@@ -6954,15 +6954,18 @@ dependencies = [
 name = "snackpilot-app"
 version = "0.0.0"
 dependencies = [
+ "android-activity",
+ "android_logger",
  "gpui-kit",
  "gpui-pre",
  "gpui-pre-mobile",
+ "log",
  "snackpilot-core",
 ]
 
 [[package]]
 name = "snackpilot-core"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "chrono",
  "chrono-tz",

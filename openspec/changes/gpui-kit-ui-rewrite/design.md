@@ -115,3 +115,60 @@ The Android host Activity declares `configChanges` for orientation, screen size,
 ## Open Questions
 
 None blocks the specs. Deferred decisions are listed in the proposal assumptions; the questions put to the human are repeated in the handoff report.
+
+## Spike result: Android (task 2.1)
+
+**Verdict: PASS (go).** A gpui-kit `Root` runs on the `headless` emulator: one
+`gpui_kit::component::Root` mounted via `gpui_kit::init(cx)` (never
+`application()`), showing "Menüs / Bestellungen / Abrechnung / Einstellungen"
+and a counter button in bundled Inter; `adb shell input tap` increments the
+counter (evidence `docs/evidence/gpui-kit-ui-rewrite/2.1/counter-0.png` and
+`counter-1.png`); the app stays alive past 10 s with no `FATAL EXCEPTION` and
+exactly one Root/init log line.
+
+Toolchain: rustc 1.99.1, cargo-ndk 4.1.2, NDK `30.0.16248370`, Gradle wrapper
+9.4.1, JDK 17 (Temurin unpacked to `~/jdk` — no sudo available for a system
+install). Emulator AVD `headless` (android-36 google_apis x86_64) launched with
+`-gpu guest`; wgpu selects the `llvmpipe (LLVM 21.0.0)` Vulkan adapter.
+
+Commands: `bash tools/devops/ui-android-build.sh --release` (exports
+`RUST_FONTCONFIG_DLOPEN=on` and passes `--platform 31`, as the example's
+`.cargo/config.toml` does) then `cd src/ui/android && ./gradlew
+:app:assembleDebug --no-daemon` with `ANDROID_HOME`/`JAVA_HOME` set.
+
+Findings:
+
+- **Release builds are mandatory on this emulator.** A debug build enables
+  `InstanceFlags::DEBUG` via `from_build_config()` (wgpu-types 29.0.4), so wgpu
+  calls `vkSetDebugUtilsObjectNameEXT`, which SIGSEGVs inside the emulator's
+  `vulkan.ranchu.so`. The pinned gpui-mobile example's own debug APK crashes
+  identically (`example-*.png` show the pinned example running and its taps
+  working once built in release), so this is an emulator/wgpu interaction, not
+  an app defect. Release libs are 31 MB per ABI (551 MB debug).
+- **`jni` and `ndk-context` are not needed** in the app crate — the example at
+  rev `0b882efd` needs only `android-activity` (native-activity) and
+  `android_logger`, same as here.
+- cargo-ndk copies dependency dylibs (`libgpui_mobile-*`, `libsnackpilot_core`)
+  into jniLibs, but the app cdylib links them statically (`llvm-readelf -d`
+  shows only system DT_NEEDED entries), so the build script prunes everything
+  but `libsnackpilot_app.so` (APK 66 MB). Gradle caches the jniLibs merge —
+  run `:app:clean` after the prune if libs were deleted in place.
+- Host is a plain `NativeActivity` Java subclass with the framework fullscreen
+  theme, no androidx or res files; `android.app.lib_name=snackpilot_app`;
+  `configChanges` covers orientation/screenSize/keyboard/uiMode (D11).
+- Inter is embedded with `include_bytes!` and registered via
+  `cx.text_system().add_fonts(...)`; the kit theme `font_family` is set to
+  "Inter" after `Theme::change(Light)`.
+- Touch works end to end: gpui-mobile synthesizes MouseDown+MouseUp at the
+  down position on a tap (within an 8 px slop), and kit `Button::on_click`
+  fires. Taps must target the real device-pixel bounds (scale 2.625) —
+  screenshots are downscaled when viewed, so locate widgets by pixel analysis.
+- Caveat: this emulator is shared and the real SnackPilot app (versionCode 37)
+  was repeatedly reinstalled under the same package by a parallel session; the
+  acceptance sequence must run uninstall → install → start → tap → screencap
+  in one adb session and re-check `mCurrentFocus`.
+- Scope note: `src/ui/Cargo.lock` churns with this task because `snackpilot-app`
+  gained its Android deps (`android-activity` native-activity feature,
+  `android_logger`); the lock is not in the task's `files:` but follows from the
+  listed `src/ui/app/Cargo.toml`. Build outputs (`app/build/`, `.gradle/`,
+  `jniLibs/`) are gitignored via `src/ui/.gitignore`.
