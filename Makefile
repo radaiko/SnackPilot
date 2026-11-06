@@ -4,13 +4,13 @@ DEVOPS := tools/devops
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor clean check lint test spec-lint ios-run ios-archive android-run android-keystore ship
+.PHONY: help doctor clean check lint test test-lib spec-lint ios-run ios-archive android-run android-keystore ship
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN{FS=":.*?## "} {printf "  \033[1m%-18s\033[0m %s\n", $$1, $$2}'
 
-check: lint test spec-lint ## Everything CI runs (fmt, clippy, core tests, spec validation)
+check: lint test test-lib spec-lint ## Everything CI runs (fmt, clippy, core tests, spec validation)
 
 lint: ## Rust formatting and lints
 	cd src/core && cargo fmt --all --check
@@ -18,6 +18,9 @@ lint: ## Rust formatting and lints
 
 test: ## Core tests
 	cd src/core && cargo test --workspace --all-targets --all-features
+
+test-lib: ## Unit tests for the devops shell helpers
+	@bash $(DEVOPS)/test-lib.sh
 
 spec-lint: ## OpenSpec validation
 	OPENSPEC_TELEMETRY=0 openspec validate --all --strict --no-interactive

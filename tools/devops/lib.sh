@@ -51,24 +51,33 @@ set_cargo_package_version() {
     || die "set_cargo_package_version: [package].version not set to $v in $file — aborting"
 }
 
+# In-place sed that works on both GNU sed (Linux) and BSD sed (macOS). `sed -i ''` is BSD-only:
+# GNU sed takes the empty string as the script and then reads the real expression as a filename.
+sed_inplace() {
+  local expr=$1 file=$2 tmp
+  tmp="$(mktemp "${TMPDIR:-/tmp}/snackpilot-sed.XXXXXX")"
+  sed -E "$expr" "$file" > "$tmp" && cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
 # Edit `KEY: "value"` (yaml). Quotes preserved.
 set_yaml_key() {
   local file=$1 key=$2 val=$3
-  sed -i '' -E "s/(${key}:[[:space:]]*\")[^\"]*(\")/\1${val}\2/" "$file"
+  sed_inplace "s/(${key}:[[:space:]]*\")[^\"]*(\")/\1${val}\2/" "$file"
   verify_file_contains "$file" "${key}: \"${val}\""
 }
 
 # Edit `key = "value"` (kotlin DSL string).
 set_gradle_string() {
   local file=$1 key=$2 val=$3
-  sed -i '' -E "s/(${key}[[:space:]]*=[[:space:]]*\")[^\"]*(\")/\1${val}\2/" "$file"
+  sed_inplace "s/(${key}[[:space:]]*=[[:space:]]*\")[^\"]*(\")/\1${val}\2/" "$file"
   verify_file_contains "$file" "${key} = \"${val}\""
 }
 
 # Edit `key = <int>` (kotlin DSL number).
 set_gradle_int() {
   local file=$1 key=$2 val=$3
-  sed -i '' -E "s/(${key}[[:space:]]*=[[:space:]]*)[0-9]+/\1${val}/" "$file"
+  sed_inplace "s/(${key}[[:space:]]*=[[:space:]]*)[0-9]+/\1${val}/" "$file"
   verify_file_contains "$file" "${key} = ${val}"
 }
 
