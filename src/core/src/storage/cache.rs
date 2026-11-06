@@ -248,6 +248,7 @@ mod tests {
         assert_eq!(kv.get(MENUS_KEY).unwrap(), None); // removed
     }
 
+    // @req REQ-NTF-01
     #[test]
     fn daily_reminder_settings_round_trip() {
         let kv = MemoryKv::new();
@@ -271,6 +272,7 @@ mod tests {
         );
     }
 
+    // @req REQ-NTF-01
     #[test]
     fn daily_reminder_time_ignores_garbage() {
         let kv = MemoryKv::new();
@@ -279,6 +281,16 @@ mod tests {
             let s = load_daily_reminder_settings(&kv);
             assert_eq!((s.hour, s.minute), (None, None), "for {bad}");
         }
+    }
+
+    // @req REQ-NTF-01
+    #[test]
+    fn daily_reminder_enabled_without_time_reads_unconfigured() {
+        let kv = MemoryKv::new();
+        set_daily_reminder_enabled(&kv, true);
+        let s = load_daily_reminder_settings(&kv);
+        assert!(s.enabled);
+        assert_eq!((s.hour, s.minute), (None, None));
     }
 
     #[test]
