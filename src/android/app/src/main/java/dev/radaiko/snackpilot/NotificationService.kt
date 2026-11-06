@@ -11,6 +11,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import uniffi.snackpilot_core.NotificationCommand
 
+/** Doze-safe AlarmManager mode chosen by [NotificationService.alarmMode]. */
+internal enum class AlarmMode { EXACT_IDLE, INEXACT_IDLE }
+
 /**
  * Executes the core's [NotificationCommand]s via the Android NotificationManager
  * (05-platform-services §3). The core decides *what/when*; this shell delivers. Channels mirror
@@ -27,11 +30,14 @@ class NotificationService(private val context: Context) {
         // Exact ids/names/importance/vibration per 05-platform-services §5.3 so upgraded
         // installs keep consistent channel settings.
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ORDER_REMINDERS, "Bestellungs-Erinnerungen", NotificationManager.IMPORTANCE_HIGH)
-                .apply { vibrationPattern = longArrayOf(0, 250, 250, 250) }
+            NotificationChannel(
+                CHANNEL_ORDER_REMINDERS,
+                CHANNEL_ORDER_REMINDERS_NAME,
+                IMPORTANCE_ORDER_REMINDERS,
+            ).apply { vibrationPattern = CHANNEL_ORDER_REMINDERS_VIBRATION }
         )
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_MENU_UPDATES, "Neue Menüs", NotificationManager.IMPORTANCE_DEFAULT)
+            NotificationChannel(CHANNEL_MENU_UPDATES, CHANNEL_MENU_UPDATES_NAME, IMPORTANCE_MENU_UPDATES)
         )
     }
 
@@ -57,10 +63,9 @@ class NotificationService(private val context: Context) {
     fun deliver(id: String, title: String, body: String, channelId: String?) {
         // POST_NOTIFICATIONS (API 33+): NotificationManagerCompat silently no-ops when denied,
         // so check explicitly — the background paths (worker / alarm) have no UI to prompt.
-        if (Build.VERSION.SDK_INT >= 33 &&
-            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
+        val granted = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!notificationsAllowed(Build.VERSION.SDK_INT, granted)) {
             return
         }
         val channel = channelId ?: CHANNEL_MENU_UPDATES
@@ -92,10 +97,10 @@ class NotificationService(private val context: Context) {
         // (no SCHEDULE_EXACT_ALARM requirement on the fallback path).
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         // canScheduleExactAlarms() only exists on API 31+; below that, exact alarms need no grant.
-        val exact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
-        when {
-            exact -> am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAtEpochMs, pending)
-            else -> am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAtEpochMs, pending)
+        val canExact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+        when (alarmMode(Build.VERSION.SDK_INT, canExact)) {
+            AlarmMode.EXACT_IDLE -> am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAtEpochMs, pending)
+            AlarmMode.INEXACT_IDLE -> am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAtEpochMs, pending)
         }
     }
 
@@ -110,5 +115,24 @@ class NotificationService(private val context: Context) {
     companion object {
         const val CHANNEL_ORDER_REMINDERS = "order-reminders"
         const val CHANNEL_MENU_UPDATES = "menu-updates"
+        // Exact names/importance/vibration per 05-platform-services §5.3, as named constants so
+        // the JVM tests can pin them without a device.
+        const val CHANNEL_ORDER_REMINDERS_NAME = "Bestellungs-Erinnerungen"
+        const val CHANNEL_MENU_UPDATES_NAME = "Neue Menüs"
+        const val IMPORTANCE_ORDER_REMINDERS = NotificationManager.IMPORTANCE_HIGH
+        const val IMPORTANCE_MENU_UPDATES = NotificationManager.IMPORTANCE_DEFAULT
+        val CHANNEL_ORDER_REMINDERS_VIBRATION = longArrayOf(0, 250, 250, 250)
+
+        /** POST_NOTIFICATIONS gate (REQ-NTF-11): below API 33 posting is always allowed;
+         *  from API 33 on it requires the runtime grant. */
+        internal fun notificationsAllowed(sdkInt: Int, granted: Boolean): Boolean =
+            sdkInt < 33 || granted
+
+        /** Doze-safe alarm mode (REQ-NTF-12, design D8): exact-while-idle below API 31 (no
+         *  grant needed there) or when the OS allows exact alarms; inexact allow-while-idle
+         *  otherwise — those may fire minutes late under Doze (SCHEDULE_EXACT_ALARM stays
+         *  undeclared). */
+        internal fun alarmMode(sdkInt: Int, canScheduleExact: Boolean): AlarmMode =
+            if (sdkInt < 31 || canScheduleExact) AlarmMode.EXACT_IDLE else AlarmMode.INEXACT_IDLE
     }
 }
