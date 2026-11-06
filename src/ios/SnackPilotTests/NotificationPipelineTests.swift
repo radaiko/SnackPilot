@@ -36,6 +36,7 @@ final class NotificationPipelineTests: XCTestCase {
         XCTAssertEqual(fireAtEpochMs, 1_000)
     }
 
+    // @req REQ-NTF-06 @req REQ-NTF-07
     func testBackgroundIdentifierMatchesProjectConfig() {
         // BGTaskSchedulerPermittedIdentifiers in project.yml must stay in sync with the code,
         // otherwise register() fails silently at launch.
@@ -45,6 +46,7 @@ final class NotificationPipelineTests: XCTestCase {
         )
     }
 
+    // @req REQ-NTF-07
     func testPackagedInfoPlistPermitsBackgroundRefresh() throws {
         // The GENERATE_INFOPLIST_FILE pipeline silently drops plist keys that are not set as
         // INFOPLIST_KEY_* build settings (validated: the packaged app lacked both keys, so
@@ -57,6 +59,32 @@ final class NotificationPipelineTests: XCTestCase {
         let ids = try XCTUnwrap(info["BGTaskSchedulerPermittedIdentifiers"] as? [String],
                                 "BGTaskScheduler.submit needs the permitted identifier")
         XCTAssertEqual(ids, [BackgroundTasks.refreshIdentifier])
+    }
+
+    // @req REQ-NTF-07
+    func testPackagedInfoPlistKeepsAppIdentity() throws {
+        // The identity keys the previous GENERATE_INFOPLIST_FILE build shipped must survive the
+        // move to the xcodegen info: block (spec "Nothing else regressed" + "Version keys
+        // resolve"). Bundle.main is the host app's shipped Info.plist, same as above.
+        let info = try XCTUnwrap(Bundle.main.infoDictionary)
+        XCTAssertEqual(info["CFBundleIdentifier"] as? String, "dev.radaiko.gourmetclient")
+        XCTAssertEqual(info["CFBundleDisplayName"] as? String, "SnackPilot")
+        XCTAssertFalse((info["NSLocationWhenInUseUsageDescription"] as? String ?? "").isEmpty,
+                       "location purpose string missing from the packaged plist")
+        XCTAssertFalse((info["NSLocationAlwaysAndWhenInUseUsageDescription"] as? String ?? "").isEmpty,
+                       "always-when-in-use purpose string missing from the packaged plist")
+        XCTAssertEqual(info["ITSAppUsesNonExemptEncryption"] as? Bool, false,
+                       "export-compliance flag must be NO to skip the upload prompt")
+        XCTAssertNotNil(info["UIApplicationSceneManifest"] as? [String: Any],
+                        "scene manifest missing")
+        XCTAssertNotNil(info["UILaunchScreen"] as? [String: Any],
+                        "launch screen missing")
+        // xcodegen writes $(MARKETING_VERSION)/$(CURRENT_PROJECT_VERSION); Xcode must have
+        // expanded them at build time, otherwise TestFlight sees the raw reference.
+        for key in ["CFBundleShortVersionString", "CFBundleVersion"] {
+            let value = try XCTUnwrap(info[key] as? String, "\(key) missing")
+            XCTAssertFalse(value.contains("$("), "\(key) still holds an unresolved build-setting reference")
+        }
     }
 
     func testCoreExposesHeadlessSyncCheckAndSettings() throws {
