@@ -118,7 +118,7 @@ Conventions for every task below:
   - check: `make check`; additionally `ANDROID_TEST`; on the emulator after a fresh install, `adb shell dumpsys notification --noredact | grep -A6 'order-reminders'` shows the name `Bestellungs-Erinnerungen` and importance 4, and the same for `menu-updates` with `Neue Menüs` and importance 3
   - proof: android workflow (`assembleDebug`) plus the JVM unit tests above
 
-- [ ] 3.3 Android reminder settings through the core, picker window and permission gate
+- [x] 3.3 Android reminder settings through the core, picker window and permission gate
   - status: partial (core-backed settings, 11:00 default and window clamp implemented; the toggle permission gate, the spec wording and the nearest-bound rule are new)
   - tier: normal
   - host: Linux
