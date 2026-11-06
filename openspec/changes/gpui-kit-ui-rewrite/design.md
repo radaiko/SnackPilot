@@ -172,3 +172,61 @@ Findings:
   `android_logger`); the lock is not in the task's `files:` but follows from the
   listed `src/ui/app/Cargo.toml`. Build outputs (`app/build/`, `.gradle/`,
   `jniLibs/`) are gitignored via `src/ui/.gitignore`.
+
+## Spike result: iOS (task 2.2)
+
+**Verdict: PASS (go).** The same `SpikeRoot` from 2.1 runs in the iPhone 17 Pro
+simulator (iOS 26.2, arm64) through UIKit containment: `Host/App.swift` calls
+`gpui_ios_set_embedded()` → `gpui_ios_register_app()` (our `mobile.rs` registers
+`gpui_mobile::ios::ffi::set_app_callback` mounting `crate::mount`) →
+`gpui_ios_run_demo()`, borrows the one GPUI view controller for the app lifetime
+via `gpui_ios_get_window()`/`gpui_ios_view_controller()` with
+`addChild`/`addView`/`didMove`, drives frames with a `CADisplayLink` and forwards
+`layoutSubviews` to `gpui_ios_layout_view`. Screenshots
+(`docs/evidence/gpui-kit-ui-rewrite/2.2/counter-0.png`, `counter-1.png`) show the
+same tab line, Inter fonts and counter as 2.1; an XCUITest coordinate tap at
+normalized (0.5, 0.60) increments it (`xcodebuild test` → both `SpikeTapTests`
+PASS); `bg-before.png`/`bg-after.png` are byte-identical across
+springboard-background → `simctl launch`-foreground with the same pid (@req
+REQ-UI-03).
+
+Toolchain: Xcode 26.2 (iPhoneSimulator26.2.sdk), xcodegen 2.46.0, rustc 1.99.0,
+target `aarch64-apple-ios-sim`. Bundle id `dev.radaiko.gourmetclient`, deployment
+target iOS 17.0, no signing (`CODE_SIGNING_ALLOWED=NO`).
+
+Commands (Mac, in `~/vm-sync/SnackPilot-gpui` after `make mac-sync`):
+`bash src/ui/ios/bootstrap.sh` (cargo staticlib + `xcodegen generate`), then
+`xcodebuild -project SnackPilot.xcodeproj -scheme SnackPilot -sdk iphonesimulator
+-destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`, then
+`xcrun simctl uninstall/install/launch` + `xcrun simctl io <udid> screenshot`, and
+`xcodebuild test ... -destination 'platform=iOS Simulator,id=<udid>'`.
+
+Findings:
+
+- **`cargo rustc -- --crate-type=staticlib` appends, it does not replace**: the
+  manifest's `cdylib`+`lib` still apply, rustc emits all three, and cargo only
+  copies manifest crate types out of `target/<triple>/debug/deps/`. `bootstrap.sh`
+  copies `deps/libsnackpilot_app.a` up one level, which keeps `Cargo.toml`
+  untouched (Android stays cdylib). `-force_load` of that `.a` plus `-lc++` and
+  the example's framework list links cleanly; `nm -gU` confirms
+  `_gpui_ios_register_app`, `_spike_count`, `_gpui_ios_run_demo` are exported.
+- The example's `Embedding.h` omits `gpui_ios_did_enter_background` /
+  `gpui_ios_will_enter_foreground` (only its `main.m` variant uses them via
+  `gpui_ios.h`); our Swift-only host declares all lifecycle calls in `Embedding.h`.
+  `main.m`/`gpui_ios.h`/`Info.plist`/`LaunchScreen.storyboard` are not needed:
+  `GENERATE_INFOPLIST_FILE=YES` + `INFOPLIST_KEY_UILaunchScreen_Generation=YES`
+  give a full-size launch screen without checked-in plist files.
+- **GPUI has no accessibility tree**, so the host polls the Rust counter
+  (`spike_count()` C ABI, mirroring `SPIKE_COUNT` in `lib.rs`) each display-link
+  tick into the GPUI view's `accessibilityLabel` ("counter N"); the XCUITest
+  asserts on that label, making the tap → GPUI input → Rust state → redraw round
+  trip self-verifying.
+- `unsigned long` bridges to Swift `UInt`, not `Int` (one-line fix in `App.swift`).
+- `xcodebuild test` needs a concrete simulator destination (`id=<udid>`), not
+  `generic/platform=iOS Simulator` (build-only).
+- Caveat (shared sim, same as 2.1): the real SwiftUI SnackPilot app shares the
+  bundle id and a parallel session had a stale instance running; its pending
+  notification-permission alert covered our root in early screenshots. Our own
+  binary never requests notification authorization (`log show` attributed the
+  request to the foreign pid). `SpikeTapTests` now dismisses springboard alerts
+  at launch; evidence was re-taken after the alert was answered.

@@ -6,7 +6,7 @@
 
 pub mod assets;
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 mod mobile;
 
 use gpui_kit::component::button::Button;
@@ -19,6 +19,16 @@ pub struct SpikeRoot {
     count: usize,
 }
 
+/// Mirror of the counter for the iOS host's accessibility label (task 2.2),
+/// which the XCUITest asserts after a coordinate tap.
+pub static SPIKE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// C ABI read of the counter, polled by `Host/App.swift` (Embedding.h).
+#[no_mangle]
+pub extern "C" fn spike_count() -> usize {
+    SPIKE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 impl SpikeRoot {
     fn counter_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity: Entity<Self> = cx.entity().clone();
@@ -28,6 +38,7 @@ impl SpikeRoot {
                 log::info!("spike: counter button clicked");
                 entity.update(cx, |this, cx| {
                     this.count += 1;
+                    SPIKE_COUNT.store(this.count, std::sync::atomic::Ordering::Relaxed);
                     cx.notify();
                 });
             })
