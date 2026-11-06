@@ -20,9 +20,6 @@ final class AppModel: ObservableObject {
     /// True while a foreground refresh (orders + billing) runs — drives the small global spinner so
     /// a second device's changes are pulled in when the app returns to the foreground.
     @Published var refreshing = false
-    /// Background new-menu checks (BGTaskScheduler / debug button) scrape with their OWN fresh
-    /// session; this flag keeps a second concurrent check from starting (v1's single-flight rule).
-    private var menuCheckRunning = false
     /// The positionId currently being cancelled — drives the per-row delete spinner and guards
     /// against a second cancel starting mid-flight (orders §6.2).
     @Published var cancellingId: String?
@@ -321,6 +318,11 @@ final class AppModel: ObservableObject {
         if ProcessInfo.processInfo.arguments.contains("-uiTestLog") {
             activateLog()
             await runMenuCheck()
+        }
+        // Post-login (demo credentials already saved): run the shared background body once,
+        // so the -13/-14 headless path can be exercised without tapping the Diagnose button.
+        if ProcessInfo.processInfo.arguments.contains("-uiTestBackgroundSync") {
+            await performBackgroundSync()
         }
         if ProcessInfo.processInfo.arguments.contains("-uiTestReminder") {
             setDailyReminder(enabled: true, hour: 11, minute: 30)
@@ -782,13 +784,13 @@ final class AppModel: ObservableObject {
     /// Run the background new-menu check on demand (records diagnostic-log entries). Uses the
     /// current credentials; in demo mode the core short-circuits it (logs `demo_credentials_skip`).
     /// The returned FireNow command (new menu detected) is delivered here — v1 parity: the check
-    /// posts its own notification, the result was previously discarded. Single-flight: a second
-    /// concurrent scrape would be bot-like traffic against Gourmet (ban rules), so callers that
-    /// fire from the background just wait instead of piling up.
+    /// posts its own notification, the result was previously discarded. Shares the
+    /// `BackgroundTasks.isRunning` gate with the background task and the manual trigger
+    /// (REQ-NTF-13): a second concurrent scrape would be bot-like traffic against Gourmet.
     func runMenuCheck() async {
-        guard !menuCheckRunning else { return }
-        menuCheckRunning = true
-        defer { menuCheckRunning = false }
+        guard !BackgroundTasks.isRunning else { return }
+        BackgroundTasks.isRunning = true
+        defer { BackgroundTasks.isRunning = false }
         let creds = KeychainStore.savedGourmet().map {
             Credentials(username: $0.username, password: $0.password)
         }
@@ -799,14 +801,17 @@ final class AppModel: ObservableObject {
         refreshLog()
     }
 
-    /// Body of the BGAppRefreshTask (docs/architecture §4.4, notifications-new-menu §3):
-    /// scrape menus in the background and evaluate the order-driven reminders from the cache.
-    /// Safe to call from any launch, including a background relaunch with no UI attached.
+    /// Body of the BGAppRefreshTask (docs/architecture §4.4, notifications-new-menu §3), run
+    /// on demand by the Diagnose button. Same shared headless body as the background task
+    /// (REQ-NTF-14), over this instance's core; the log is republished so the run shows up.
     func performBackgroundSync() async {
-        await runMenuCheck()
-        for command in core.runOrderSyncCheck() {
-            NotificationService.shared.execute(command)
+        let creds = KeychainStore.savedGourmet().map {
+            Credentials(username: $0.username, password: $0.password)
         }
+        await BackgroundTasks.runSync(core: core, credentials: creds) {
+            NotificationService.shared.execute($0)
+        }
+        refreshLog()
     }
 
     private func tabIndex(_ name: String) -> Int {
