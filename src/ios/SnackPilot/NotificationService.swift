@@ -6,7 +6,21 @@ import UserNotifications
 /// channels — the `channelId` (Android-only) is ignored.
 final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationService()
-    private let center = UNUserNotificationCenter.current()
+    private let center: UNUserNotificationCenter
+    /// Delivery seams, injectable so tests can observe what `execute` produces without
+    /// touching the real notification center.
+    private let add: (UNNotificationRequest) -> Void
+    private let remove: ([String]) -> Void
+
+    init(add: ((UNNotificationRequest) -> Void)? = nil, remove: (([String]) -> Void)? = nil) {
+        let center = UNUserNotificationCenter.current()
+        self.center = center
+        self.add = add ?? { center.add($0) }
+        self.remove = remove ?? { ids in
+            center.removePendingNotificationRequests(withIdentifiers: ids)
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
 
     /// Install the foreground-presentation delegate. Call once at launch.
     func configure() {
@@ -23,32 +37,41 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func execute(_ command: NotificationCommand) {
+        let nowMs = Date().timeIntervalSince1970 * 1000
         switch command {
         case let .fireNow(id, title, body, _, _):
-            deliver(id: id, title: title, body: body, after: 0.1)
-        case let .scheduleAt(id, title, body, _, fireAtEpochMs, _):
-            let nowMs = Date().timeIntervalSince1970 * 1000
-            let delaySec = max(1, (Double(fireAtEpochMs) - nowMs) / 1000)
-            deliver(id: id, title: title, body: body, after: delaySec)
+            add(Self.request(id: id, title: title, body: body,
+                             after: Self.delay(for: command, nowMs: nowMs)))
+        case let .scheduleAt(id, title, body, _, _, _):
+            add(Self.request(id: id, title: title, body: body,
+                             after: Self.delay(for: command, nowMs: nowMs)))
         case let .cancelPending(id):
-            center.removePendingNotificationRequests(withIdentifiers: [id])
-            center.removeDeliveredNotifications(withIdentifiers: [id])
+            remove([id])
         }
     }
 
-    private func deliver(id: String, title: String, body: String, after: TimeInterval) {
+    /// Seconds until a command should fire. FireNow is immediate (0 → triggerless request);
+    /// ScheduleAt keeps a 1 s floor (a time-interval trigger needs ≥1 s).
+    static func delay(for command: NotificationCommand, nowMs: Double) -> TimeInterval {
+        switch command {
+        case .fireNow, .cancelPending:
+            return 0
+        case let .scheduleAt(_, _, _, _, fireAtEpochMs, _):
+            return max(1, (Double(fireAtEpochMs) - nowMs) / 1000)
+        }
+    }
+
+    /// Build the request: no trigger when `after <= 0` so it shows immediately (background
+    /// task / FireNow while the process is alive), otherwise a one-shot time-interval trigger.
+    static func request(id: String, title: String, body: String, after: TimeInterval) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
-        if after <= 0 {
-            // Immediate display (background task / FireNow while the process is alive): a
-            // time-interval trigger needs ≥1 s and would delay what should show right away.
-            center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
-            return
-        }
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: after, repeats: false)
-        center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+        let trigger: UNNotificationTrigger? = after > 0
+            ? UNTimeIntervalNotificationTrigger(timeInterval: after, repeats: false)
+            : nil
+        return UNNotificationRequest(identifier: id, content: content, trigger: trigger)
     }
 
     /// Show new-menu / reminder alerts even while the app is foregrounded.
