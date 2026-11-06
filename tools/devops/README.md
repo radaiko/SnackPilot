@@ -9,6 +9,11 @@ Run `make help` for the target list; `make doctor` to check prerequisites.
 
 Both rerun the platform `bootstrap.sh` only when `src/core/src` changed since the last binding build.
 
+## Mac sync
+- `make mac-sync` — rsync the current worktree to `mac:~/vm-sync/SnackPilot-gpui/` so Mac-side builds run against this checkout. `--delete` keeps it clean, but `.git`, `target`, `build`, `DerivedData`, `*.xcodeproj`, `.gradle` and `node_modules` are excluded **and protected from deletion** (they are generated on the Mac). `tools/devops/sync-mac.sh --dry-run` prints the plan; `SNACKPILOT_MAC_SRC=` / `SNACKPILOT_MAC_DEST=` override source/destination (the tests use a temp dir). Syncing to `~/vm-sync/SnackPilot` (the mutagen-managed copy) is refused.
+- Non-interactive ssh on the Mac has **no user PATH**: start every remote command with `export PATH=/opt/homebrew/bin:$HOME/.cargo/bin:$PATH`, e.g. `ssh mac 'export PATH=/opt/homebrew/bin:$HOME/.cargo/bin:$PATH; cargo --version'`.
+- `bash tools/devops/test-sync-mac.sh` — unit tests for the sync script (dry-run against a temp tree, no Mac contact).
+
 ## Release (local)
 - `make ios-archive` — build a signed release archive (auto-incrementing build number, team auto-detected from the keychain) and open it in **Xcode Organizer**. Then: *Distribute App → App Store Connect → Upload* → the build lands in **TestFlight**. `IOS_TEAM=<id>` overrides the team; `ORGANIZER_OPEN=0` skips opening Organizer (CI/tests). Organizer re-signs to the App Store *distribution* identity at the Distribute step.
 - `make android-keystore` — one-time: generate the signed-release keystore. Back up `src/android/snackpilot-release.jks` + `keystore.properties`.

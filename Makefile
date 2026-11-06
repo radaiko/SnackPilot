@@ -4,7 +4,7 @@ DEVOPS := tools/devops
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor clean check lint test spec-lint ui-check ios-run ios-archive android-run android-keystore ship
+.PHONY: help doctor clean check lint test spec-lint ui-check mac-sync ios-run ios-archive android-run android-keystore ship
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -34,6 +34,9 @@ doctor: ## Check that required build tools are installed
 
 clean: ## Remove dist/ and generated build artifacts
 	@rm -rf dist src/ios/build src/android/app/build && echo "cleaned dist/ + build outputs"
+
+mac-sync: ## Rsync this worktree to the Mac (~/vm-sync/SnackPilot-gpui) for Mac-side builds
+	@bash $(DEVOPS)/sync-mac.sh
 
 ios-run: ## Build + install + launch on an iOS simulator (DEVICE= to override)
 	@bash $(DEVOPS)/run-ios.sh
