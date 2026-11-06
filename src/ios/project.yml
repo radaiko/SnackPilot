@@ -10,8 +10,8 @@ packages:
     from: "0.3.4"
 settings:
   base:
-    MARKETING_VERSION: "2.1.0"
-    CURRENT_PROJECT_VERSION: "35"
+    MARKETING_VERSION: "2.2.0"
+    CURRENT_PROJECT_VERSION: "37"
     SWIFT_VERSION: "5.0"
 targets:
   SnackPilot:
