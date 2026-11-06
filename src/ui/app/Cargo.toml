@@ -1,0 +1,10 @@
+[package]
+name = "snackpilot-app"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+snackpilot-core = { workspace = true }
+gpui = { workspace = true }
+gpui-kit = { workspace = true }
+gpui-mobile = { workspace = true }

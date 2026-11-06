@@ -1,0 +1,35 @@
+name: ui
+
+# Verifies the gpui-kit UI workspace (snackpilot-model + snackpilot-app): formatting,
+# lints and the model tests, including the gpui dependency pins. The gpui app crate is
+# built by the platform jobs, not here (it needs system graphics libraries).
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/ui/**", ".forgejo/workflows/ui.yml"]
+  pull_request:
+    paths: ["src/ui/**", ".forgejo/workflows/ui.yml"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: android
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/ui/target
+          key: ${{ runner.os }}-cargo-ui-${{ hashFiles('src/ui/Cargo.lock') }}
+
+      - name: UI check
+        run: make ui-check

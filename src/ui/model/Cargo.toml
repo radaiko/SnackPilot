@@ -1,0 +1,14 @@
+[package]
+name = "snackpilot-model"
+version = "0.0.0"
+edition = "2021"
+
+# No gpui, no HTTP client (REQ-UI-01, REQ-UI-08): the core is the only network path.
+[dependencies]
+snackpilot-core = { workspace = true }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
