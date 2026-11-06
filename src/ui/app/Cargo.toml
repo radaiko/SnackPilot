@@ -3,8 +3,19 @@ name = "snackpilot-app"
 version = "0.0.0"
 edition = "2021"
 
+# cdylib: Android loads libsnackpilot_app.so from the Gradle host (task 2.1).
+# lib: host-side unit tests and the later desktop bin (task 2.3).
+[lib]
+crate-type = ["cdylib", "lib"]
+
 [dependencies]
 snackpilot-core = { workspace = true }
 gpui = { workspace = true }
 gpui-kit = { workspace = true }
 gpui-mobile = { workspace = true }
+log = "0.4"
+
+# Mirrors the gpui-mobile example app crate at rev 0b882efd (no jni/ndk-context).
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+android_logger = "0.15"
