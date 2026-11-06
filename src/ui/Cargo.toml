@@ -1,0 +1,12 @@
+# Standalone workspace for the gpui-kit UI (openspec: gpui-kit-ui-rewrite).
+# Kept separate from src/core so make check stays fast and core's lockfile untouched.
+[workspace]
+resolver = "2"
+members = ["model", "app"]
+
+[workspace.dependencies]
+# Pinned gpui set (REQ-UI-02). All three must stay on the same GPUI snapshot.
+gpui = { package = "gpui-pre", version = "=0.3.4", default-features = false }
+gpui-kit = { git = "https://github.com/longbridge/gpui-kit", rev = "7d9efcd2069f9eaa6eb3ba6345aac4aa7d87c9f7", default-features = false, features = ["component"] }
+gpui-mobile = { package = "gpui-pre-mobile", git = "https://github.com/longbridge/gpui-mobile", rev = "0b882efdac7f524e0bb0b1d4c886b2aa752f9f20" }
+snackpilot-core = { path = "../core" }

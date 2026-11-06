@@ -4,13 +4,13 @@ DEVOPS := tools/devops
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor clean check lint test spec-lint ios-run ios-archive android-run android-keystore ship
+.PHONY: help doctor clean check lint test spec-lint ui-check ios-run ios-archive android-run android-keystore ship
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN{FS=":.*?## "} {printf "  \033[1m%-18s\033[0m %s\n", $$1, $$2}'
 
-check: lint test spec-lint ## Everything CI runs (fmt, clippy, core tests, spec validation)
+check: lint test spec-lint ui-check ## Everything CI runs (fmt, clippy, core tests, spec validation, ui model)
 
 lint: ## Rust formatting and lints
 	cd src/core && cargo fmt --all --check
@@ -21,6 +21,13 @@ test: ## Core tests
 
 spec-lint: ## OpenSpec validation
 	OPENSPEC_TELEMETRY=0 openspec validate --all --strict --no-interactive
+
+# The gpui app crate needs system graphics libraries and only builds for mobile/desktop
+# targets (design Risks), so clippy and tests here cover the model crate only.
+ui-check: ## UI workspace fmt, model lints and tests
+	cd src/ui && cargo fmt --all --check
+	cd src/ui && cargo clippy -p snackpilot-model --all-targets -- -D warnings
+	cd src/ui && cargo test -p snackpilot-model
 
 doctor: ## Check that required build tools are installed
 	@bash $(DEVOPS)/doctor.sh
