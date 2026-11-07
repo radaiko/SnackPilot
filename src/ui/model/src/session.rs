@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use snackpilot_core::domain::Credentials;
 use snackpilot_core::ffi::{CoreConfig, SnackPilotCore};
 use snackpilot_core::notify::NotificationCommand;
+use snackpilot_core::storage::FileKv;
 
 use crate::errors::{human_error, is_demo_user};
 use crate::platform::{Platform, PlatformAnalytics, PlatformError};
@@ -19,9 +20,12 @@ use crate::state::{ErrorText, State, StateHub, Subscriber};
 
 /// The single model instance the UI binds to (Swift `AppModel`).
 pub struct AppModel {
-    core: Arc<SnackPilotCore>,
-    platform: Arc<dyn Platform>,
-    hub: Arc<StateHub>,
+    pub(crate) core: Arc<SnackPilotCore>,
+    pub(crate) platform: Arc<dyn Platform>,
+    pub(crate) hub: Arc<StateHub>,
+    /// Same directory as core's own `FileKv`; holds the model's preference keys
+    /// (theme/accent/reminder) and lets the diagnostics view read core's keys.
+    pub(crate) kv: FileKv,
     last_notifications: Mutex<Vec<NotificationCommand>>,
 }
 
@@ -37,12 +41,21 @@ impl AppModel {
             Some(Arc::new(PlatformAnalytics(platform.clone()))),
         )
         .map_err(|e| PlatformError::System(human_error(&e)))?;
-        Ok(Self {
+        let model = Self {
             core,
             platform,
             hub: Arc::new(StateHub::new()),
+            kv: FileKv::new(storage_dir),
             last_notifications: Mutex::new(Vec::new()),
-        })
+        };
+        // Swift init parity: restore preferences, reminder settings, the saved
+        // company location and the log view state at startup. None of these
+        // touch the platform, so startup never switches the app icon.
+        model.load_preferences();
+        model.load_reminder_state();
+        model.load_location_state();
+        model.refresh_diagnostic_log();
+        Ok(model)
     }
 
     /// The core, for UI bindings that read it directly (Swift parity).
@@ -65,9 +78,15 @@ impl AppModel {
         self.hub.subscribe(callback);
     }
 
-    /// Inbound: a geofence transition (design D4).
+    /// Inbound: a geofence transition (design D4); runs the same flow as the
+    /// Swift region-monitoring handler.
     pub fn on_geofence_event(&self, inside: bool) {
         log("geofence", if inside { "enter" } else { "exit" });
+        self.handle_geofence(if inside {
+            snackpilot_core::domain::GeofenceEvent::Enter
+        } else {
+            snackpilot_core::domain::GeofenceEvent::Exit
+        });
     }
 
     /// Inbound: the app came to the foreground.

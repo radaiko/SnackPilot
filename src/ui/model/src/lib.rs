@@ -3,12 +3,15 @@
 //! session flows, the observable state hub and the `Platform` host abstraction.
 
 mod billing;
+mod diagnostics;
 mod errors;
 mod fake;
+mod flows;
 mod format;
 mod menus;
 mod orders;
 mod platform;
+mod prefs;
 mod runtime;
 mod session;
 mod state;
@@ -24,6 +27,10 @@ pub use orders::unconfirmed_banner_text;
 pub use platform::{
     Capabilities, LocationFix, Platform, PlatformAnalytics, PlatformError, SupportEmail,
 };
+pub use prefs::{REMINDER_PICKER_DEFAULT_HOUR, REMINDER_PICKER_DEFAULT_MINUTE};
 pub use runtime::{block_on_model, log, metrics};
 pub use session::AppModel;
-pub use state::{BillingSource, ErrorText, State, StateHub, Subscriber};
+pub use state::{
+    AccentColor, Alert, BillingSource, ErrorText, ReminderTime, State, StateHub, Subscriber,
+    ThemePreference,
+};
