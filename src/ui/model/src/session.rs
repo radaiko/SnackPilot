@@ -21,7 +21,7 @@ use crate::state::{ErrorText, State, StateHub, Subscriber};
 pub struct AppModel {
     core: Arc<SnackPilotCore>,
     platform: Arc<dyn Platform>,
-    hub: StateHub,
+    hub: Arc<StateHub>,
     last_notifications: Mutex<Vec<NotificationCommand>>,
 }
 
@@ -40,7 +40,7 @@ impl AppModel {
         Ok(Self {
             core,
             platform,
-            hub: StateHub::new(),
+            hub: Arc::new(StateHub::new()),
             last_notifications: Mutex::new(Vec::new()),
         })
     }
@@ -48,6 +48,11 @@ impl AppModel {
     /// The core, for UI bindings that read it directly (Swift parity).
     pub fn core(&self) -> &Arc<SnackPilotCore> {
         &self.core
+    }
+
+    /// The state hub, for the screen modules' `impl AppModel` blocks.
+    pub(crate) fn hub(&self) -> &Arc<StateHub> {
+        &self.hub
     }
 
     /// Current state snapshot for the UI.
@@ -198,7 +203,7 @@ impl AppModel {
                     let options = self.core.billing_month_options();
                     self.hub
                         .update("month_options", |s| s.month_options = options);
-                    self.load_billing().await;
+                    self.load_billing(false).await;
                 }
                 Ok(())
             }
@@ -283,7 +288,7 @@ impl AppModel {
             let options = self.core.billing_month_options();
             self.hub
                 .update("month_options", |s| s.month_options = options);
-            self.load_billing().await;
+            self.load_billing(false).await;
         }
         Ok(())
     }
@@ -293,7 +298,10 @@ impl AppModel {
     async fn load_session(&self) -> Result<(), PlatformError> {
         // force = false: cache first (Swift loadSession :301).
         match self.core.fetch_menus(false).await {
-            Ok(snap) => self.hub.update("menus", |s| s.menu_snapshot = Some(snap)),
+            Ok(snap) => {
+                self.hub.update("menus", |s| s.menu_snapshot = Some(snap));
+                self.sync_selected_day();
+            }
             Err(e) => self.hub.update("menus_failed", |s| {
                 s.error_text = Some(ErrorText {
                     message: human_error(&e),
@@ -308,7 +316,7 @@ impl AppModel {
         let options = self.core.billing_month_options();
         self.hub
             .update("month_options", |s| s.month_options = options);
-        self.load_billing().await;
+        self.load_billing(false).await;
         orders
     }
 
@@ -317,7 +325,7 @@ impl AppModel {
     /// deliver the commands. The split is published even when the bridge
     /// fails; the failure surfaces as a typed error instead of leaving the
     /// flow stuck (REQ-PLT-06).
-    async fn load_orders(&self) -> Result<(), PlatformError> {
+    pub(crate) async fn load_orders(&self) -> Result<(), PlatformError> {
         let commands = match self.core.fetch_orders().await {
             Ok(commands) => commands,
             Err(e) => {
@@ -339,13 +347,14 @@ impl AppModel {
 
     /// Swift `loadBilling` (AppModel.swift:585): one loading window around
     /// both billing sources for the selected month; fetch errors are
-    /// swallowed (pull-to-refresh is the retry, v1 parity).
-    async fn load_billing(&self) {
+    /// swallowed (pull-to-refresh is the retry, v1 parity). `force` bypasses
+    /// the core's past-month cache skip (Swift `reloadBilling` :601).
+    pub(crate) async fn load_billing(&self, force: bool) {
         self.hub
             .update("billing_loading", |s| s.billing_loading = true);
         let offset = self.hub.get().selected_offset;
-        let _ = self.core.fetch_billing(offset, false).await;
-        let _ = self.core.fetch_ventopay_billing(offset, false).await;
+        let _ = self.core.fetch_billing(offset, force).await;
+        let _ = self.core.fetch_ventopay_billing(offset, force).await;
         let key = self
             .hub
             .get()
