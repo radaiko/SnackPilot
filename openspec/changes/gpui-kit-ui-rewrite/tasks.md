@@ -94,7 +94,7 @@ Conventions for every task below:
   - check: `make check`
   - proof: ui workflow (`make ui-check`)
 
-- [ ] 3.3 Model: preferences, reminders, location flow, geofence handling and diagnostics
+- [x] 3.3 Model: preferences, reminders, location flow, geofence handling and diagnostics
   - tier: normal
   - host: Linux
   - files: `src/ui/model/src/prefs.rs`, `src/ui/model/src/flows.rs`, `src/ui/model/src/diagnostics.rs`, `src/ui/model/src/state.rs`, `src/ui/model/src/lib.rs`, `src/ui/model/src/session.rs` (dispatcher-approved: kv field, visibility, startup loads, geofence delegation), `src/ui/model/src/fake.rs` (dispatcher-approved: deny flags), `src/ui/model/tests/prefs.rs`, `src/ui/model/tests/flows.rs`
