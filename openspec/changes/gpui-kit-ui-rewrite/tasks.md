@@ -59,7 +59,7 @@ Conventions for every task below:
   - check: `make check`; additionally `make mac-sync` and the Mac commands above via `ssh mac`
   - proof: ios workflow build (extended in 6.2) plus the simulator evidence in the handoff
 
-- [ ] 2.3 Desktop spike: the same `Root` runs in a macOS window
+- [x] 2.3 Desktop spike: the same `Root` runs in a macOS window
   - tier: normal
   - host: Linux (edit, best-effort compile), Mac (build and run)
   - files: `src/ui/app/Cargo.toml`, `src/ui/app/src/lib.rs`, `src/ui/app/src/bin/desktop.rs`, `openspec/changes/gpui-kit-ui-rewrite/design.md` (append "Spike result: Desktop"), `docs/evidence/gpui-kit-ui-rewrite/2.3/*.png`
