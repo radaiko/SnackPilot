@@ -19,6 +19,10 @@ pub struct FakePlatform {
     failing: Mutex<HashSet<String>>,
     capabilities: Capabilities,
     location: Mutex<Option<LocationFix>>,
+    // Permission grants default to true; tests deny them to drive the
+    // §7.1/§7.2 alert branches.
+    deny_location: Mutex<bool>,
+    deny_notification: Mutex<bool>,
 }
 
 impl FakePlatform {
@@ -59,6 +63,16 @@ impl FakePlatform {
 
     pub fn set_location(&self, fix: Option<LocationFix>) {
         *self.location.lock().unwrap() = fix;
+    }
+
+    /// Deny (or re-grant) the location permission check (REQ-PLT-03).
+    pub fn set_location_permission(&self, granted: bool) {
+        *self.deny_location.lock().unwrap() = !granted;
+    }
+
+    /// Deny (or re-grant) the notification permission check (REQ-PLT-06).
+    pub fn set_notification_permission(&self, granted: bool) {
+        *self.deny_notification.lock().unwrap() = !granted;
     }
 
     fn check(&self, method: &str) -> Result<(), PlatformError> {
@@ -109,13 +123,13 @@ impl Platform for FakePlatform {
     fn request_notification_permission(&self) -> Result<bool, PlatformError> {
         self.record("request_notification_permission");
         self.check("request_notification_permission")?;
-        Ok(true)
+        Ok(!*self.deny_notification.lock().unwrap())
     }
 
     fn request_location_authorisation(&self) -> Result<bool, PlatformError> {
         self.record("request_location_authorisation");
         self.check("request_location_authorisation")?;
-        Ok(true)
+        Ok(!*self.deny_location.lock().unwrap())
     }
 
     fn current_location(&self) -> Result<Option<LocationFix>, PlatformError> {

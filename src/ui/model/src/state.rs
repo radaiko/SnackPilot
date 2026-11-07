@@ -1,12 +1,139 @@
 use std::sync::{Arc, Mutex};
 
-use snackpilot_core::domain::{MenuSnapshot, MonthOption, OrdersSplit};
+use snackpilot_core::domain::{CompanyLocation, MenuSnapshot, MonthOption, OrdersSplit};
 
 /// A user-visible error, mapped by [`crate::human_error`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorText {
     pub message: String,
     pub retry: bool,
+}
+
+/// A modal alert (Swift `LocationAlert`, AppModel.swift:716-801): one property
+/// serves the location flow and the reminder-permission denial.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Alert {
+    pub title: String,
+    pub message: String,
+}
+
+impl Alert {
+    /// Exact v1 strings (AppModel.swift:722-729).
+    pub(crate) fn location_required() -> Self {
+        Self {
+            title: "Standort „Immer\" erforderlich".into(),
+            message: "Für Standort-Benachrichtigungen muss der Standortzugriff auf „Immer\" \
+                      gesetzt werden.\n\nBitte öffne die Einstellungen und wähle unter Standort \
+                      „Immer\" aus."
+                .into(),
+        }
+    }
+
+    /// Exact v1 strings (AppModel.swift:684-688, 733-739).
+    pub(crate) fn denied() -> Self {
+        Self {
+            title: "Berechtigung fehlt".into(),
+            message: "Benachrichtigungen werden für diese Funktion benötigt. \
+                      Bitte in den Einstellungen aktivieren."
+                .into(),
+        }
+    }
+
+    /// Exact v1 strings (AppModel.swift:751-754).
+    pub(crate) fn saved() -> Self {
+        Self {
+            title: "Gespeichert".into(),
+            message: "Firmenstandort gesetzt. Du wirst um 8:45 benachrichtigt, wenn du im Büro \
+                      bist und nicht bestellt hast."
+                .into(),
+        }
+    }
+
+    /// Exact v1 strings (AppModel.swift:759-762).
+    pub(crate) fn error() -> Self {
+        Self {
+            title: "Fehler".into(),
+            message: "Standort konnte nicht ermittelt werden.".into(),
+        }
+    }
+}
+
+/// Light/dark/system choice, persisted under `theme_preference` (themes §1.2).
+/// Raw values match the iOS `ThemePreference` (Theme.swift:11-38).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThemePreference {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemePreference {
+    pub fn raw_value(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+}
+
+impl std::str::FromStr for ThemePreference {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "system" => Ok(Self::System),
+            "light" => Ok(Self::Light),
+            "dark" => Ok(Self::Dark),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Accent color, persisted under `accent_color`; drives the app icon (themes §6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AccentColor {
+    #[default]
+    Orange,
+    Emerald,
+    Berry,
+    Golden,
+    Ocean,
+}
+
+impl AccentColor {
+    pub fn raw_value(self) -> &'static str {
+        match self {
+            Self::Orange => "orange",
+            Self::Emerald => "emerald",
+            Self::Berry => "berry",
+            Self::Golden => "golden",
+            Self::Ocean => "ocean",
+        }
+    }
+}
+
+impl std::str::FromStr for AccentColor {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "orange" => Ok(Self::Orange),
+            "emerald" => Ok(Self::Emerald),
+            "berry" => Ok(Self::Berry),
+            "golden" => Ok(Self::Golden),
+            "ocean" => Ok(Self::Ocean),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Daily-reminder time of day. There is no stored time until the feature is
+/// first enabled (notifications-daily-reminder.md:213-217); the settings picker
+/// starts at 11:00 (AppModel.swift:63, see `REMINDER_PICKER_DEFAULT_*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReminderTime {
+    pub hour: u8,
+    pub minute: u8,
 }
 
 /// The complete view-model state, a snapshot the UI renders from.
@@ -44,6 +171,31 @@ pub struct State {
     pub order_selection_mode: bool,
     /// Order ids selected while in [`State::order_selection_mode`].
     pub selected_order_ids: Vec<String>,
+
+    // ---- task 3.3: appearance, reminders, location, diagnostics ----
+    /// Light/dark/system choice (themes §1.2); default System.
+    pub theme: ThemePreference,
+    /// Accent color (themes §1.2/§6); default Orange.
+    pub accent: AccentColor,
+    /// Daily reminder on/off (notifications-daily-reminder §9); default off.
+    pub daily_reminder_enabled: bool,
+    /// Daily reminder time of day; `None` until the feature is first enabled
+    /// (notifications-daily-reminder.md:213-217).
+    pub reminder_time: Option<ReminderTime>,
+    /// In-flight company-location setup flow (AppModel.swift:717).
+    pub location_busy: bool,
+    /// Saved company location, the on/off switch for location notifications (§1).
+    pub company_location: Option<CompanyLocation>,
+    /// Last geofence state mirrored from core (§4).
+    pub is_at_company: bool,
+    /// The location/reminder alert to present (Swift `locationAlert`).
+    pub location_alert: Option<Alert>,
+    /// Diagnostic log currently recording (notification-log §2).
+    pub log_active: bool,
+    /// Diagnostic log has a stored, already-past expiry.
+    pub log_expired: bool,
+    /// Single-line status label for the diagnostics screen (04-ui-ux §3.8).
+    pub log_status: String,
 }
 
 /// Which billing source to show (BillingView's "Alle/Gourmet/Ventopay" picker).
