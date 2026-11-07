@@ -1,17 +1,14 @@
-# forced run: adb shell cmd jobscheduler run -f dev.radaiko.gourmetclient 2
+# forced run: adb shell cmd jobscheduler run -f dev.radaiko.gourmetclient <id>  (re-run 2026-11-07, core 2.2.0 APK)
 Running job [FORCED]
 
-# app pid 4728 logcat (job window, noise filtered):
-11-06 22:07:46.667   683   995 D JobScheduler: executeRunCommand(): dev.radaiko.gourmetclient/null/0 2 s=false f=true
+# dumpsys jobscheduler execution history (proves dispatch + jobFinished, no crash):
+        -2m17s689ms   START: #u0a231/39 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService
+        -2m16s708ms    STOP: #u0a231/39 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService app called jobFinished
+        -2m09s548ms   START: #u0a231/39 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService
+        -2m09s524ms    STOP: #u0a231/39 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService app called jobFinished
+        -1m25s795ms   START: #u0a231/40 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService
+        -1m25s790ms    STOP: #u0a231/40 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService app called jobFinished
 
 # FATAL EXCEPTION check:
 0
-
-# dumpsys jobscheduler execution history (proves dispatch + jobFinished, no crash):
-        -3m46s377ms   START: #u0a226/0 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService
-        -3m46s365ms    STOP: #u0a226/0 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService app called jobFinished
-        -2m14s535ms   START: #u0a226/1 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService
-        -2m14s528ms    STOP: #u0a226/1 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService app called jobFinished
-          -18s817ms   START: #u0a226/2 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService
-          -18s791ms    STOP: #u0a226/2 dev.radaiko.gourmetclient/androidx.work.impl.background.systemjob.SystemJobService app called jobFinished
 note: BackgroundSyncWorker.kt contains no android.util.Log calls and the Rust core has no logcat sink, so the worker itself emits no logcat lines; the JobScheduler START/STOP pair (app called jobFinished) plus zero FATAL EXCEPTION lines are the logcat-level proof of the run.
