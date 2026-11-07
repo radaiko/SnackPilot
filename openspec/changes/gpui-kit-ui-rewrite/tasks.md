@@ -83,10 +83,10 @@ Conventions for every task below:
   - check: `make check`
   - proof: ui workflow (`make ui-check`)
 
-- [ ] 3.2 Model: menus, orders and billing state and actions
+- [x] 3.2 Model: menus, orders and billing state and actions
   - tier: normal
   - host: Linux
-  - files: `src/ui/model/src/menus.rs`, `src/ui/model/src/orders.rs`, `src/ui/model/src/billing.rs`, `src/ui/model/src/format.rs`, `src/ui/model/src/state.rs`, `src/ui/model/src/lib.rs`, `src/ui/model/tests/menus.rs`, `src/ui/model/tests/orders.rs`, `src/ui/model/tests/billing.rs`, `src/ui/model/tests/format.rs`
+  - files: `src/ui/model/src/menus.rs`, `src/ui/model/src/orders.rs`, `src/ui/model/src/billing.rs`, `src/ui/model/src/format.rs`, `src/ui/model/src/state.rs`, `src/ui/model/src/lib.rs`, `src/ui/model/src/session.rs` (dispatcher-approved: visibility widening + sync_selected_day hook), `src/ui/model/tests/menus.rs`, `src/ui/model/tests/orders.rs`, `src/ui/model/tests/billing.rs`, `src/ui/model/tests/format.rs`
   - deps: none
   - reqs: REQ-SCR-01, REQ-SCR-02, REQ-SCR-03, REQ-SCR-09, REQ-UI-06
   - acceptance: port from `AppModel.swift`: cached-first loading, `sync_selected_day` and `nearest_day`, `prev_day`/`next_day`/`go_to_today`/`select_day`, `toggle`, `clear_pending`, `has_pending_changes`, submit with a `ProgressListener` that updates `order_progress`, the submit-button label logic of §3.1, category ordering `MENÜ I`..`UNKNOWN`, `dish` and `is_ordered` cross-reference, orders split and counts, confirm, single-flight `cancel_order` guard, multi-select batch cancel, cutoff via `is_ordering_cutoff`, billing month selection, source filter, descending merge, Gesamt/Belege/Zuschuss totals, forced reload, and `format_eur` / dates in `de-AT`. If `docs/requirements/` gives no example for a thousands separator in `format_eur`, stop and ask the human instead of guessing.
