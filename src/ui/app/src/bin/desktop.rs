@@ -1,0 +1,16 @@
+//! Desktop spike entry (task 2.3): `snackpilot-desktop` opens a window through
+//! `gpui_kit::application()` and mounts the same `Root` as the mobile hosts
+//! (REQ-UI-01, REQ-UI-07).
+
+// Built for the Android package too (cargo-ndk builds all targets), where
+// `gpui_kit::application()` does not exist — the mobile hosts enter through
+// `android_main` / the iOS FFI instead, so this main is a stub there.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn main() {
+    unimplemented!("mobile hosts do not use the desktop binary");
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn main() {
+    gpui_kit::application().run(|cx| snackpilot_app::mount_desktop(cx));
+}

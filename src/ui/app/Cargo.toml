@@ -8,6 +8,15 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "lib"]
 
+# Desktop spike (task 2.3). No required-features: cargo-ndk builds every target
+# of this package, so the bin compiles on mobile too (stub main in desktop.rs).
+# Desktop platform features come from gpui-kit's own target-gated
+# gpui-pre-platform dependency (application(), font-kit, x11/wayland,
+# runtime_shaders); nothing is enabled here beyond the workspace pins.
+[[bin]]
+name = "snackpilot-desktop"
+path = "src/bin/desktop.rs"
+
 [dependencies]
 snackpilot-core = { workspace = true }
 gpui = { workspace = true }
