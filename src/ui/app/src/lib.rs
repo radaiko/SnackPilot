@@ -13,6 +13,8 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::{Root, Theme, ThemeMode};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, App, Context, Entity, Window, WindowOptions};
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+use gpui_kit::{px, size, Bounds, WindowBounds};
 
 /// The spike root view: tab labels plus a tappable counter.
 pub struct SpikeRoot {
@@ -69,17 +71,7 @@ impl Render for SpikeRoot {
 /// Called exactly once per app start by each platform host (REQ-UI-03);
 /// the log line below is the evidence checked in `adb logcat`.
 pub fn mount(cx: &mut App) {
-    log::info!("spike: mounting single gpui-kit Root");
-    cx.text_system()
-        .add_fonts(vec![
-            std::borrow::Cow::Borrowed(assets::INTER_REGULAR),
-            std::borrow::Cow::Borrowed(assets::INTER_SEMIBOLD),
-            std::borrow::Cow::Borrowed(assets::INTER_BOLD),
-        ])
-        .expect("register bundled Inter fonts");
-    gpui_kit::init(cx);
-    Theme::change(ThemeMode::Light, None, cx);
-    Theme::global_mut(cx).font_family = "Inter".into();
+    init_kit(cx);
     cx.open_window(
         WindowOptions {
             window_bounds: None,
@@ -91,5 +83,67 @@ pub fn mount(cx: &mut App) {
         },
     )
     .expect("open spike window");
+    cx.activate(true);
+}
+
+/// Shared init for every host: bundled Inter fonts, kit init, light theme.
+fn init_kit(cx: &mut App) {
+    log::info!("spike: mounting single gpui-kit Root");
+    cx.text_system()
+        .add_fonts(vec![
+            std::borrow::Cow::Borrowed(assets::INTER_REGULAR),
+            std::borrow::Cow::Borrowed(assets::INTER_SEMIBOLD),
+            std::borrow::Cow::Borrowed(assets::INTER_BOLD),
+        ])
+        .expect("register bundled Inter fonts");
+    gpui_kit::init(cx);
+    Theme::change(ThemeMode::Light, None, cx);
+    Theme::global_mut(cx).font_family = "Inter".into();
+}
+
+/// Desktop frame (task 2.3, REQ-UI-07): the same `SpikeRoot` centred in a
+/// column of at most 480 logical px; no sidebar (human-approved decision).
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+struct DesktopFrame {
+    root: Entity<SpikeRoot>,
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+impl Render for DesktopFrame {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().flex().justify_center().child(
+            div()
+                .h_full()
+                .w_full()
+                .max_w(px(480.))
+                .child(self.root.clone()),
+        )
+    }
+}
+
+/// Desktop entry (task 2.3): same Root as mobile, in a resizable window with
+/// minimum width 360 px, opened through `gpui_kit::application()` by
+/// `src/bin/desktop.rs` (REQ-UI-01, REQ-UI-07).
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub fn mount_desktop(cx: &mut App) {
+    init_kit(cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                size(px(420.), px(760.)),
+                cx,
+            ))),
+            is_resizable: true,
+            window_min_size: Some(size(px(360.), px(0.))),
+            ..Default::default()
+        },
+        |window, cx| {
+            let content = cx.new(|_cx| SpikeRoot { count: 0 });
+            let frame = cx.new(|_cx| DesktopFrame { root: content });
+            cx.new(|cx| Root::new(frame, window, cx))
+        },
+    )
+    .expect("open desktop window");
     cx.activate(true);
 }

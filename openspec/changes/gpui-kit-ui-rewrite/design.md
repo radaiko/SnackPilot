@@ -230,3 +230,58 @@ Findings:
   binary never requests notification authorization (`log show` attributed the
   request to the foreign pid). `SpikeTapTests` now dismisses springboard alerts
   at launch; evidence was re-taken after the alert was answered.
+
+## Spike result: Desktop (task 2.3)
+
+**Verdict: PASS** (build + stable run verified on the Mac; window appearance
+awaiting human-by-eye check — see GUI status).
+
+- The desktop bin mounts the same shared `SpikeRoot` as the mobile hosts via
+  `gpui_kit::application().run(|cx| snackpilot_app::mount_desktop(cx))`.
+  `lib.rs` was refactored so both hosts reuse one `init_kit(cx)` (fonts,
+  `gpui_kit::init`, Light theme, Inter) plus `mount()` (mobile) /
+  `mount_desktop()` (desktop). No new feature table was needed: desktop
+  platform features (`application()`, font-kit, x11/wayland, runtime shaders)
+  come from gpui-kit's own target-gated `gpui-pre-platform` dependency.
+- Window per REQ-UI-07: `Bounds::centered(420×760)`, `is_resizable: true`,
+  `window_min_size: Some(size(px(360.), px(0.)))`; content is a
+  `size_full().justify_center()` wrapper around a `max_w(px(480.))` column,
+  no sidebar (human-approved).
+- The bin is `cfg`-gated: under `cfg(any(ios, android))` `main()` is a stub, so
+  `cargo ndk` (which builds all targets) is not disturbed; no
+  `required-features` on the `[[bin]]`.
+
+### Mac (primary)
+
+```
+make mac-sync
+ssh mac 'cd ~/vm-sync/SnackPilot-gpui/src/ui &&
+  cargo build -p snackpilot-app --bin snackpilot-desktop'
+# Finished `dev` profile in 1m 03s (only a future-incompat warning about block v0.1.6)
+ssh mac 'cd ~/vm-sync/SnackPilot-gpui/src/ui && timeout 5 target/debug/snackpilot-desktop'
+# EXIT=124 (still running at kill), stderr empty — no panic
+```
+
+`timeout` is not preinstalled on the Mac; installed via `brew install coreutils`
+(`/opt/homebrew/bin/timeout`).
+
+### Linux (best-effort, not a gate)
+
+`cd src/ui && cargo check -p snackpilot-app --bin snackpilot-desktop` fails
+without env: `yeslogic-fontconfig-sys-6.0.1/build.rs` panics with "The
+pkg-config command could not be found" (no pkg-config on this VM, no sudo to
+install it). With `RUST_FONTCONFIG_DLOPEN=on` — the same fontconfig-dlopen
+trick the Android build uses — the check **passes** (EXIT=0). No code change
+needed; the gate is the Mac build.
+
+### GUI session status
+
+No screenshot evidence: `screencapture -x` fails with "could not create image
+from display" from every reachable context — plain SSH, `launchctl asuser`, a
+one-shot LaunchAgent bootstrapped into `gui/501` (the Aqua session), and with
+`caffeinate -u` display wake first. The bin itself runs clean in the GUI
+session (launched, alive at 3 s, killed; empty stderr). The Mac has no usable
+window-server capture over remote access, so the visual check (resizable,
+360 px min width, centred ≤480 px column) is **human-by-eye** per the task's
+allowance; `docs/evidence/gpui-kit-ui-rewrite/2.3/desktop.png` is intentionally
+absent.
