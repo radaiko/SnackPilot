@@ -72,7 +72,7 @@ Conventions for every task below:
 
 ## 3. Model and platform bridge
 
-- [ ] 3.1 Model runtime, `Platform` trait and session flows
+- [x] 3.1 Model runtime, `Platform` trait and session flows
   - tier: hard
   - host: Linux
   - files: `src/ui/model/src/lib.rs`, `src/ui/model/src/runtime.rs`, `src/ui/model/src/state.rs`, `src/ui/model/src/platform.rs`, `src/ui/model/src/fake.rs`, `src/ui/model/src/session.rs`, `src/ui/model/src/errors.rs`, `src/ui/model/tests/session.rs`, `src/ui/model/tests/errors.rs`, `src/ui/model/tests/ffi_link.rs`
