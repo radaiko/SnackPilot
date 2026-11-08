@@ -8,7 +8,8 @@ as 4.1's --gallery): `--tab=N` selects a tab, `--dialog` opens a §4.1 confirm,
   xcrun simctl terminate $UDID dev.radaiko.gourmetclient
   xcrun simctl launch   $UDID dev.radaiko.gourmetclient --tab=0   (… 1, 2, 3)
   sleep 6; xcrun simctl io $UDID screenshot tabN.png
-  (--toast captured after 1.5 s: the toast hold is ~3 s total)
+  (--toast captured after 1.5 s; the §4.8 machine is 300 ms in + 4 000 ms hold
+   + 300 ms out ≈ 4.6 s total, so at 1.5 s the toast is mid-hold, fully visible)
 
 States shown:
   tab0.png  Menüs active (Utensils, primary) — glass pill 248x56 radius 28,
