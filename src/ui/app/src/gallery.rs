@@ -29,6 +29,9 @@ pub enum Section {
 pub struct GalleryRoot {
     which: Section,
     dark_switch_on: bool,
+    /// 0 = everything stacked; 1 = only "Bestellung & Status" (the lower
+    /// half). Lets a screenshot capture the lower sections on one screen.
+    page: usize,
     light_field: Entity<InputState>,
     dark_field: Entity<InputState>,
 }
@@ -40,9 +43,14 @@ impl GalleryRoot {
         let dark = AppTheme::build(true, AccentColor::Orange, flat);
         let (light_field, _) = text_field::text_field("Suchen", None, &light, window, cx);
         let (dark_field, _) = text_field::text_field("Suchen", None, &dark, window, cx);
+        let page = match crate::gallery_page().as_deref() {
+            Some("bottom") | Some("1") => 1,
+            _ => 0,
+        };
         Self {
             which,
             dark_switch_on: false,
+            page,
             light_field,
             dark_field,
         }
@@ -59,8 +67,14 @@ impl GalleryRoot {
         let theme = AppTheme::build(dark, AccentColor::Orange, use_flat_style());
         let entity = cx.entity().clone();
         let title: SharedString = if dark { "Dunkel" } else { "Hell" }.into();
+        let subtitle: SharedString = if self.page == 1 {
+            "Komponenten · Seite 2".into()
+        } else {
+            "Komponenten".into()
+        };
+        let page_entity = cx.entity().clone();
 
-        div()
+        let mut sec = div()
             .w_full()
             .flex()
             .flex_col()
@@ -84,88 +98,137 @@ impl GalleryRoot {
                         div()
                             .text_size(px(13.))
                             .text_color(theme.text_secondary)
-                            .child("Komponenten"),
+                            .child(subtitle),
                     ),
             )
-            // Filter chips with the §2 tab icons (Lucide substitutions).
-            .child(chip::chip_row(
-                [
-                    chip::icon_chip(Icon::new(IconName::Utensils), "Menüs", true, &theme),
-                    chip::icon_chip(Icon::new(IconName::Receipt), "Bestellungen", false, &theme),
-                    chip::icon_chip(Icon::new(IconName::Wallet), "Abrechnung", false, &theme),
-                    chip::icon_chip(
-                        Icon::new(IconName::Settings),
-                        "Einstellungen",
-                        false,
-                        &theme,
-                    ),
-                ]
-                .into_iter(),
-            ))
-            .child(card::divider(&theme))
-            // Buttons (04 §4/§7).
+            // Page switch (always visible): captures the lower half on one
+            // screenshot without scrolling.
             .child(
                 div()
                     .flex()
                     .flex_row()
-                    .flex_wrap()
                     .gap(px(8.))
-                    .child(button::button(
-                        format!("primary-{dark}"),
-                        "Bestellen",
-                        button::ButtonKind::Primary,
-                        &theme,
-                        cx,
-                    ))
-                    .child(button::button(
-                        format!("secondary-{dark}"),
-                        "Abbrechen",
+                    .child(button::button_action(
+                        format!("page0-{dark}"),
+                        "Oben",
                         button::ButtonKind::Secondary,
                         &theme,
                         cx,
+                        {
+                            let page_e = page_entity.clone();
+                            move |_, _window, cx| {
+                                page_e.update(cx, |this, cx| {
+                                    this.page = 0;
+                                    cx.notify();
+                                });
+                            }
+                        },
                     ))
-                    .child(button::button(
-                        format!("danger-{dark}"),
-                        "Stornieren",
-                        button::ButtonKind::Danger,
+                    .child(button::button_action(
+                        format!("page1-{dark}"),
+                        "Bestellung & Status",
+                        button::ButtonKind::Secondary,
                         &theme,
                         cx,
-                    ))
-                    .child(button::fab(format!("fab-{dark}"), "+", &theme, cx))
-                    .child(button::circle_button(
-                        format!("circle-{dark}"),
-                        Icon::new(IconName::ChevronLeft),
-                        &theme,
-                        cx,
+                        {
+                            let page_e = page_entity.clone();
+                            move |_, _window, cx| {
+                                page_e.update(cx, |this, cx| {
+                                    this.page = 1;
+                                    cx.notify();
+                                });
+                            }
+                        },
                     )),
-            )
-            // Text field with the §7 inputField recipe.
-            .child(text_field::field_with_state(field, &theme))
-            // Cards and empty states (04 §4 German strings verbatim).
-            .child(card::titled_card(
-                "Menüs",
-                "Heutiger Speiseplan · Preise in €",
-                &theme,
-            ))
-            .child(card::card(
-                &theme,
-                [
-                    card::empty_state("Keine kommenden Bestellungen", false, &theme)
-                        .into_any_element(),
-                    card::empty_state("Keine vergangenen Bestellungen", false, &theme)
-                        .into_any_element(),
-                    card::empty_state("Keine Abrechnungsdaten für diesen Monat", false, &theme)
-                        .into_any_element(),
-                ],
-            ))
-            .child(card::empty_state("Keine Menüs verfügbar", false, &theme))
-            // Loading rows (04 §4).
-            .child(spinner::loading_row(
-                "Wird in den Warenkorb gelegt...",
-                &theme,
-            ))
-            .child(spinner::loading_row("Aktualisiere...", &theme))
-            .child(spinner::loading_row("Wird storniert", &theme))
+            );
+        if self.page != 1 {
+            sec = sec
+                // Filter chips with the §2 tab icons (Lucide substitutions).
+                .child(chip::chip_row(
+                    [
+                        chip::icon_chip(Icon::new(IconName::Utensils), "Menüs", true, &theme),
+                        chip::icon_chip(
+                            Icon::new(IconName::Receipt),
+                            "Bestellungen",
+                            false,
+                            &theme,
+                        ),
+                        chip::icon_chip(Icon::new(IconName::Wallet), "Abrechnung", false, &theme),
+                        chip::icon_chip(
+                            Icon::new(IconName::Settings),
+                            "Einstellungen",
+                            false,
+                            &theme,
+                        ),
+                    ]
+                    .into_iter(),
+                ))
+                .child(card::divider(&theme))
+                // Buttons (04 §4/§7).
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap(px(8.))
+                        .child(button::button(
+                            format!("primary-{dark}"),
+                            "Bestellen",
+                            button::ButtonKind::Primary,
+                            &theme,
+                            cx,
+                        ))
+                        .child(button::button(
+                            format!("secondary-{dark}"),
+                            "Abbrechen",
+                            button::ButtonKind::Secondary,
+                            &theme,
+                            cx,
+                        ))
+                        .child(button::button(
+                            format!("danger-{dark}"),
+                            "Stornieren",
+                            button::ButtonKind::Danger,
+                            &theme,
+                            cx,
+                        ))
+                        .child(button::fab(format!("fab-{dark}"), "+", &theme, cx))
+                        .child(button::circle_button(
+                            format!("circle-{dark}"),
+                            Icon::new(IconName::ChevronLeft),
+                            &theme,
+                            cx,
+                        )),
+                )
+                // Text field with the §7 inputField recipe.
+                .child(text_field::field_with_state(field, &theme))
+                // Cards and empty states (04 §4 German strings verbatim).
+                .child(card::titled_card(
+                    "Menüs",
+                    "Heutiger Speiseplan · Preise in €",
+                    &theme,
+                ))
+                .child(card::card(
+                    &theme,
+                    [
+                        card::empty_state("Keine kommenden Bestellungen", false, &theme)
+                            .into_any_element(),
+                        card::empty_state("Keine vergangenen Bestellungen", false, &theme)
+                            .into_any_element(),
+                        card::empty_state("Keine Abrechnungsdaten für diesen Monat", false, &theme)
+                            .into_any_element(),
+                    ],
+                ))
+                .child(card::empty_state("Keine Menüs verfügbar", false, &theme))
+                // Loading rows (04 §4).
+                .child(spinner::loading_row(
+                    "Wird in den Warenkorb gelegt...",
+                    &theme,
+                ))
+                .child(spinner::loading_row("Aktualisiere...", &theme))
+                .child(spinner::loading_row("Wird storniert", &theme));
+        }
+        sec = sec
             // Status tags (04 §4 order/billing states).
             .child(
                 div()
@@ -230,7 +293,8 @@ impl GalleryRoot {
                         .into_any_element(),
                 ],
                 &theme,
-            ))
+            ));
+        sec
     }
 }
 

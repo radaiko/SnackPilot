@@ -5,7 +5,7 @@
 
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, App, Div, ElementId, SharedString};
+use gpui_kit::{div, px, App, ClickEvent, Div, ElementId, SharedString, Window};
 
 use crate::theme::{self, AppTheme};
 
@@ -52,6 +52,42 @@ pub fn button(
                 .active(theme::darken(hover, 0.06))
                 .shadow(r.shadow.is_some()),
         ),
+        &r,
+    )
+}
+
+/// Same as [`button`] but tappable — used by the gallery page switch.
+pub fn button_action(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    kind: ButtonKind,
+    theme: &AppTheme,
+    cx: &App,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let r = match kind {
+        ButtonKind::Primary => theme.button_primary(),
+        ButtonKind::Secondary => theme.button_secondary(),
+        ButtonKind::Danger => theme.button_danger(),
+    };
+    let fg = match kind {
+        ButtonKind::Primary | ButtonKind::Danger => theme.on_primary,
+        ButtonKind::Secondary => theme.text_primary,
+    };
+    let hover = theme::darken(r.bg, 0.08);
+    shell(
+        Button::new(id)
+            .label(label)
+            .rounded(r.radius)
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .color(r.bg)
+                    .foreground(fg)
+                    .hover(hover)
+                    .active(theme::darken(hover, 0.06))
+                    .shadow(r.shadow.is_some()),
+            )
+            .on_click(on_click),
         &r,
     )
 }

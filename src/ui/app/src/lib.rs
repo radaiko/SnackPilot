@@ -72,7 +72,7 @@ impl Render for SpikeRoot {
 
 /// Read a debug system property (Android only; `debug.*` props are
 /// shell-settable without root, and env vars cannot reach an app process).
-#[cfg(target_os = "android")]
+#[cfg(all(target_os = "android", debug_assertions))]
 fn debug_prop(name: &str) -> Option<String> {
     extern "C" {
         fn __system_property_get(
@@ -93,7 +93,7 @@ fn debug_prop(name: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).trim().to_string())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(all(target_os = "android", debug_assertions)))]
 fn debug_prop(_name: &str) -> Option<String> {
     None
 }
@@ -106,7 +106,9 @@ fn debug_prop(_name: &str) -> Option<String> {
 /// both stacked. On the iOS simulator the same two knobs are also accepted as
 /// launch arguments (`--gallery`, `--gallery-section=light`), because
 /// `simctl launch` env propagation is unreliable. `None` means the gallery was
-/// not requested.
+/// not requested. Compiled out of release builds entirely: the gallery is a
+/// debug entry, never reachable in a release binary.
+#[cfg(debug_assertions)]
 fn gallery_requested() -> Option<gallery::Section> {
     let arg = |name: &str| std::env::args().any(|a| a == name);
     let arg_value =
@@ -127,6 +129,37 @@ fn gallery_requested() -> Option<gallery::Section> {
         "dark" => gallery::Section::Dark,
         _ => gallery::Section::Both,
     })
+}
+
+/// Release builds never open the gallery (task 4.1 debug entry).
+#[cfg(not(debug_assertions))]
+fn gallery_requested() -> Option<gallery::Section> {
+    None
+}
+
+/// Which half of the gallery to show: `SNACKPILOT_GALLERY_PAGE=bottom` (or
+/// `--gallery-page=bottom`, or `debug.snackpilot.gallery.page`) shows only the
+/// "Bestellung & Status" sections, so one screenshot can capture them.
+#[cfg(debug_assertions)]
+fn gallery_page() -> Option<String> {
+    let from = |s: String| {
+        let s = s.to_lowercase();
+        (!s.is_empty()).then_some(s)
+    };
+    std::env::var("SNACKPILOT_GALLERY_PAGE")
+        .ok()
+        .and_then(from)
+        .or_else(|| {
+            std::env::args()
+                .find(|a| a.starts_with("--gallery-page="))
+                .and_then(|a| from(a["--gallery-page=".len()..].to_string()))
+        })
+        .or_else(|| debug_prop("debug.snackpilot.gallery.page").and_then(from))
+}
+
+#[cfg(not(debug_assertions))]
+fn gallery_page() -> Option<String> {
+    None
 }
 
 /// Mount the single spike Root: bundled Inter fonts, kit init, one window.

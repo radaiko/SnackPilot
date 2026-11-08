@@ -5,7 +5,7 @@ use snackpilot_model::tokens::*;
 
 /// §8 light-theme token table: (token name, light value, dark value).
 /// Copied from docs/requirements/04-ui-ux.md §8.
-const BASE_TABLE: [(&str, &str, &str); 28] = [
+const BASE_TABLE: [(&str, &str, &str); 31] = [
     ("background", "#F5F5F7", "#000000"),
     ("surface", "#fff", "#1C1C1E"),
     ("surfaceVariant", "#EDEDF0", "#2C2C2E"),
@@ -46,13 +46,24 @@ const BASE_TABLE: [(&str, &str, &str); 28] = [
     ),
     ("glassShadowEdge", "rgba(0,0,0,0.06)", "rgba(0,0,0,0.40)"),
     (
+        "glassSuccess",
+        "rgba(52,168,83,0.10)",
+        "rgba(52,168,83,0.16)",
+    ),
+    (
+        "glassWarning",
+        "rgba(245,166,35,0.10)",
+        "rgba(245,166,35,0.16)",
+    ),
+    ("glassError", "rgba(217,48,37,0.10)", "rgba(234,67,53,0.16)"),
+    (
         "glassPrimary",
         "rgba(212,80,26,0.08)",
         "rgba(255,107,53,0.14)",
     ),
 ];
 
-fn base_tokens() -> [(&'static str, ColorToken); 28] {
+fn base_tokens() -> [(&'static str, ColorToken); 31] {
     [
         ("background", BACKGROUND),
         ("surface", SURFACE),
@@ -81,6 +92,9 @@ fn base_tokens() -> [(&'static str, ColorToken); 28] {
         ("glassSurfaceVariant", GLASS_SURFACE_VARIANT),
         ("glassHighlight", GLASS_HIGHLIGHT),
         ("glassShadowEdge", GLASS_SHADOW_EDGE),
+        ("glassSuccess", GLASS_SUCCESS),
+        ("glassWarning", GLASS_WARNING),
+        ("glassError", GLASS_ERROR),
         ("glassPrimary", GLASS_PRIMARY),
     ]
 }
