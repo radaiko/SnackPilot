@@ -25,6 +25,7 @@ use crate::components::tab_bar::{reserved_height, tab_bar};
 use crate::components::toast::{toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION};
 use crate::navigation::settings_detail_screen;
 use crate::screens::menus::menus_tab;
+use crate::screens::orders::orders_tab;
 use crate::theme::AppTheme;
 
 /// §3.4 Datenschutz alert message, verbatim.
@@ -68,6 +69,8 @@ pub struct AppShell {
     pub(crate) swipe_start_y: Option<f32>,
     pub(crate) swipe_claimed: bool,
     pub(crate) swipe_dx: f32,
+    /// Orders tab: true shows the past segment (UI-only).
+    pub(crate) orders_past: bool,
 }
 
 impl AppShell {
@@ -109,6 +112,7 @@ impl AppShell {
             swipe_start_y: None,
             swipe_claimed: false,
             swipe_dx: 0.,
+            orders_past: false,
         };
         // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
         // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast,
@@ -183,7 +187,7 @@ impl AppShell {
         .detach();
     }
 
-    fn set_dialog(&mut self, dialog: Dialog, cx: &mut Context<Self>) {
+    pub(crate) fn set_dialog(&mut self, dialog: Dialog, cx: &mut Context<Self>) {
         self.dialog = Some(dialog);
         cx.notify();
     }
@@ -417,10 +421,12 @@ impl AppShell {
             }
         }
         column
-            .child(if self.nav.top() == Screen::Menus {
-                menus_tab(state, self.model.as_ref(), theme, self.swipe_dx, cx)
-            } else {
-                self.placeholder(state, theme, cx)
+            .child(match self.nav.top() {
+                Screen::Menus => menus_tab(state, self.model.as_ref(), theme, self.swipe_dx, cx),
+                Screen::Orders => {
+                    orders_tab(state, self.model.as_ref(), self.orders_past, theme, cx)
+                }
+                _ => self.placeholder(state, theme, cx),
             })
             .into_any_element()
     }

@@ -1,0 +1,16 @@
+Task 5.2 — Orders tab, iOS simulator build and launch
+
+Mac: src/ui/ios bootstrap.sh — exit 0
+Mac: xcodebuild -project SnackPilot.xcodeproj -scheme SnackPilot -sdk iphonesimulator \
+       -destination id=C2994587-5046-4970-8DDE-3F003EB81D0D -derivedDataPath build \
+       CODE_SIGNING_ALLOWED=NO build — ** BUILD SUCCEEDED **
+Mac: simctl install + launch --tab=1 — Orders tab selected in the pill.
+
+a-ios-orders-gate.png — §3.2 auth gate ("Anmeldung erforderlich", 16,
+textTertiary) with no stored Gourmet session. Same limitation as 5.1: the iOS
+host does not install the GPUI shell model until task 5.7, so the filled states
+(upcoming list, confirm banner, cancel dialog, selection mode, past tab, empty)
+need 5.4 (login UI) + 5.7. The Android emulator stays blocked by the recorded
+vulkan.ranchu SIGSEGV.
+
+Linux: cargo ndk -t x86_64 check -p snackpilot-app — clean.
