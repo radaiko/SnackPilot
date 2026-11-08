@@ -116,7 +116,7 @@ Conventions for every task below:
   - check: `make check`; additionally `tools/devops/ui-android-build.sh` and `cd src/ui/android && ./gradlew :app:assembleDebug --no-daemon`
   - proof: android workflow build (extended in 6.2) plus emulator evidence
 
-- [ ] 3.5 iOS platform bridge: C function table to migrated Swift shims
+- [x] 3.5 iOS platform bridge: C function table to migrated Swift shims
   - tier: hard
   - host: Linux (edit), Mac (build and run)
   - files: `src/ui/app/src/platform/ios.rs`, `src/ui/app/src/platform/mod.rs`, `src/ui/app/src/lib.rs`, `src/ui/ios/Host/PlatformShims.h`, `src/ui/ios/Shims/KeychainStore.swift`, `src/ui/ios/Shims/NotificationService.swift`, `src/ui/ios/Shims/LocationService.swift`, `src/ui/ios/Shims/Analytics.swift`, `src/ui/ios/Shims/PlatformBridge.swift`, `src/ui/ios/Host/App.swift`, `src/ui/ios/project.yml`, `src/ui/ios/PrivacyInfo.xcprivacy`, `docs/evidence/gpui-kit-ui-rewrite/3.5/*.png`
