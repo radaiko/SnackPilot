@@ -203,7 +203,7 @@ Conventions for every task below:
   - tests: screenshots on the emulator in demo mode: all sources, Kantine filter, month with no data, loading state (`@req REQ-SCR-03`); `de-AT` amounts compared to the 3.2 format tests; simulator build compiles.
   - check: `make check`; additionally Android build and Mac simulator build
   - proof: android workflow, emulator evidence
-  - note: iOS simulator build/launch verified and the §3.3 auth gate captured (5.3/a-ios-billing-gate.png); month tabs, chips, summary, BillCard list, empty and loading states need the login UI (5.4) and the iOS shell model (5.7), as in 5.1/5.2. de-AT amounts come from the model's format_eur (covered by its tests). Android emulator captures stay blocked (vulkan.ranchu SIGSEGV). Review round 1 fixed the empty-state copy to "Keine Abrechnungsdaten für diesen Monat".
+  - note: iOS simulator build/launch verified and the §3.3 auth gate captured (5.3/a-ios-billing-gate.png); month tabs, chips, summary, BillCard list, empty and loading states need the login UI (5.4) and the iOS shell model (5.7), as in 5.1/5.2. de-AT amounts come from the model's format_eur (covered by its tests). Android emulator captures stay blocked (vulkan.ranchu SIGSEGV). Review round 1 fixed the empty-state copy to "Keine Abrechnungsdaten für diesen Monat"; round 2 PASS. Follow-ups from review (non-blocking): `select_month`/`reload_billing` and the orders equivalents call `block_on` on the UI thread, so the loading spinner cannot paint during a fetch (same pattern in 5.2 — fix when the async host plumbing lands); badge letterSpacing 0.5 and one-line clamp on the Gourmet item description (§4.7) still missing in `bill_card.rs`.
 
 - [ ] 5.4 Settings tab and both login screens (text input proof)
   - tier: hard
