@@ -166,10 +166,11 @@ fn gallery_page() -> Option<String> {
     None
 }
 
-/// The `AppModel` the shell renders from, installed by each host before
-/// `mount` (task 4.2). The iOS host keeps its model inside the platform
-/// bridge, which is outside this task's files, so iOS renders the default
-/// state until a later task exposes a getter there.
+/// The `AppModel` the shell renders from. Installed by the hosts before the
+/// window opens (task 4.2): desktop in `bin/desktop.rs`, Android in
+/// `mobile.rs` (`android_main`). The iOS host (`mobile.rs`, `ios_host`) does
+/// not build a model yet — no host-side getter exists for it — so iOS
+/// renders the default state until a later task wires the model there.
 static SHELL_MODEL: std::sync::OnceLock<std::sync::Arc<snackpilot_model::AppModel>> =
     std::sync::OnceLock::new();
 
