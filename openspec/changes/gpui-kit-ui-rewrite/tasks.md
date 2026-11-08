@@ -126,9 +126,10 @@ Conventions for every task below:
   - tests: unit test of the callback-table marshalling in `ios.rs` using a Rust-side stub table (`@req REQ-PLT-06`); on the simulator: credential round trip through the shim read back via `security`-free app log (value redacted), a fired notification banner screenshot (`@req REQ-PLT-02`, `@req REQ-PLT-01`); geofence entry is device-only and is listed as a human check in the handoff.
   - check: `make check`; additionally `make mac-sync` and `xcodebuild … CODE_SIGNING_ALLOWED=NO build` plus simulator launch via `ssh mac`
   - proof: ios workflow build (extended in 6.2) plus simulator evidence
+  - note: approved deviations — logger moved from `mobile.rs` into `ios.rs::install_stderr_logger`; simulator builds use ad-hoc signing (`CODE_SIGN_IDENTITY[sdk=iphonesimulator*] = "-"`) instead of `CODE_SIGNING_ALLOWED=NO` because unsigned simulator binaries fail keychain `SecItemAdd` with -34018 (verified on a fresh install; no entitlements file needed — Xcode strips profile-gated keys under ad-hoc signing); device builds keep signing off for the human/devops release flow. Added beyond the declared files: `UITests/NotificationPermissionTests.swift`, `a-exercise-log.txt`, `d-notification-center.jpg`. Human checks pending: physical-device geofence entry, device v1-credential takeover.
   - note: approved deviations — stderr logger moved from `mobile.rs` into `ios.rs::install_stderr_logger`; simulator builds use ad-hoc signing with **no** entitlements file (unsigned binaries hit keychain -34018; Xcode strips profile-gated entitlements under ad-hoc anyway — fresh-install SecItemAdd round trip verified on the simulator); `docs/devlibs-host-tests.md` documents the Linux X11 link shims. Human checks deferred: physical-device geofence entry and device v1-credential takeover.
 
-- [ ] 3.6 Desktop platform: OS keychain credentials and no-op services
+- [x] 3.6 Desktop platform: OS keychain credentials and no-op services
   - tier: normal
   - host: Linux (tests with the mock keyring), Mac (real keychain round trip)
   - files: `src/ui/app/src/platform/desktop.rs`, `src/ui/app/src/platform/mod.rs`, `src/ui/app/src/bin/desktop.rs`, `src/ui/app/Cargo.toml`
@@ -138,6 +139,7 @@ Conventions for every task below:
   - tests: unit tests with the `keyring` mock credential builder (`@req REQ-PLT-07`); on the Mac a one-off run of a small `examples/` or test-only binary saves, reads and deletes a dummy value `test-user`/`test-pass` and the handoff states the result.
   - check: `make check`; additionally `cargo test -p snackpilot-app --lib` on the Mac and `cargo check -p snackpilot-app --bin snackpilot-desktop` on Linux if system libs exist
   - proof: ui workflow compile of the model crate; Mac test run
+  - note: Linux has no pkg-config/fontconfig, so the desktop binary check ran on the Mac instead (compiles clean); on Linux no keyring native store is enabled (would need libdbus) — the Linux desktop host is compile-only and tests use the keyring mock. Mac proof (one-shot LaunchAgent in the GUI session, plain SSH hits "User interaction is not allowed"): `save_user=true save_pass=true match_user=true match_pass=true delete_user=true delete_pass=true user_gone=true pass_gone=true`, values never logged. Added beyond the files line: `src/ui/app/examples/keychain_roundtrip.rs`, `src/ui/Cargo.lock`.
 
 ## 4. UI foundation
 
