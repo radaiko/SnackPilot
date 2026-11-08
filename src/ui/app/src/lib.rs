@@ -5,6 +5,7 @@
 //! mobile hosts never call `gpui_kit::application()`.
 
 pub mod assets;
+pub mod platform;
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
 mod mobile;

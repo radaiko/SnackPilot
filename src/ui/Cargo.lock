@@ -6959,8 +6959,11 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "gpui-pre-mobile",
+ "jni",
  "log",
+ "ndk-context",
  "snackpilot-core",
+ "snackpilot-model",
 ]
 
 [[package]]

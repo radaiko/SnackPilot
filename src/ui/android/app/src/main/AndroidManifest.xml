@@ -1,14 +1,19 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!--
-  AndroidManifest.xml for the SnackPilot gpui-kit Android host (task 2.1).
+  AndroidManifest.xml for the SnackPilot gpui-kit Android host (tasks 2.1 + 3.4).
 
-  Mirrors the gpui-mobile example manifest (rev 0b882efd) minus the packages
-  the spike does not use (pickers, deep links, permissions, splash):
+  Mirrors the gpui-mobile example manifest (rev 0b882efd) for the rendering half
+  and carries over the v1 platform-services half (05-platform-services):
     - NativeActivity-based host so the lifecycle is driven from Rust.
-    - android.app.lib_name selects the Rust cdylib (placeholder from
-      build.gradle.kts).
+    - android.app.lib_name selects the Rust cdylib (from build.gradle.kts).
     - configChanges keeps the Activity (and the single gpui-kit Root) alive
       across rotation/keyboard/uiMode changes instead of recreating it (D11).
+    - Permissions per 05-platform-services: INTERNET, POST_NOTIFICATIONS, the
+      location trio for the company geofence (§10), RECEIVE_BOOT_COMPLETED
+      (re-arm of background sync lands with the core wiring, task 3.5).
+    - AlarmReceiver + GeofenceBroadcastReceiver, as in v1.
+    - One launcher activity-alias per accent (themes §6); exactly one enabled —
+      PlatformBridge.setAppIcon toggles them, as v1's AppViewModel.setAccent did.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -32,7 +37,19 @@
         android:required="false"
     />
 
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Location geofence (notifications-location §10). Background access is required for the
+         region to fire while the app is not in the foreground. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Background sync re-arm after reboot (docs/architecture §4.4); the boot receiver comes
+         back with the core wiring (task 3.5). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
+        android:name="dev.radaiko.snackpilot.SnackPilotApp"
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
@@ -56,13 +73,43 @@
                 android:name="android.app.lib_name"
                 android:value="${nativeLibraryName}"
             />
+        </activity>
 
+        <!-- One launcher alias per accent (themes §6), as v1. Exactly one is enabled at a
+             time; PlatformBridge.setAppIcon toggles them. Orange is the default. Icons are
+             inherited from the application until the icon resources are ported. -->
+        <activity-alias
+            android:name="dev.radaiko.gourmetclient.SnackPilotActivityOrange"
+            android:enabled="true"
+            android:exported="true"
+            android:label="SnackPilot"
+            android:targetActivity="dev.radaiko.gourmetclient.SnackPilotActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name="dev.radaiko.gourmetclient.SnackPilotActivityAlt"
+            android:enabled="false"
+            android:exported="true"
+            android:label="SnackPilot"
+            android:targetActivity="dev.radaiko.gourmetclient.SnackPilotActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
+        <receiver
+            android:name="dev.radaiko.snackpilot.AlarmReceiver"
+            android:exported="false" />
+
+        <!-- Company geofence Enter/Exit (notifications-location §4). Explicit-component
+             PendingIntent, so it stays unexported. -->
+        <receiver
+            android:name="dev.radaiko.snackpilot.GeofenceBroadcastReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

@@ -3,6 +3,7 @@
 // APK hosted by a NativeActivity, mirroring the gpui-mobile example host.
 
 plugins {
+    // AGP 9 compiles Kotlin itself; the standalone KGP plugin is forbidden here.
     id("com.android.application")
 }
 
@@ -37,11 +38,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_1_8
     }
 
-    sourceSets {
-        getByName("main") {
-            jniLibs.srcDirs("src/main/jniLibs")
-        }
-    }
+    // AGP 9 built-in Kotlin: jvmTarget defaults to compileOptions.targetCompatibility.
+    // jniLibs default srcDir is already src/main/jniLibs, no sourceSets override needed.
 
     packaging {
         // Keep the Rust library unstripped — cargo strips in release itself.
@@ -59,4 +57,11 @@ android {
     }
 }
 
-// No dependencies: the spike uses only framework classes (android.app.NativeActivity).
+// Platform bridge (task 3.4): Play services geofencing, Aptabase analytics,
+// NotificationCompat (androidx.core), coroutine dispatchers for Play services callbacks.
+dependencies {
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.github.aptabase:aptabase-kotlin:0.0.8")   // self-hosted analytics
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+}
