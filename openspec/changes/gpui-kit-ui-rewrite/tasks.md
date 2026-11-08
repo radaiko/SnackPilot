@@ -105,7 +105,7 @@ Conventions for every task below:
   - check: `make check`
   - proof: ui workflow (`make ui-check`)
 
-- [ ] 3.4 Android platform bridge: JNI to migrated Kotlin shims
+- [x] 3.4 Android platform bridge: JNI to migrated Kotlin shims
   - tier: hard
   - host: Linux + Emulator
   - files: `src/ui/app/src/platform/mod.rs`, `src/ui/app/src/platform/android.rs`, `src/ui/app/src/lib.rs`, `src/ui/app/Cargo.toml`, `src/ui/android/app/src/main/AndroidManifest.xml`, `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/PlatformBridge.kt`, `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/SecureCredentialStore.kt`, `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/NotificationService.kt`, `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/AlarmReceiver.kt`, `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/LocationService.kt`, `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/GeofenceBroadcastReceiver.kt`, `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/SnackPilotApp.kt`, `src/ui/android/app/build.gradle.kts`, `src/ui/android/app/src/main/res/**` (launcher icons and aliases are copied in 5.5, not here), `docs/evidence/gpui-kit-ui-rewrite/3.4/*.png`
