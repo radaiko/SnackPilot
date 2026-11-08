@@ -126,6 +126,7 @@ Conventions for every task below:
   - tests: unit test of the callback-table marshalling in `ios.rs` using a Rust-side stub table (`@req REQ-PLT-06`); on the simulator: credential round trip through the shim read back via `security`-free app log (value redacted), a fired notification banner screenshot (`@req REQ-PLT-02`, `@req REQ-PLT-01`); geofence entry is device-only and is listed as a human check in the handoff.
   - check: `make check`; additionally `make mac-sync` and `xcodebuild … CODE_SIGNING_ALLOWED=NO build` plus simulator launch via `ssh mac`
   - proof: ios workflow build (extended in 6.2) plus simulator evidence
+  - note: approved deviations — stderr logger moved from `mobile.rs` into `ios.rs::install_stderr_logger`; simulator builds use ad-hoc signing with **no** entitlements file (unsigned binaries hit keychain -34018; Xcode strips profile-gated entitlements under ad-hoc anyway — fresh-install SecItemAdd round trip verified on the simulator); `docs/devlibs-host-tests.md` documents the Linux X11 link shims. Human checks deferred: physical-device geofence entry and device v1-credential takeover.
 
 - [ ] 3.6 Desktop platform: OS keychain credentials and no-op services
   - tier: normal
