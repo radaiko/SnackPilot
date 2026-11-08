@@ -19,6 +19,7 @@ pub mod menu_card;
 pub mod order_item;
 pub mod pull_refresh;
 pub mod segment_tabs;
+pub mod settings_row;
 pub mod spinner;
 pub mod swipe;
 pub mod switch;

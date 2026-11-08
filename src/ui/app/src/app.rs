@@ -13,8 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::*;
-use gpui_kit::assets::IconName;
-use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::component::input::InputState;
 use snackpilot_model::navigation::{Navigation, Screen, Tab};
 use snackpilot_model::{format_day_short, AppModel, State};
 
@@ -23,14 +22,23 @@ use crate::components::dialog::{dialog_overlay, Dialog};
 use crate::components::loading_overlay::loading_overlay;
 use crate::components::tab_bar::{reserved_height, tab_bar};
 use crate::components::toast::{toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION};
-use crate::navigation::settings_detail_screen;
 use crate::screens::billing::billing_tab;
+use crate::screens::login::{login_screen, LoginKind};
 use crate::screens::menus::menus_tab;
 use crate::screens::orders::orders_tab;
+use crate::screens::settings::{placeholder_detail, settings_tab};
 use crate::theme::AppTheme;
 
-/// §3.4 Datenschutz alert message, verbatim.
-const DATENSCHUTZ_MESSAGE: &str = "Diese App erfasst anonyme Nutzungsstatistiken zur Verbesserung der Benutzererfahrung. Die Analyse erfolgt über TelemetryDeck — einen datenschutzfreundlichen, cookielosen Dienst. Es werden keine persönlichen Daten, Passwörter, Menüauswahl oder Abrechnungsdaten erfasst.";
+/// The pushed settings screens (one detail at a time under
+/// `Screen::SettingsDetail`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Detail {
+    Settings,
+    LoginKantine,
+    LoginAutomaten,
+    Appearance,
+    Notifications,
+}
 
 /// Safe-area insets (top, bottom, left, right) in logical px, read from the
 /// host platform. Android asks the live window; iOS reads the FFI window list
@@ -60,9 +68,6 @@ pub struct AppShell {
     nav: Navigation,
     dialog: Option<Dialog>,
     toast: Option<Toast>,
-    /// Title of the pushed `SettingsDetail` screen, set when a settings row
-    /// pushes it (tasks 5.x replace the placeholder body).
-    detail_title: &'static str,
     pub(crate) model: Option<Arc<AppModel>>,
     /// Transient swipe-between-days gesture state (§3.1): pointer origin and
     /// the current (damped) horizontal offset.
@@ -72,6 +77,11 @@ pub struct AppShell {
     pub(crate) swipe_dx: f32,
     /// Orders tab: true shows the past segment (UI-only).
     pub(crate) orders_past: bool,
+    /// Which pushed settings screen is shown.
+    pub(crate) detail: Detail,
+    /// Login form fields, created on push so typing survives re-renders.
+    login_user: Option<Entity<InputState>>,
+    login_pass: Option<Entity<InputState>>,
 }
 
 impl AppShell {
@@ -107,13 +117,15 @@ impl AppShell {
             nav: Navigation::new(),
             dialog: None,
             toast: None,
-            detail_title: "",
             model,
             swipe_start: None,
             swipe_start_y: None,
             swipe_claimed: false,
             swipe_dx: 0.,
             orders_past: false,
+            detail: Detail::Settings,
+            login_user: None,
+            login_pass: None,
         };
         // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
         // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast,
@@ -188,128 +200,43 @@ impl AppShell {
         .detach();
     }
 
+    /// Push a settings detail screen; login details create fresh inputs.
+    pub(crate) fn open_detail(
+        &mut self,
+        detail: Detail,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.detail = detail;
+        if matches!(detail, Detail::LoginKantine | Detail::LoginAutomaten) {
+            let username = self
+                .model
+                .as_ref()
+                .and_then(|m| m.state().user_info.map(|u| u.username))
+                .unwrap_or_default();
+            self.login_user = Some(cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("Benutzername eingeben")
+                    .default_value(username.clone())
+            }));
+            self.login_pass =
+                Some(cx.new(|cx| InputState::new(window, cx).placeholder("Passwort eingeben")));
+        }
+        self.nav.push(Screen::SettingsDetail);
+        cx.notify();
+    }
+
+    /// Pop back to the settings root.
+    pub(crate) fn pop_detail(&mut self, cx: &mut Context<Self>) {
+        self.nav.pop();
+        self.detail = Detail::Settings;
+        cx.notify();
+    }
+
     pub(crate) fn set_dialog(&mut self, dialog: Dialog, cx: &mut Context<Self>) {
         self.dialog = Some(dialog);
         cx.notify();
     }
-
-    /// §3.4 settings rows: title 18/600, hint 13/tertiary, trailing chevron 20.
-    fn settings_screen(
-        &self,
-        state: &State,
-        theme: &AppTheme,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let gourmet_hint = match &state.user_info {
-            Some(user) if state.gourmet_authenticated => {
-                format!("Angemeldet als {}", user.username)
-            }
-            _ => "Nicht angemeldet".to_string(),
-        };
-        let ventopay_hint = if state.ventopay_authenticated {
-            "Sitzung aktiv"
-        } else {
-            "Nicht angemeldet"
-        };
-        let theme_hint = match state.theme {
-            snackpilot_model::ThemePreference::System => "System",
-            snackpilot_model::ThemePreference::Light => "Hell",
-            snackpilot_model::ThemePreference::Dark => "Dunkel",
-        };
-        let rows: [(&'static str, String); 4] = [
-            ("Kantine-Zugangsdaten", gourmet_hint),
-            ("Automaten-Zugangsdaten", ventopay_hint.to_string()),
-            ("Darstellung", theme_hint.to_string()),
-            (
-                "Benachrichtigungen",
-                "Erinnerungen und Standort-Benachrichtigungen".to_string(),
-            ),
-        ];
-
-        let mut list = div().flex_1().flex().flex_col().p(px(20.)).pb(px(100.));
-        for (index, (title, hint)) in rows.iter().enumerate() {
-            let title = *title;
-            let hint = hint.clone();
-            if index > 0 {
-                // §3.4: 1 px dividers, marginVertical 24.
-                list = list.child(div().h(px(1.)).my(px(24.)).bg(theme.divider()));
-            }
-            let entity = cx.entity().clone();
-            let on_tap = Rc::new(move |_window: &mut Window, cx: &mut App| {
-                entity.update(cx, |this, cx| {
-                    this.detail_title = title;
-                    this.nav.push(Screen::SettingsDetail);
-                    cx.notify();
-                });
-            });
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("settings-{title}")))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .py(px(8.))
-                    .cursor_pointer()
-                    .on_click(move |_, window, cx| on_tap(window, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(px(18.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme.text_primary)
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .mt(px(2.))
-                                    .text_size(px(13.))
-                                    .text_color(theme.text_tertiary)
-                                    .child(hint),
-                            ),
-                    )
-                    .child(
-                        Icon::new(IconName::ChevronRight)
-                            .with_size(px(20.))
-                            .text_color(theme.text_tertiary),
-                    ),
-            );
-        }
-        let datenschutz = cx.entity().clone();
-        let on_datenschutz = Rc::new(move |_window: &mut Window, cx: &mut App| {
-            datenschutz.update(cx, |this, cx| {
-                this.set_dialog(
-                    Dialog::Alert {
-                        title: "Datenschutz".into(),
-                        message: Some(DATENSCHUTZ_MESSAGE.into()),
-                    },
-                    cx,
-                );
-            });
-        });
-        list.child(
-            div()
-                .id("datenschutz")
-                .w_full()
-                .flex()
-                .justify_center()
-                .py(px(16.))
-                .cursor_pointer()
-                .on_click(move |_, window, cx| on_datenschutz(window, cx))
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .text_color(theme.text_tertiary)
-                        .child("Datenschutz"),
-                ),
-        )
-        .into_any_element()
-    }
-
-    /// One tab's placeholder content: page title plus a line from the model
-    /// state. Tasks 5.x replace these with the real screens.
     fn placeholder(&self, state: &State, theme: &AppTheme, cx: &mut Context<Self>) -> AnyElement {
         let (title, hint): (&str, String) = match self.nav.top() {
             Screen::Menus => match &state.menu_snapshot {
@@ -347,7 +274,7 @@ impl AppShell {
                     ("Abrechnung", "Keine Abrechnungsdaten".to_string())
                 }
             }
-            Screen::Settings => return self.settings_screen(state, theme, cx),
+            Screen::Settings => return settings_tab(state, theme, cx),
             Screen::SettingsDetail => unreachable!("handled before placeholders"),
         };
         div()
@@ -377,14 +304,27 @@ impl AppShell {
     /// Menus tab and the §3.5 back affordance on pushed screens.
     fn screen(&self, state: &State, theme: &AppTheme, cx: &mut Context<Self>) -> AnyElement {
         if self.nav.top() == Screen::SettingsDetail {
-            let entity = cx.entity().clone();
-            let on_back = Rc::new(move |_window: &mut Window, cx: &mut App| {
-                entity.update(cx, |this, cx| {
-                    this.nav.pop();
-                    cx.notify();
-                });
-            });
-            return settings_detail_screen(self.detail_title, theme, on_back);
+            return match (self.detail, &self.login_user, &self.login_pass) {
+                (Detail::LoginKantine, Some(user), Some(pass)) => login_screen(
+                    LoginKind::Kantine,
+                    state,
+                    self.model.as_ref(),
+                    user,
+                    pass,
+                    theme,
+                    cx,
+                ),
+                (Detail::LoginAutomaten, Some(user), Some(pass)) => login_screen(
+                    LoginKind::Automaten,
+                    state,
+                    self.model.as_ref(),
+                    user,
+                    pass,
+                    theme,
+                    cx,
+                ),
+                (detail, _, _) => placeholder_detail(detail, theme, cx),
+            };
         }
 
         let mut column = div().flex_1().flex().flex_col().overflow_hidden();

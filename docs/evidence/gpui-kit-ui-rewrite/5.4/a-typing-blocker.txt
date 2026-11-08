@@ -1,0 +1,32 @@
+Task 5.4 — BLOCKED on mobile text input (design risk)
+
+Delivered on branch task/5.4-settings-login (not ticked):
+- screens/settings.rs: §3.4 rows with live hints, dividers, Datenschutz alert,
+  Benachrichtigungen hidden on desktop.
+- screens/login.rs: one parametrised form for §3.5 (Kantine) and §3.6
+  (Automaten): back affordance, title/subtitle, labelled inputs, save-then-login
+  with empty-field / success / failure alerts, session section, Abmelden.
+- components/settings_row.rs.
+- app.rs: Detail enum, open_detail/pop_detail, login input entities kept on the
+  shell so typing survives re-renders.
+
+Verification done:
+- Linux: cargo ndk -t x86_64 check -p snackpilot-app — clean.
+- make check — exit 0, 17 suites green.
+- Mac: iOS build succeeds and the Einstellungen screen renders correctly
+  (settings54 screenshot).
+
+Blocker (the task's own stop condition: "If typing cannot be made to work on
+either mobile platform, stop and report (design risk list) before 5.5"):
+- iOS simulator: tapping the username field at three computed positions
+  (dy 0.22 / 0.25 / 0.31 of 874 pt) and calling XCUIApplication.typeText fails
+  with "Neither element nor any descendant has keyboard focus". The same
+  coordinate-tap route does reach GPUI input for tab buttons and dialog
+  backdrops (4.2 evidence), so the failure is specific to focusing the kit
+  `Input` over the mobile text-input bridge.
+- Android: the emulator remains unusable (vulkan.ranchu.so SIGSEGV recorded
+  since 4.1), so no second platform to try.
+
+Needs a human/design decision before 5.5: either fix focus delivery for
+`gpui_kit::component::Input` on the gpui-mobile UITextInput bridge (design
+risk list), or accept a different typing proof (physical device).
