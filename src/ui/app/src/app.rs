@@ -418,6 +418,7 @@ impl Render for AppShell {
 
         let entity = cx.entity().clone();
         let on_select = Rc::new(move |tab: Tab, _window: &mut Window, cx: &mut App| {
+            log::info!("[4.2] tab selected: {tab:?}");
             entity.update(cx, |this, cx| {
                 this.nav.select_tab(tab);
                 cx.notify();
