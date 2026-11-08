@@ -10,6 +10,7 @@ pub mod components;
 pub mod gallery;
 pub mod navigation;
 pub mod platform;
+pub mod screens;
 pub mod theme;
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
