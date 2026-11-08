@@ -13,7 +13,7 @@ fn starts_on_menus_tab_with_single_entry_stack() {
 }
 
 #[test]
-/// @req REQ-UI-03
+/// @req REQ-UI-04
 fn switching_to_another_tab_resets_the_stack_to_that_tab() {
     let mut nav = Navigation::new();
     nav.push(Screen::SettingsDetail);
@@ -25,7 +25,7 @@ fn switching_to_another_tab_resets_the_stack_to_that_tab() {
 }
 
 #[test]
-/// @req REQ-UI-03
+/// @req REQ-UI-04
 fn re_tapping_the_active_tab_is_a_no_op() {
     let mut nav = Navigation::new();
     nav.select_tab(Tab::Orders);
@@ -38,7 +38,7 @@ fn re_tapping_the_active_tab_is_a_no_op() {
 }
 
 #[test]
-/// @req REQ-UI-03
+/// @req REQ-UI-04
 fn tab_metadata_matches_the_spec() {
     assert_eq!(
         Tab::ALL,
