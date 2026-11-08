@@ -1,0 +1,66 @@
+Android emulator (emulator-5554, sdk_gphone64_arm64 API 36, production image): the app SIGSEGVs ~1 s after mount inside the emulator Vulkan driver
+(gfxstream ResourceTracker in vulkan.ranchu.so), same crash class as the task 2.1 spike. Reproduced with the stripped release .so; -gpu swift_shader_indirect and
+host both crash identically; setprop wrap.* rejected by SELinux so WGPU_BACKEND=gl cannot be injected. Gallery screenshots above were
+therefore captured on the iOS simulator (same Rust UI code, same gallery hook via --gallery argv).
+
+--------- beginning of crash
+11-08 17:23:56.635  7527  7550 F libc    : Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0 in tid 7550 (android_main), pid 7527 (o.gourmetclient)
+11-08 17:23:57.087  7566  7566 F DEBUG   : *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+11-08 17:23:57.087  7566  7566 F DEBUG   : Build fingerprint: 'google/sdk_gphone64_arm64/emu64a:16/BE4B.251210.005/14574095:user/release-keys'
+11-08 17:23:57.087  7566  7566 F DEBUG   : Kernel Release: '6.12.38-android16-5-gbb9513914902-ab13996879-4k'
+11-08 17:23:57.087  7566  7566 F DEBUG   : Revision: '0'
+11-08 17:23:57.087  7566  7566 F DEBUG   : ABI: 'arm64'
+11-08 17:23:57.087  7566  7566 F DEBUG   : Timestamp: 2026-11-08 17:23:56.691180866+0100
+11-08 17:23:57.087  7566  7566 F DEBUG   : Process uptime: 2s
+11-08 17:23:57.087  7566  7566 F DEBUG   : Executable: /system/bin/app_process64
+11-08 17:23:57.087  7566  7566 F DEBUG   : Cmdline: dev.radaiko.gourmetclient
+11-08 17:23:57.087  7566  7566 F DEBUG   : pid: 7527, tid: 7550, name: android_main  >>> dev.radaiko.gourmetclient <<<
+11-08 17:23:57.087  7566  7566 F DEBUG   : uid: 10251
+11-08 17:23:57.087  7566  7566 F DEBUG   : tagged_addr_ctrl: 0000000000000001 (PR_TAGGED_ADDR_ENABLE)
+11-08 17:23:57.087  7566  7566 F DEBUG   : pac_enabled_keys: 000000000000000f (PR_PAC_APIAKEY, PR_PAC_APIBKEY, PR_PAC_APDAKEY, PR_PAC_APDBKEY)
+11-08 17:23:57.087  7566  7566 F DEBUG   : esr: 0000000092000006 (Data Abort Exception 0x24)
+11-08 17:23:57.087  7566  7566 F DEBUG   : signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000000 (read)
+11-08 17:23:57.087  7566  7566 F DEBUG   : Cause: null pointer dereference
+11-08 17:23:57.087  7566  7566 F DEBUG   :     x0  b400007cdbc1f790  x1  0000007dc713d6c4  x2  0000007dc713d6c4  x3  0000000000000010
+11-08 17:23:57.087  7566  7566 F DEBUG   :     x4  0000000000000000  x5  b400007cdbc2cd50  x6  b400007b6bc39150  x7  b400007b6bc39150
+11-08 17:23:57.087  7566  7566 F DEBUG   :     x8  00000000000000b4  x9  000000002c484d09  x10 0000000044bcc663  x11 0200007cdbc1f790
+11-08 17:23:57.087  7566  7566 F DEBUG   :     x12 0000000000000000  x13 b400007b6bc465c0  x14 0d2d325a22edb25e  x15 9ddfea08eb382d69
+11-08 17:23:57.087  7566  7566 F DEBUG   :     x16 0000000000000001  x17 0000007dc709b69c  x18 0000007a95380000  x19 b400007b6bc465c0
+11-08 17:23:57.087  7566  7566 F DEBUG   :     x20 0000000000000000  x21 0000000000000000  x22 0000000000000000  x23 0000000000000000
+11-08 17:23:57.087  7566  7566 F DEBUG   :     x24 0000000000000008  x25 b400007cdbc1f790  x26 0000000000000000  x27 0000000000000000
+11-08 17:23:57.087  7566  7566 F DEBUG   :     x28 b400007b6bc46650  x29 0000007a96a05fb0
+11-08 17:23:57.087  7566  7566 F DEBUG   :     lr  0000007a870b1ea8  sp  0000007a96a05fb0  pc  0000007a870b1eac  pst 0000000060001000
+11-08 17:23:57.087  7566  7566 F DEBUG   :     esr 0000000092000006
+11-08 17:23:57.087  7566  7566 F DEBUG   : 31 total frames
+11-08 17:23:57.087  7566  7566 F DEBUG   : backtrace:
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #00 pc 0000000000099eac  /vendor/lib64/hw/vulkan.ranchu.so (std::__1::vector<unsigned long, std::__1::allocator<unsigned long>>::push_back[abi:nn210000](unsigned long const&)+136) (BuildId: 3ff2cb6190c99f1be9e321fc7542c8bf)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #01 pc 00000000000a8dd8  /vendor/lib64/hw/vulkan.ranchu.so (gfxstream::vk::ResourceTracker::on_vkQueueSubmit(void*, VkResult, VkQueue_T*, unsigned int, VkSubmitInfo const*, VkFence_T*)+1904) (BuildId: 3ff2cb6190c99f1be9e321fc7542c8bf)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #02 pc 000000000011676c  /vendor/lib64/hw/vulkan.ranchu.so (gfxstream_vk_QueueSubmit+1580) (BuildId: 3ff2cb6190c99f1be9e321fc7542c8bf)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #03 pc 0000000000022114  /system/lib64/libvulkan.so (vulkan::driver::QueueSubmit(VkQueue_T*, unsigned int, VkSubmitInfo const*, VkFence_T*)+64) (BuildId: fcec72ebf9a693aef02c808cf98ef6eb)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #04 pc 0000000000b3b968  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #05 pc 0000000000b099d4  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #06 pc 0000000000a804f0  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #07 pc 0000000000b01ebc  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #08 pc 00000000009f0dd0  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #09 pc 00000000009d4890  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #10 pc 00000000009c7b28  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #11 pc 000000000098aafc  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #12 pc 000000000098c3b8  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #13 pc 000000000159fed0  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #14 pc 00000000016b80b8  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #15 pc 00000000015780c0  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #16 pc 000000000163bc24  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #17 pc 0000000000986088  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #18 pc 0000000000989f84  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #19 pc 0000000000979ed4  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #20 pc 00000000009ad6d8  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #21 pc 000000000095b380  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #22 pc 0000000000975b98  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000) (android_main+1468)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #23 pc 0000000000e65aec  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #24 pc 0000000000e634f0  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #25 pc 0000000000e61248  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #26 pc 0000000000e6f938  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #27 pc 0000000000e71368  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #28 pc 0000000001ad47a8  /data/app/~~mPtP6D2g0A8E-bU9B-y7NQ==/dev.radaiko.gourmetclient-MZuyBDQwo77qYdV5l0ladQ==/base.apk (offset 0xc6c000)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #29 pc 0000000000086580  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*) (.__uniq.67847048707805468364044055584648682506)+232) (BuildId: f2ee009c5f1631f9819057446c9d2fa3)
+11-08 17:23:57.087  7566  7566 F DEBUG   :       #30 pc 0000000000078d64  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64) (BuildId: f2ee009c5f1631f9819057446c9d2fa3)

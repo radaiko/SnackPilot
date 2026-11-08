@@ -88,6 +88,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- NativeActivity.onCreate reads android.app.lib_name from the
+                 launched component, so the alias needs it too. -->
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="${nativeLibraryName}"
+            />
         </activity-alias>
         <activity-alias
             android:name="dev.radaiko.gourmetclient.SnackPilotActivityAlt"
@@ -99,6 +105,10 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="${nativeLibraryName}"
+            />
         </activity-alias>
 
         <receiver

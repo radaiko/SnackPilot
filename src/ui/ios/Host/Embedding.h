@@ -11,9 +11,10 @@ void gpui_ios_will_resign_active(void *app);
 void gpui_ios_did_enter_background(void *app);
 void gpui_ios_will_enter_foreground(void *app);
 
-// Defined in the snackpilot-app Rust staticlib (src/ui/app/src/mobile.rs).
-void gpui_ios_register_app(void);
-void gpui_ios_run_demo(void);
+// Defined in the snackpilot-app Rust staticlib (src/ui/app/src/mobile.rs):
+// installs the logger/panic hook and starts the GPUI run loop with the
+// embedded asset catalog (replaces gpui_ios_register_app + gpui_ios_run_demo).
+void gpui_ios_run(void);
 
 // Defined in the snackpilot-app Rust staticlib (src/ui/app/src/lib.rs):
 // current spike counter value, for the UI test's accessibility assertion.

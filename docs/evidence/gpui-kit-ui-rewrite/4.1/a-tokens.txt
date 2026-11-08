@@ -1,0 +1,36 @@
+Mac: cargo test -p snackpilot-model --test tokens (tokens contract vs 04-ui-ux.md §8, @req REQ-UI-05)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.06s
+     Running tests/tokens.rs (target/debug/deps/tokens-2cff525ee007d5bc)
+
+running 5 tests
+test android_glass_fallbacks_match_spec ... ok
+test blur_tokens_match_spec ... ok
+test default_accent_constants_and_lookup ... ok
+test accents_match_spec_table ... ok
+test base_tokens_match_spec_table ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; finished in 0.00s
+
+(31-entry base table incl. glassSuccess/glassWarning/glassError, re-run on Mac
+after the gallery page-switch commit a8ccf63.)
+
+Linux: make check (fmt, clippy, workspace tests, ui-check) — exit 0
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; finished in 0.05s
+
+     Running tests/tokens.rs (target/debug/deps/tokens-413db3d4c6b8c125)
+
+running 5 tests
+test accents_match_spec_table ... ok
+test android_glass_fallbacks_match_spec ... ok
+test blur_tokens_match_spec ... ok
+test base_tokens_match_spec_table ... ok
+test default_accent_constants_and_lookup ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; finished in 0.00s
+
+   Doc-tests snackpilot_model
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; finished in 0.00s
