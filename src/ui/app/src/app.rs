@@ -24,6 +24,7 @@ use crate::components::loading_overlay::loading_overlay;
 use crate::components::tab_bar::{reserved_height, tab_bar};
 use crate::components::toast::{toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION};
 use crate::navigation::settings_detail_screen;
+use crate::screens::menus::menus_tab;
 use crate::theme::AppTheme;
 
 /// §3.4 Datenschutz alert message, verbatim.
@@ -60,7 +61,13 @@ pub struct AppShell {
     /// Title of the pushed `SettingsDetail` screen, set when a settings row
     /// pushes it (tasks 5.x replace the placeholder body).
     detail_title: &'static str,
-    model: Option<Arc<AppModel>>,
+    pub(crate) model: Option<Arc<AppModel>>,
+    /// Transient swipe-between-days gesture state (§3.1): pointer origin and
+    /// the current (damped) horizontal offset.
+    pub(crate) swipe_start: Option<f32>,
+    pub(crate) swipe_start_y: Option<f32>,
+    pub(crate) swipe_claimed: bool,
+    pub(crate) swipe_dx: f32,
 }
 
 impl AppShell {
@@ -98,12 +105,25 @@ impl AppShell {
             toast: None,
             detail_title: "",
             model,
+            swipe_start: None,
+            swipe_start_y: None,
+            swipe_claimed: false,
+            swipe_dx: 0.,
         };
         // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
         // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast,
         // `--tab=N` selects a tab (simulator captures cannot tap).
         #[cfg(debug_assertions)]
         {
+            // `--demo` signs in with the product's magic demo credentials so
+            // simulator captures show the real screens offline (task 5.1
+            // evidence; the login UI itself is 5.4).
+            if std::env::args().any(|a| a == "--demo") {
+                if let Some(model) = &shell.model {
+                    let result = model.login("demo", "demo1234!");
+                    log::info!("[5.1] demo login: {result:?}");
+                }
+            }
             let tab = std::env::args().find_map(|a| {
                 let rest = a.strip_prefix("--tab=")?;
                 rest.parse::<usize>().ok()
@@ -397,7 +417,11 @@ impl AppShell {
             }
         }
         column
-            .child(self.placeholder(state, theme, cx))
+            .child(if self.nav.top() == Screen::Menus {
+                menus_tab(state, self.model.as_ref(), theme, self.swipe_dx, cx)
+            } else {
+                self.placeholder(state, theme, cx)
+            })
             .into_any_element()
     }
 }

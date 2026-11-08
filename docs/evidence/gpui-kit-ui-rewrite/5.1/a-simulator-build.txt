@@ -1,0 +1,26 @@
+Task 5.1 — Menus tab, iOS simulator build and launch
+
+Mac: src/ui/ios bootstrap.sh (Rust aarch64-apple-ios-sim staticlib) — exit 0
+Mac: xcodebuild -project SnackPilot.xcodeproj -scheme SnackPilot -sdk iphonesimulator \
+       -destination id=C2994587-5046-4970-8DDE-3F003EB81D0D -derivedDataPath build \
+       CODE_SIGNING_ALLOWED=NO build — ** BUILD SUCCEEDED **
+Mac: xcrun simctl install + launch --tab=0 — app runs, 402×778 pt window,
+     Menus tab selected in the floating pill.
+
+a-ios-menus-auth-gate.png — the Menus tab with no stored Gourmet credentials:
+§3.1 auth gate ("Nicht angemeldet" 18/600 in colors.error, hint 14 in
+textTertiary). This is the state the iOS host can reach today: the GPUI shell
+model is installed by the Android and desktop hosts only (lib.rs
+install_shell_model; iOS keeps its AppModel inside the platform bridge until
+task 5.7 exposes it), so no demo session can be seeded on iOS yet.
+
+Limitations (recorded, not silent):
+- Android emulator SIGSEGV in vulkan.ranchu.so (4.1/4.2 record) → no emulator
+  captures; the same Rust view code runs on iOS.
+- Filled states (normal day, pending selection with "Bestellen (1)", progress
+  banner, cutoff day, empty state) need a logged-in demo session. Login UI is
+  task 5.4 and the iOS model bridge is task 5.7; the captures land there. The
+  `--demo` debug knob added to AppShell::new logs the login result and seeds the
+  session on hosts that install the shell model (Android, desktop).
+
+Linux: cargo ndk -t x86_64 check -p snackpilot-app — clean, no warnings.
