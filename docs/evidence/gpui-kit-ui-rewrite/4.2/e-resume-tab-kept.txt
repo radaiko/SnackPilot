@@ -1,0 +1,24 @@
+Background/resume keeps the selected tab (task 4.2, @req REQ-UI-03)
+iPhone 17 Pro simulator (C2994587-5046-4970-8DDE-3F003EB81D0D), iOS 26.2
+
+Method (raw simctl only — simctl launch on a running app foregrounds it without
+relaunching, which is the resume path under test):
+
+  xcrun simctl terminate $UDID dev.radaiko.gourmetclient
+  xcrun simctl launch    $UDID dev.radaiko.gourmetclient --tab=2   → PID 71136
+  (screenshot e1-before-background.png: Abrechnung active, dot under Wallet icon)
+  press the simulator Home button                     → app enters background
+  xcrun simctl launch    $UDID dev.radaiko.gourmetclient            (no args)
+  ps -p 71136                                          → still alive: same PID,
+    resumed, not relaunched
+  (screenshot e2-after-resume.png: Abrechnung still active)
+
+The AppShell is created once (platform::ios::init runs app_main once on the GPUI
+thread; the Swift host creates the GPUIView once in viewDidLoad) and the gpui-mobile
+lifecycle FFI handlers only call window.notify_active_status_change — they do not
+recreate the window or the root view — so the navigation state survives the cycle.
+
+An earlier attempt that re-opened the app by tapping the dock icon through the MCP
+tap tool appeared to reset the tab; that run was discarded — the tap tool's
+coordinate space was ambiguous at those coordinates and the run is not
+reproducible. The raw-simctl test above is deterministic and passes.

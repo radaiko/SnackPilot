@@ -1,0 +1,32 @@
+iOS simulator shell captures (task 4.2) — iPhone 17 Pro, iOS 26.2
+
+Captured with the debug-only evidence knobs in AppShell::new (app.rs, same entry
+as 4.1's --gallery): `--tab=N` selects a tab, `--dialog` opens a §4.1 confirm,
+`--toast` shows the §4.8 toast. simctl cannot tap GPUI elements, hence the knobs.
+
+  xcrun simctl install $UDID build/Build/Products/Debug-iphonesimulator/SnackPilot.app
+  xcrun simctl terminate $UDID dev.radaiko.gourmetclient
+  xcrun simctl launch   $UDID dev.radaiko.gourmetclient --tab=0   (… 1, 2, 3)
+  sleep 6; xcrun simctl io $UDID screenshot tabN.png
+  (--toast captured after 1.5 s: the toast hold is ~3 s total)
+
+States shown:
+  tab0.png  Menüs active (Utensils, primary) — glass pill 248x56 radius 28,
+            icons only, 5x5 dot under the active icon, other icons textTertiary;
+            day navigator ❮ date ❯ with "1 / 1" counter; placeholder content
+            from AppModel state; safe-area top inset applied.
+  tab1.png  Bestellungen active (Receipt).
+  tab2.png  Abrechnung active (Wallet).
+  tab3.png  Einstellungen active (Settings) — profile rows from AppModel
+            (user_info, auth states, months).
+  dialog.png §4.1 confirm "Abmelden?" / "Möchtest du dich wirklich abmelden?",
+            backdrop colors.overlay rgba(255,255,255,0.7) (light, §8), box
+            surface radius 14 padding 24 maxWidth 340 border 0.5, title 17/600
+            centered, message 14 textSecondary, [Abbrechen(cancel, 1px border,
+            textSecondary) Bestätigen(destructive, colors.error)] —
+            confirm/cancel order and labels per §4.1.
+  toast.png §4.8 new-menu toast "Neue Menüs verfügbar!" 14/600 primary on
+            glassPrimary tinted banner, top = safeTop+8, left/right 16.
+
+German strings and umlauts (Abbrechen, Bestätigen, Möchtest, Menüs) render via
+the bundled Inter fonts registered in init_kit.

@@ -1,0 +1,19 @@
+Android workflow (task 4.2), branch task/4.2-app-shell @ 359eae6
+
+Linux: tools/devops/ui-android-build.sh --release (cargo-ndk, jniLibs) — exit 0,
+no warnings (unused_mut on the debug-knob binding silenced with cfg_attr):
+
+    Finished `release` profile [optimized] target(s) in 3.64s
+     Copying libraries to src/ui/android/app/src/main/jniLibs
+    ▸ android/app/src/main/jniLibs/arm64-v8a//libsnackpilot_app.so (36M)
+    ▸ android/app/src/main/jniLibs/x86_64//libsnackpilot_app.so (35M)
+
+Mac: ./gradlew :app:assembleDebug --no-daemon — exit 0
+app/build/outputs/apk/debug/app-debug.apk (159 MB, 2026-11-08 21:47)
+
+Android safe areas: gpui-mobile jni::platform().primary_window().safe_area_insets_logical()
+(src/android/window.rs) feeds the shell insets; the Android bottom bar dialect
+(labels under icons, surface bg, border top, elevation 8, label 12/600) is
+compiled into the APK. Emulator screenshots remain blocked by the recorded
+vulkan.ranchu SIGSEGV (see e-android-emulator-gpu-crash.txt) — the iOS
+simulator captures (tab0..3, dialog, toast) carry the visual proof, as in 4.1.
