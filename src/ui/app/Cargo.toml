@@ -21,7 +21,7 @@ path = "src/bin/desktop.rs"
 snackpilot-core = { workspace = true }
 snackpilot-model = { path = "../model" }
 gpui = { workspace = true }
-gpui-kit = { workspace = true }
+gpui-kit = { workspace = true, features = ["assets"] } # assets: bundled Lucide icons (04 §2), approved by task 4.1 deps:
 gpui-mobile = { workspace = true }
 log = "0.4"
 

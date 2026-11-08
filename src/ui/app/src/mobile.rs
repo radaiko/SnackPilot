@@ -54,7 +54,10 @@ mod android_host {
 
         // Platform::run blocks driving the NDK event loop; the closure runs once
         // InitWindow delivers the native surface (gpui-mobile example pattern).
-        Application::with_platform(shared.into_rc()).run(crate::mount);
+        // The kit asset bundle backs the Lucide icons of the §2 mapping (4.1).
+        Application::with_platform(shared.into_rc())
+            .with_assets(gpui_kit::assets::Assets)
+            .run(crate::mount);
         log::info!("android_main: run loop exited");
     }
 }

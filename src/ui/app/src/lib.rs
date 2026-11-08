@@ -5,7 +5,10 @@
 //! mobile hosts never call `gpui_kit::application()`.
 
 pub mod assets;
+pub mod components;
+pub mod gallery;
 pub mod platform;
+pub mod theme;
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
 mod mobile;
@@ -73,6 +76,12 @@ impl Render for SpikeRoot {
 /// the log line below is the evidence checked in `adb logcat`.
 pub fn mount(cx: &mut App) {
     init_kit(cx);
+    // Debug hook (task 4.1): SNACKPILOT_GALLERY=1 opens the component gallery
+    // instead of the spike content, for the light/dark evidence screenshots.
+    if std::env::var("SNACKPILOT_GALLERY").is_ok() {
+        gallery::mount_gallery(cx);
+        return;
+    }
     cx.open_window(
         WindowOptions {
             window_bounds: None,

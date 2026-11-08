@@ -181,8 +181,7 @@ pub const GLASS_SURFACE_VARIANT: ColorToken =
     ColorToken::both("rgba(237,237,240,0.60)", "rgba(44,44,46,0.60)");
 pub const GLASS_HIGHLIGHT: ColorToken =
     ColorToken::both("rgba(255,255,255,0.85)", "rgba(255,255,255,0.12)");
-pub const GLASS_SHADOW_EDGE: ColorToken =
-    ColorToken::both("rgba(0,0,0,0.06)", "rgba(0,0,0,0.40)");
+pub const GLASS_SHADOW_EDGE: ColorToken = ColorToken::both("rgba(0,0,0,0.06)", "rgba(0,0,0,0.40)");
 pub const GLASS_SUCCESS: ColorToken =
     ColorToken::both("rgba(52,168,83,0.10)", "rgba(52,168,83,0.16)");
 pub const GLASS_WARNING: ColorToken =
