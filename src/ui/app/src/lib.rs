@@ -70,16 +70,73 @@ impl Render for SpikeRoot {
     }
 }
 
+/// Read a debug system property (Android only; `debug.*` props are
+/// shell-settable without root, and env vars cannot reach an app process).
+#[cfg(target_os = "android")]
+fn debug_prop(name: &str) -> Option<String> {
+    extern "C" {
+        fn __system_property_get(
+            name: *const std::ffi::c_char,
+            value: *mut std::ffi::c_char,
+        ) -> i32;
+    }
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut buf = [0; 32];
+    if unsafe { __system_property_get(name.as_ptr(), buf.as_mut_ptr()) } <= 0 {
+        return None;
+    }
+    let bytes: Vec<u8> = buf
+        .iter()
+        .take_while(|b| **b != 0)
+        .map(|b| *b as u8)
+        .collect();
+    Some(String::from_utf8_lossy(&bytes).trim().to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+fn debug_prop(_name: &str) -> Option<String> {
+    None
+}
+
+/// Debug entry (task 4.1): `SNACKPILOT_GALLERY=1` (desktop, iOS simulator) or
+/// `adb shell setprop debug.snackpilot.gallery 1` (Android) opens the component
+/// gallery instead of the spike content. The section knob picks one half for a
+/// screenshot — `SNACKPILOT_GALLERY_SECTION=light|dark`, or
+/// `adb shell setprop debug.snackpilot.gallery.section light` — and defaults to
+/// both stacked. On the iOS simulator the same two knobs are also accepted as
+/// launch arguments (`--gallery`, `--gallery-section=light`), because
+/// `simctl launch` env propagation is unreliable. `None` means the gallery was
+/// not requested.
+fn gallery_requested() -> Option<gallery::Section> {
+    let arg = |name: &str| std::env::args().any(|a| a == name);
+    let arg_value =
+        |prefix: &str| std::env::args().find_map(|a| a.strip_prefix(prefix).map(str::to_owned));
+    let on = std::env::var("SNACKPILOT_GALLERY").is_ok()
+        || arg("--gallery")
+        || debug_prop("debug.snackpilot.gallery").as_deref() == Some("1");
+    if !on {
+        return None;
+    }
+    let section = std::env::var("SNACKPILOT_GALLERY_SECTION")
+        .ok()
+        .or_else(|| debug_prop("debug.snackpilot.gallery.section"))
+        .or_else(|| arg_value("--gallery-section="))
+        .unwrap_or_default();
+    Some(match section.as_str() {
+        "light" => gallery::Section::Light,
+        "dark" => gallery::Section::Dark,
+        _ => gallery::Section::Both,
+    })
+}
+
 /// Mount the single spike Root: bundled Inter fonts, kit init, one window.
 ///
 /// Called exactly once per app start by each platform host (REQ-UI-03);
 /// the log line below is the evidence checked in `adb logcat`.
 pub fn mount(cx: &mut App) {
     init_kit(cx);
-    // Debug hook (task 4.1): SNACKPILOT_GALLERY=1 opens the component gallery
-    // instead of the spike content, for the light/dark evidence screenshots.
-    if std::env::var("SNACKPILOT_GALLERY").is_ok() {
-        gallery::mount_gallery(cx);
+    if let Some(section) = gallery_requested() {
+        gallery::mount_gallery(cx, section);
         return;
     }
     cx.open_window(
@@ -137,6 +194,10 @@ impl Render for DesktopFrame {
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn mount_desktop(cx: &mut App) {
     init_kit(cx);
+    if let Some(section) = gallery_requested() {
+        gallery::mount_gallery(cx, section);
+        return;
+    }
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(

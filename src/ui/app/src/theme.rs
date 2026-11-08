@@ -48,10 +48,11 @@ pub fn color(value: &str) -> Hsla {
                     .unwrap_or_else(|_| panic!("invalid rgba token: {value}"))
             })
             .collect();
+        // Spec rgba() tokens: channels are 0-255, alpha is 0-1 (04 §8).
         (
-            (n[0] * 255.0).round() as u32,
-            (n[1] * 255.0).round() as u32,
-            (n[2] * 255.0).round() as u32,
+            n[0].round() as u32,
+            n[1].round() as u32,
+            n[2].round() as u32,
             (n[3] * 255.0).round() as u32,
         )
     } else {

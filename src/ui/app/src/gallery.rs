@@ -15,22 +15,33 @@ use snackpilot_model::AccentColor;
 use crate::components::{banner, button, card, chip, spinner, switch, text_field};
 use crate::theme::{use_flat_style, AppTheme};
 
+/// Which half of the gallery to show. Both stacked is the default; the debug
+/// section knob (see `crate::gallery_requested`) picks one so a screenshot fits
+/// on one screen.
+pub enum Section {
+    Light,
+    Dark,
+    Both,
+}
+
 /// The gallery root view; holds the interactive state (one switch, one
 /// text field per appearance).
 pub struct GalleryRoot {
+    which: Section,
     dark_switch_on: bool,
     light_field: Entity<InputState>,
     dark_field: Entity<InputState>,
 }
 
 impl GalleryRoot {
-    pub fn new(window: &mut Window, cx: &mut App) -> Self {
+    pub fn new(window: &mut Window, cx: &mut App, which: Section) -> Self {
         let flat = use_flat_style();
         let light = AppTheme::build(false, AccentColor::Orange, flat);
         let dark = AppTheme::build(true, AccentColor::Orange, flat);
         let (light_field, _) = text_field::text_field("Suchen", None, &light, window, cx);
         let (dark_field, _) = text_field::text_field("Suchen", None, &dark, window, cx);
         Self {
+            which,
             dark_switch_on: false,
             light_field,
             dark_field,
@@ -225,25 +236,30 @@ impl GalleryRoot {
 
 impl Render for GalleryRoot {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .overflow_y_scrollbar()
-            .child(self.section(false, &self.light_field, cx))
-            .child(self.section(true, &self.dark_field, cx))
+        let mut col = div().size_full().flex().flex_col().overflow_y_scrollbar();
+        match self.which {
+            Section::Light => col = col.child(self.section(false, &self.light_field, cx)),
+            Section::Dark => col = col.child(self.section(true, &self.dark_field, cx)),
+            Section::Both => {
+                col = col
+                    .child(self.section(false, &self.light_field, cx))
+                    .child(self.section(true, &self.dark_field, cx))
+            }
+        }
+        col
     }
 }
 
-/// Open the gallery as the app's root content (debug hook in `crate::mount`).
-pub fn mount_gallery(cx: &mut App) {
+/// Open the gallery as the app's root content (debug hook in `crate::mount` and
+/// `crate::mount_desktop`).
+pub fn mount_gallery(cx: &mut App, which: Section) {
     cx.open_window(
         gpui_kit::WindowOptions {
             window_bounds: None,
             ..Default::default()
         },
         |window, cx| {
-            let content = cx.new(|cx| GalleryRoot::new(window, cx));
+            let content = cx.new(|cx| GalleryRoot::new(window, cx, which));
             cx.new(|cx| crate::Root::new(content, window, cx))
         },
     )

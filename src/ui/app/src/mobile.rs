@@ -54,9 +54,10 @@ mod android_host {
 
         // Platform::run blocks driving the NDK event loop; the closure runs once
         // InitWindow delivers the native surface (gpui-mobile example pattern).
-        // The kit asset bundle backs the Lucide icons of the §2 mapping (4.1).
+        // AllAssets (not the component-default bundle) so every §2 icon resolves
+        // from the embedded catalog (4.1).
         Application::with_platform(shared.into_rc())
-            .with_assets(gpui_kit::assets::Assets)
+            .with_assets(gpui_kit::assets::AllAssets)
             .run(crate::mount);
         log::info!("android_main: run loop exited");
     }
@@ -66,13 +67,30 @@ mod android_host {
 mod ios_host {
     use gpui::App;
 
-    /// Called by the UIKit host (Host/App.swift) before `gpui_ios_run_demo()`,
-    /// which starts the GPUI run loop (gpui-mobile example pattern). The bridge
-    /// supports exactly one GPUI view for the app lifetime.
+    /// Starts the GPUI run loop for the UIKit host (Host/App.swift calls this
+    /// after `gpui_ios_set_embedded()`). Mirrors gpui-mobile's `run_app`
+    /// (initialize → `run_embedded` → finish-launching) but adds
+    /// `with_assets(AllAssets)` so every §2 icon resolves from the embedded
+    /// catalog (4.1) — the library's own entry point builds the application
+    /// without an asset source.
     #[no_mangle]
-    pub extern "C" fn gpui_ios_register_app() {
+    pub extern "C" fn gpui_ios_run() {
         crate::platform::ios::install_stderr_logger();
         std::panic::set_hook(Box::new(|info| eprintln!("GPUI PANIC: {info}")));
-        gpui_mobile::ios::ffi::set_app_callback(Box::new(|cx: &mut App| crate::mount(cx)));
+        unsafe { gpui_mobile::ios::ffi::gpui_ios_initialize() };
+        let platform = gpui_mobile::ios::current_platform(false);
+        // The handle owns the App (and the window's PlatformWindow); dropping
+        // it frees the IosWindow while the FFI window list still points at it,
+        // so the next layout pass messages a freed view. Keep it alive for the
+        // process lifetime, as gpui-mobile's own run_app does.
+        thread_local! {
+            static APP: std::cell::RefCell<Option<gpui::ApplicationHandle>> =
+                const { std::cell::RefCell::new(None) };
+        }
+        let handle = gpui::Application::with_platform(platform)
+            .with_assets(gpui_kit::assets::AllAssets)
+            .run_embedded(|cx: &mut App| crate::mount(cx));
+        APP.with(|slot| *slot.borrow_mut() = Some(handle));
+        unsafe { gpui_mobile::ios::ffi::gpui_ios_did_finish_launching(std::ptr::null_mut()) };
     }
 }

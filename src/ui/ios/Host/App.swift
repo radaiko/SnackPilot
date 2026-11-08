@@ -49,8 +49,7 @@ final class GPUIView: UIView {
 
     override init(frame: CGRect) {
         gpui_ios_set_embedded()
-        gpui_ios_register_app()
-        gpui_ios_run_demo()
+        gpui_ios_run()
         guard let window = gpui_ios_get_window(),
               let controller = gpui_ios_view_controller(window) else {
             fatalError("Could not create the GPUI spike view")

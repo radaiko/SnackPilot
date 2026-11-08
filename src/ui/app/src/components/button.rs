@@ -4,9 +4,18 @@
 //! (`shadow(true)`); Android stays flat (v1 `useFlatStyle`).
 
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
-use gpui_kit::{px, App, ElementId, SharedString};
+use gpui_kit::prelude::*;
+use gpui_kit::{div, px, App, Div, ElementId, SharedString};
 
 use crate::theme::{self, AppTheme};
+
+/// The kit's `Custom` variant fades its normal background to 20 % alpha
+/// (`bg_color` mixes with transparent), but §7 wants the opaque token fill.
+/// Laying the button over a div with the recipe's own background restores the
+/// exact colour: 20 % of `c` over `c` is `c`.
+fn shell(button: Button, r: &theme::Recipe) -> Div {
+    div().bg(r.bg).rounded(r.radius).child(button)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonKind {
@@ -23,7 +32,7 @@ pub fn button(
     kind: ButtonKind,
     theme: &AppTheme,
     cx: &App,
-) -> Button {
+) -> Div {
     let r = match kind {
         ButtonKind::Primary => theme.button_primary(),
         ButtonKind::Secondary => theme.button_secondary(),
@@ -34,13 +43,16 @@ pub fn button(
         ButtonKind::Secondary => theme.text_primary,
     };
     let hover = theme::darken(r.bg, 0.08);
-    Button::new(id).label(label).rounded(r.radius).custom(
-        ButtonCustomVariant::new(cx)
-            .color(r.bg)
-            .foreground(fg)
-            .hover(hover)
-            .active(theme::darken(hover, 0.06))
-            .shadow(r.shadow.is_some()),
+    shell(
+        Button::new(id).label(label).rounded(r.radius).custom(
+            ButtonCustomVariant::new(cx)
+                .color(r.bg)
+                .foreground(fg)
+                .hover(hover)
+                .active(theme::darken(hover, 0.06))
+                .shadow(r.shadow.is_some()),
+        ),
+        &r,
     )
 }
 
@@ -51,15 +63,18 @@ pub fn fab(
     label: impl Into<SharedString>,
     theme: &AppTheme,
     cx: &App,
-) -> Button {
+) -> Div {
     let r = theme.fab();
-    Button::new(id).label(label).rounded(r.radius).custom(
-        ButtonCustomVariant::new(cx)
-            .color(r.bg)
-            .foreground(theme.on_primary)
-            .hover(theme::darken(r.bg, 0.08))
-            .active(theme::darken(r.bg, 0.14))
-            .shadow(r.shadow.is_some()),
+    shell(
+        Button::new(id).label(label).rounded(r.radius).custom(
+            ButtonCustomVariant::new(cx)
+                .color(r.bg)
+                .foreground(theme.on_primary)
+                .hover(theme::darken(r.bg, 0.08))
+                .active(theme::darken(r.bg, 0.14))
+                .shadow(r.shadow.is_some()),
+        ),
+        &r,
     )
 }
 
@@ -69,15 +84,18 @@ pub fn circle_button(
     icon: gpui_kit::component::Icon,
     theme: &AppTheme,
     cx: &App,
-) -> Button {
+) -> Div {
     let r = theme.circle_button();
-    Button::new(id).icon(icon).rounded(r.radius).custom(
-        ButtonCustomVariant::new(cx)
-            .color(r.bg)
-            .foreground(theme.text_primary)
-            .hover(theme::darken(r.bg, 0.05))
-            .active(theme::darken(r.bg, 0.1))
-            .shadow(r.shadow.is_some()),
+    shell(
+        Button::new(id).icon(icon).rounded(r.radius).custom(
+            ButtonCustomVariant::new(cx)
+                .color(r.bg)
+                .foreground(theme.text_primary)
+                .hover(theme::darken(r.bg, 0.05))
+                .active(theme::darken(r.bg, 0.1))
+                .shadow(r.shadow.is_some()),
+        ),
+        &r,
     )
 }
 

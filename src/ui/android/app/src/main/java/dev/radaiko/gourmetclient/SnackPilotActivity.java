@@ -1,6 +1,7 @@
 package dev.radaiko.gourmetclient;
 
 import android.app.NativeActivity;
+import android.content.ComponentName;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -56,8 +57,11 @@ public class SnackPilotActivity extends NativeActivity {
         PlatformBridge.INSTANCE.setActivity(this);
         if (!sNativeLibLoaded) {
             try {
+                // Query the real activity, not getComponentName(): launched from
+                // the launcher it is the accent alias, which carries no meta-data.
                 ActivityInfo ai = getPackageManager().getActivityInfo(
-                        getComponentName(), PackageManager.GET_META_DATA);
+                        new ComponentName(this, SnackPilotActivity.class),
+                        PackageManager.GET_META_DATA);
                 String libName = ai.metaData.getString("android.app.lib_name");
                 if (libName != null) {
                     System.loadLibrary(libName);

@@ -2,22 +2,30 @@
 //! accent fill from the resolved theme.
 
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::text::Text;
-use gpui_kit::{App, ElementId, Window};
+use gpui_kit::prelude::*;
+use gpui_kit::{div, px, App, Div, ElementId, SharedString, Window};
 
 use crate::theme::AppTheme;
 
 /// A switch with a German `label`; the track uses the accent colour when on.
+/// The label is drawn by us rather than the kit's `label`, which follows the
+/// kit's global theme and would stay dark-on-dark in a dark section.
 pub fn switch(
     id: impl Into<ElementId>,
-    label: impl Into<Text>,
+    label: impl Into<SharedString>,
     checked: bool,
     theme: &AppTheme,
     on_change: impl Fn(&bool, &mut Window, &mut App) + 'static,
-) -> Switch {
-    Switch::new(id)
-        .checked(checked)
-        .label(label.into())
-        .color(theme.primary)
-        .on_change(on_change)
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(
+            Switch::new(id)
+                .checked(checked)
+                .color(theme.primary)
+                .on_change(on_change),
+        )
+        .child(div().text_color(theme.text_primary).child(label.into()))
 }

@@ -22,10 +22,12 @@ fn main() {
         caps.notifications, caps.geofence
     );
 
-    gpui_kit::application().run(move |cx| {
-        snackpilot_app::mount_desktop(cx);
-        // Kept alive for the app lifetime; the UI wires it into the model in
-        // later tasks.
-        let _ = &platform;
-    });
+    gpui_kit::application()
+        .with_assets(gpui_kit::assets::AllAssets)
+        .run(move |cx| {
+            snackpilot_app::mount_desktop(cx);
+            // Kept alive for the app lifetime; the UI wires it into the model in
+            // later tasks.
+            let _ = &platform;
+        });
 }

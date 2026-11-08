@@ -1,0 +1,11 @@
+Android workflow: tools/devops/ui-android-build.sh --release (cargo-ndk, jniLibs stripped with NDK llvm-strip)
+    Finished `release` profile [optimized] target(s) in 3m 35s
+     Copying libraries to /home/aiko/.local/share/opencode/worktree/482b90e394aced7ca4d3fcaf60fe15d9f7e44dbc/gpui-kit-mobile/src/ui/android/app/src/main/jniLibs
+▸ android/app/src/main/jniLibs/arm64-v8a//libsnackpilot_app.so (44M)
+▸ android/app/src/main/jniLibs/x86_64//libsnackpilot_app.so (43M)
+
+Mac: ./gradlew :app:assembleDebug --no-daemon
+
+BUILD SUCCESSFUL in 7s
+36 actionable tasks: 4 executed, 32 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
