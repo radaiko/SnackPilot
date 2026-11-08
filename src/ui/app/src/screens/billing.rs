@@ -72,7 +72,7 @@ pub fn billing_tab(
                     div()
                         .text_size(px(16.))
                         .text_color(theme.text_tertiary)
-                        .child("Keine Abrechnungen"),
+                        .child("Keine Abrechnungsdaten für diesen Monat"),
                 ),
             );
         } else {
