@@ -1,0 +1,4 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="key_v1-gourmet_username">{&quot;ct&quot;:&quot;nINDFuQxmEwQUIWt+BmhhsKMdux6SKV2uMizrEs=&quot;,&quot;iv&quot;:&quot;zgkZnzyPIxefPbi3&quot;,&quot;tlen&quot;:128,&quot;scheme&quot;:&quot;aes&quot;,&quot;usesKeystoreSuffix&quot;:true,&quot;keystoreAlias&quot;:&quot;key_v1&quot;,&quot;requireAuthentication&quot;:false}</string>
+</map>

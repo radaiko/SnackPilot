@@ -1,0 +1,32 @@
+Geofence receiver delegates to the Rust model (review HIGH-1)
+
+Verified on emulator (AVD headless, Android 16 / API 36, x86_64), 2026-11-08,
+with the task-branch app-debug.apk (post-fix build).
+
+Architecture (design D4): GeofenceBroadcastReceiver.kt is a thin pump. It maps
+GEOFENCE_TRANSITION_ENTER/EXIT to a boolean and calls
+SnackPilotActivity.nativeOnGeofenceEvent(inside) through the static pump the
+activity installs after loadLibrary. The Rust export spawns a worker thread,
+waits for the session + cached classes, and calls
+AppModel::on_geofence_event(inside), which sets is_at_company, asks the core
+for geofence_commands(event) (ordered-today check, Exit re-evaluation, cancel
+reminder) and delivers each through Platform::notify -> JNI -> NotificationService.
+The Kotlin receiver contains no notification decision logic; a process spawned
+only for the broadcast (no loaded .so) logs and drops the event.
+
+Evidence (a-logcat-credential-roundtrip.txt, debug exercise run):
+  android_main: geofence session ready
+  [3.4] geofence pump: dispatched through the JVM
+  [3.4] geofence event: inside=true, delegating to model
+  [3.4] geofence event handled by model
+
+The exercise invokes the receiver's exact path — call_static_method of the
+static native nativeOnGeofenceEvent(Z)V on SnackPilotActivity, the same symbol
+the receiver calls via getGeofencePump() — so the log lines above prove the
+round trip Kotlin -> JVM static native -> Rust -> model -> notify path works.
+
+A direct `adb shell am broadcast -n dev.radaiko.gourmetclient/dev.radaiko.
+snackpilot.GeofenceBroadcastReceiver` completes with result=0 and does not
+crash the running app process (pidof unchanged); with no GeofencingEvent extra
+in the intent the receiver returns at the fromIntent()/hasError() guards before
+the pump, exactly like v1's guards.

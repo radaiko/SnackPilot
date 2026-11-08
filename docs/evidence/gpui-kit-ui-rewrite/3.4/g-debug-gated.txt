@@ -1,0 +1,28 @@
+Debug-only bridge exercise is gated on FLAG_DEBUGGABLE (review finding MEDIUM-3)
+
+Verified on emulator (AVD headless, Android 16 / API 36, x86_64), 2026-11-07.
+
+Debug build (app-debug.apk, built from task branch with the FLAG_DEBUGGABLE gate):
+  $ adb install -r app/build/outputs/apk/debug/app-debug.apk
+  $ adb shell dumpsys package dev.radaiko.gourmetclient | grep flags=
+    flags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA LARGE_HEAP ]
+  $ adb shell am start -n dev.radaiko.gourmetclient/.SnackPilotActivity --es snackpilot.debug exercise
+  $ adb logcat -d | grep -cE "SnackPilotBridge|debug exercise"
+    -> exercise ran: "debug exercise requested" plus the [3.4] steps
+       (see a-logcat-credential-roundtrip.txt)
+
+Release build (app-release-unsigned.apk from :app:assembleRelease, signed with the
+local debug key only so the emulator accepts it; FLAG_DEBUGGABLE comes from the
+build type, not the signing key):
+  $ adb install -r rel.apk
+  $ adb shell dumpsys package dev.radaiko.gourmetclient | grep flags=
+    flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA LARGE_HEAP ]        # no DEBUGGABLE
+  $ adb shell am start -n dev.radaiko.gourmetclient/.SnackPilotActivity --es snackpilot.debug exercise
+  $ adb logcat -c; am start ...; sleep 6; adb logcat -d | grep -cE "SnackPilotBridge|debug exercise"
+    0
+
+Same intent extra, same device: the exercise runs on the debug build and is a
+no-op on the release build — SnackPilotBridge and the jni_bridge [3.4] tags stay
+silent, so the credential/notification/geofence exercise cannot be triggered in
+production. The gate is ApplicationInfo.FLAG_DEBUGGABLE checked in
+SnackPilotActivity.onCreate before the exercise thread is started.

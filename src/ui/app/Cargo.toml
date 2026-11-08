@@ -19,12 +19,17 @@ path = "src/bin/desktop.rs"
 
 [dependencies]
 snackpilot-core = { workspace = true }
+snackpilot-model = { path = "../model" }
 gpui = { workspace = true }
 gpui-kit = { workspace = true }
 gpui-mobile = { workspace = true }
 log = "0.4"
 
-# Mirrors the gpui-mobile example app crate at rev 0b882efd (no jni/ndk-context).
+# Platform bridge over JNI (task 3.4): jni/ndk-context are genuinely used by
+# src/ui/app/src/platform/android.rs; versions match what gpui-mobile 0b882ef already
+# pins in the workspace lock, so no new crate versions enter the graph.
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["native-activity"] }
 android_logger = "0.15"
+jni = "0.22"
+ndk-context = "0.1"

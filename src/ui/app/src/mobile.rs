@@ -22,9 +22,39 @@ mod android_host {
         let _platform = jni::init_platform(&app);
         let shared = jni::shared_platform().expect("shared Android platform");
 
+        // The model Platform over the Kotlin shims (task 3.4). Classes are
+        // cached by SnackPilotActivity calling PlatformBridge.nativeCacheClass.
+        let storage_dir = app
+            .internal_data_path()
+            .expect("internal data path")
+            .join("snackpilot")
+            .to_string_lossy()
+            .into_owned();
+        let bridge = std::sync::Arc::new(crate::platform::android::AndroidPlatform::new(
+            crate::platform::android::JniBridge,
+            crate::platform::android::pending(),
+            storage_dir.clone(),
+        ));
+        crate::platform::android::install_debug_platform(std::sync::Arc::clone(&bridge));
+        log::info!("android_main: platform bridge ready");
+
+        // The model session GeofenceBroadcastReceiver pumps transitions into
+        // (task 3.4): the receiver holds no decision logic, the model and the
+        // core decide (design D4, no v1 core duplication in the shell).
+        match snackpilot_model::AppModel::new(
+            std::path::PathBuf::from(&storage_dir),
+            std::sync::Arc::clone(&bridge) as std::sync::Arc<dyn snackpilot_model::Platform>,
+        ) {
+            Ok(model) => {
+                crate::platform::android::install_debug_session(std::sync::Arc::new(model));
+                log::info!("android_main: geofence session ready");
+            }
+            Err(e) => log::error!("android_main: model session unavailable: {e:?}"),
+        }
+
         // Platform::run blocks driving the NDK event loop; the closure runs once
         // InitWindow delivers the native surface (gpui-mobile example pattern).
-        Application::with_platform(shared.into_rc()).run(|cx| crate::mount(cx));
+        Application::with_platform(shared.into_rc()).run(crate::mount);
         log::info!("android_main: run loop exited");
     }
 }
