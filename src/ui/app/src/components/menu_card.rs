@@ -158,7 +158,7 @@ pub fn menu_card(
     } else {
         format!("Allergene: {}", item.allergens.join(", "))
     };
-    let mut bottom = div()
+    let bottom = div()
         .mt(px(6.))
         .flex()
         .items_center()
@@ -178,13 +178,14 @@ pub fn menu_card(
                 .text_color(meta)
                 .child(item.price.clone()),
         );
+    let mut card = card.relative().child(bottom);
     if selected {
         // §4.5: 24×24 white disc, ✓ in colors.primary, top-right 8.
-        bottom = bottom.child(
+        card = card.child(
             div()
                 .absolute()
-                .top(px(-8.))
-                .right(px(-8.))
+                .top(px(8.))
+                .right(px(8.))
                 .w(px(24.))
                 .h(px(24.))
                 .rounded(px(12.))
@@ -198,5 +199,5 @@ pub fn menu_card(
                 .child("✓"),
         );
     }
-    card.relative().child(bottom)
+    card
 }

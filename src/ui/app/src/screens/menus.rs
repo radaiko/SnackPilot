@@ -340,7 +340,12 @@ fn swipe_handlers(can_back: bool, can_forward: bool, cx: &mut Context<AppShell>)
     let shell = cx.entity().clone();
     let down = Rc::new(move |e: &MouseDownEvent, _: &mut Window, cx: &mut App| {
         let x = f32::from(e.position.x);
-        shell.update(cx, |s, _| s.swipe_start = Some(x));
+        let y = f32::from(e.position.y);
+        shell.update(cx, |s, _| {
+            s.swipe_start = Some(x);
+            s.swipe_start_y = Some(y);
+            s.swipe_claimed = false;
+        });
     });
 
     let shell = cx.entity().clone();
@@ -349,18 +354,25 @@ fn swipe_handlers(can_back: bool, can_forward: bool, cx: &mut Context<AppShell>)
             return;
         }
         let x = f32::from(e.position.x);
+        let y = f32::from(e.position.y);
         shell.update(cx, |s, cx| {
-            let Some(start) = s.swipe_start else {
+            let (Some(start), Some(start_y)) = (s.swipe_start, s.swipe_start_y) else {
                 return;
             };
-            let mut dx = x - start;
-            if !dx.is_finite() || dx.abs() <= CLAIM_PX {
-                return;
+            let dx = x - start;
+            let dy = y - start_y;
+            if !s.swipe_claimed {
+                // Claim only when horizontal movement dominates (§3.1).
+                if dx.abs() <= CLAIM_PX || dx.abs() <= dy.abs() {
+                    return;
+                }
+                s.swipe_claimed = true;
             }
-            if (dx > 0. && !can_back) || (dx < 0. && !can_forward) {
-                dx *= EDGE_DAMPING;
+            let mut offset = dx;
+            if (offset > 0. && !can_back) || (offset < 0. && !can_forward) {
+                offset *= EDGE_DAMPING;
             }
-            s.swipe_dx = dx;
+            s.swipe_dx = offset;
             cx.notify();
         });
     });
@@ -372,13 +384,17 @@ fn swipe_handlers(can_back: bool, can_forward: bool, cx: &mut Context<AppShell>)
             let Some(start) = s.swipe_start.take() else {
                 return;
             };
+            let claimed = std::mem::take(&mut s.swipe_claimed);
+            s.swipe_start_y = None;
             let dx = x - start;
             s.swipe_dx = 0.;
-            if let Some(model) = &s.model {
-                if dx > SWITCH_PX && can_back {
-                    model.prev_day();
-                } else if dx < -SWITCH_PX && can_forward {
-                    model.next_day();
+            if claimed {
+                if let Some(model) = &s.model {
+                    if dx > SWITCH_PX && can_back {
+                        model.prev_day();
+                    } else if dx < -SWITCH_PX && can_forward {
+                        model.next_day();
+                    }
                 }
             }
             cx.notify();

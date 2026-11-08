@@ -65,6 +65,8 @@ pub struct AppShell {
     /// Transient swipe-between-days gesture state (§3.1): pointer origin and
     /// the current (damped) horizontal offset.
     pub(crate) swipe_start: Option<f32>,
+    pub(crate) swipe_start_y: Option<f32>,
+    pub(crate) swipe_claimed: bool,
     pub(crate) swipe_dx: f32,
 }
 
@@ -104,6 +106,8 @@ impl AppShell {
             detail_title: "",
             model,
             swipe_start: None,
+            swipe_start_y: None,
+            swipe_claimed: false,
             swipe_dx: 0.,
         };
         // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
