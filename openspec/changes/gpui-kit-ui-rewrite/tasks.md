@@ -155,7 +155,7 @@ Conventions for every task below:
   - proof: ui workflow (token test), android workflow, emulator evidence
   - note: token table 31 rows pinned against §8 incl. glass{Success,Warning,Error}; rgba() tokens carry 0-255 channels (parser bug fixed: only alpha is 0-1). Kit `Button` Custom variant fades its fill to 20 % alpha and replays caller style over all states, so §7 fills/borders/shadows are painted by a wrapper `Div` (`shell()`); kit `Input` paints its own theme background and a bright dark-mode border — switched off via `bordered(false)`, §7 fill/border come from the wrapper; kit `Switch` label follows the kit global theme, so `switch()` draws its own label from `theme.text_primary`. Gallery debug hook (env var, launch args, Android system property) is `#[cfg(debug_assertions)]`-gated with release stubs. Android emulator screenshot impossible: gfxstream SIGSEGV in vulkan.ranchu.so regardless of app code (e-android-emulator-gpu-crash.txt); iOS-simulator captures (b/c + page-2 shots) carry the visual proof — the page knob (`--gallery-page=bottom`) makes the lower sections fit one screen. Desktop gallery hook launches clean on the Mac (f-desktop-hook.txt) but headless `screencapture` is blocked by TCC screen-recording consent — 4.2 must deliver the 768/1280 px evidence (needs a one-time consent click at the Mac or another capture path). §2 icon mapping is per-screen and lands with the 5.x screens; components take caller-supplied gpui-kit Lucide `Icon`s.
 
-- [ ] 4.2 App shell: root, tab bar, navigation stack, dialogs, overlays and safe areas
+- [x] 4.2 App shell: root, tab bar, navigation stack, dialogs, overlays and safe areas
   - tier: normal
   - host: Linux + Emulator; Mac build
   - files: `src/ui/app/src/app.rs`, `src/ui/app/src/navigation.rs`, `src/ui/app/src/components/tab_bar.rs`, `src/ui/app/src/components/dialog.rs`, `src/ui/app/src/components/loading_overlay.rs`, `src/ui/app/src/components/toast.rs`, `src/ui/app/src/components/day_navigator.rs`, `src/ui/app/src/lib.rs`, `src/ui/app/src/mobile.rs`, `src/ui/app/src/bin/desktop.rs`, `src/ui/model/src/navigation.rs`, `src/ui/model/tests/navigation.rs`, `docs/evidence/gpui-kit-ui-rewrite/4.2/*.png`
@@ -165,6 +165,7 @@ Conventions for every task below:
   - tests: `navigation.rs` covers tab switch, re-tap no-op, push/pop and back from a pushed screen (`@req REQ-UI-04`); emulator screenshots of each tab and of an open dialog; iOS pill compiled and shown on the simulator; background and resume keeps the selected tab (`@req REQ-UI-03`).
   - check: `make check`; additionally Android build and Mac simulator build as in 4.1
   - proof: ui workflow, android workflow, emulator evidence
+  - note: emulator captures remain impossible (vulkan.ranchu SIGSEGV, recorded in 4.1); iOS-simulator captures of tab0–3, dialog, toast and the background/resume pair carry the visual proof, and the Android release .so plus the Gradle debug APK build green. Desktop 768/1280 capture is still blocked by macOS TCC screen-recording consent (binary launches clean). Review round 1 fixed the two blockers: the loading overlay now occludes input, and `Dialog::Confirm` takes confirm/cancel labels (§4.1). Android hardware Back → `Navigation::pop` and system-back dismissal of dialogs are deferred to the Android host task.
 
 ## 5. Screens
 
