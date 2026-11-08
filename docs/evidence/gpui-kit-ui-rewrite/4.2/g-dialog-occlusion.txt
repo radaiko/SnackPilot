@@ -1,0 +1,52 @@
+Review round 1, blocking finding 1 — dialog backdrop occlusion (§4.1)
+=====================================================================
+
+Finding: the dialog backdrop lacked `.occlude()`, so taps passed through to
+the tab bar underneath. Fix: `0306f40` (components/dialog.rs, backdrop now
+`.occlude()`). This note proves the fix on the iOS simulator.
+
+Method
+------
+GPUI renders to Metal and exposes no accessibility tree, and idb/XCUITest
+raw-coordinate taps via `simctl launch` never reached the GPUI run loop in
+this harness (verified: a control tap with no dialog produced no tab change
+either). The route that provably reaches GPUI input is the XCUITest
+`app.coordinate(withNormalizedOffset:).tap()` used by SpikeTapTests since
+task 2.2. New test target: src/ui/ios/UITests/DialogOcclusionTests.swift
+(registered in src/ui/ios/project.yml), run with:
+
+  xcodebuild test -project src/ui/ios/SnackPilot.xcodeproj -scheme SnackPilot \
+    -destination "id=<iPhone 17 Pro UDID>" \
+    -only-testing:SnackPilotUITests/DialogOcclusionTests
+
+Tap point: rightmost tab of the iOS floating pill (Einstellungen). The pill
+is 248 pt wide centred on the 402x874 pt screen (x 77..325), bottom edge at
+~799 pt, so the fourth 44 pt button centres at device points (294, 770);
+normalised against the full-screen app window.
+
+Screenshots (XCUIScreen.main.screenshot, saved by the test to
+SPIKE_EVIDENCE_DIR, iPhone 17 Pro simulator, iOS 26.2)
+--------------------------------------------------------------------------
+occl-ctl-before.png  control, launched --tab=0: Menüs selected (fork icon
+                     orange with 5x5 selection dot).
+occl-ctl-after.png   control, after tapping (294,770) with NO dialog: the
+                     tab bar moved to Einstellungen (gear orange + dot) and
+                     the settings content is shown. Proves the tap point
+                     really hits the tab button — without this, the
+                     occlusion result below would be meaningless.
+occl-before.png      test, launched --tab=0 --dialog: Abmelden? dialog open
+                     over the Menüs tab, backdrop dimming the tab bar.
+occl-after.png       test, after tapping the SAME (294,770) point with the
+                     dialog open: still Menüs selected (fork orange + dot,
+                     gear grey) — the tab did NOT change. The backdrop
+                     absorbed the tap (backdrop tap = dismiss/cancel per
+                     §4.1), exactly the behaviour the finding demanded.
+
+Both tests passed in the same xcodebuild run (testDialogBackdropOccludesTabBar
+7.9 s, testTabTapWithoutDialogSwitchesTab 6.4 s).
+
+The app-side signal for the same behaviour is the
+`log::info!("[4.2] tab selected: {tab:?}")` line in app.rs on_select; it
+goes to the stderr logger (platform/ios.rs install_stderr_logger) which
+xcodebuild test does not surface, so the screenshots above are the evidence
+of record.

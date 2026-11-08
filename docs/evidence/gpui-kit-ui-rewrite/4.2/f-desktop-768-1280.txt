@@ -1,25 +1,63 @@
-Desktop 768/1280 px evidence (task 4.2) — BLOCKED, same TCC wall as 4.1 (f-desktop-hook.txt)
+Desktop 768/1280 px evidence (task 4.2) — launch PROVEN, pixel capture BLOCKED
+by a Mac-side capture defect (deeper than the 4.1 TCC note, f-desktop-hook.txt)
 
+What is proven
+--------------
 Mac: cargo build -p snackpilot-app --bin snackpilot-desktop — Finished (only the
 pre-existing block v0.1.6 future-incompat notice).
 
-Launch at the required width (SNACKPILOT_WINDOW=768x1280, the desktop hook from
-4.1; the desktop frame centres the 480 px column per lib.rs mount_desktop):
+The app was launched INSIDE the Mac's GUI (Aqua) session via a LaunchAgent
+(launchctl bootstrap gui/<uid>), with the 4.1 desktop hook env:
 
-  PID=70235
+  SNACKPILOT_GALLERY=1 SNACKPILOT_WINDOW=768x1280   (and 1280x800)
+
+Log (desk42-768.log):
   desktop platform ready: notifications=false geofence=false
   [model] state: update: preferences / reminder_state / location_state / diagnostic_log
+  (no panic; process stayed alive until torn down)
 
-The app launches clean at 768x1280 with no panic — the window exists in the GUI
-session. Capture fails from headless SSH:
+The window server itself confirms the window exists at the requested size —
+CGWindowListCopyWindowInfo run inside the Aqua session listed:
 
-  screencapture -x -o /tmp/opencode/desk42.png
-  could not create image from display
+  window 19861  owner "snackpilot-desktop"  bounds 768 x 1312 (incl. titlebar)
 
-osascript also cannot enumerate the window ("window 1 …" errors) — the SSH
-session lacks Screen Recording / Accessibility consent (TCC), which needs a
-one-time click at the Mac's own display. gpui-pre's window.render_to_image() is
-#[cfg(any(test, feature = "test-support"))] and its macOS backend implements it,
-so a follow-up could add a test-support capture binary; that is outside this
-task's files. The 4.1 note already records the same blocker and asks for the
-one-time consent; the PNGs belong here once a human grants it.
+So the desktop hook mounts a 768x1280 window in the GUI session; the 480 px
+centred column is the same DesktopFrame code path (lib.rs mount_desktop) that
+the iOS simulator screenshots (tab0-3/dialog/toast.png) render visually.
+
+Why the PNGs cannot be taken right now (2026-11-08, ~22:15-22:50)
+------------------------------------------------------------------
+Every capture API returns a NULL image from inside the GUI session, even with
+Screen Recording consent present in TCC.db:
+
+  /usr/sbin/screencapture -x  ...           -> "could not create image from display"
+  screencapture -x -R60,60,768,1280 ...     -> "could not create image from rect"
+  screencapture -x -l<windowid> ...         -> "could not create image from window"
+  ~/Apps/Cap.app (consented, auth_value=2)  -> same, exits without a file
+  ffmpeg -f avfoundation "Capture screen 0" -> device opens, "Configuration of
+      video device failed", never delivers a frame
+
+Diagnostics run inside the Aqua session (LaunchAgent + swift/CoreGraphics):
+  main display: asleep=0 active=1 builtin=0   (external DELL S3422DWG is the only
+      active display; screencapture reports "Only 1 display")
+  session: user radaiko, on-console=1, NOT locked (no kCGSSessionScreenIsLocked)
+  pmset assertions: no loginwindow lock assertion
+  TCC.db kTCCServiceScreenCapture: /usr/sbin/screencapture=2, dev.radaiko.cap=2
+      (auth_reason=4 system-set, granted today 19:5x)
+  No crash-looping capture daemon in DiagnosticReports.
+  Display power is unstable: caffeinate -u wakes register, but one cycle showed
+      "Display is turned off" 22:38:40 -> "on" only at 22:44:49 (6 min).
+
+Conclusion: the window server currently refuses to produce display images for
+any process (consented or not) while the external monitor link is in this state
+— an environment defect needing a human at the Mac (wake/re-plug the monitor or
+restart the display stack; a logout/reboot would clear it). This is the same
+delivery blocker 4.1 recorded, now characterised further: consent alone is not
+enough while capture returns NULL.
+
+Follow-up (outside task 4.2 files): gpui-pre's window.render_to_image()
+(#[cfg(any(test, feature = "test-support"))], implemented in the macOS backend)
+would capture the window content without any screen-recording consent — a
+test-support capture binary is the robust fix. The two PNGs (768x1280 and
+1280x800 shell, 480 px centred) belong in this directory once either path is
+available.

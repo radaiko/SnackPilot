@@ -130,6 +130,10 @@ pub fn dialog_overlay(dialog: &Dialog, theme: &AppTheme, on_dismiss: ClickHandle
     let backdrop = on_dismiss;
     div()
         .id("dialog-backdrop")
+        // §4.1: the modal must occlude what is underneath — a backdrop tap
+        // dismisses and must not also reach the tab bar or settings rows
+        // (same pattern as loading_overlay).
+        .occlude()
         .absolute()
         .inset_0()
         .bg(theme.overlay)

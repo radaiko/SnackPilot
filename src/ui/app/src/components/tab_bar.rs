@@ -45,6 +45,17 @@ pub fn reserved_height(flat: bool, safe_bottom: f32) -> f32 {
     }
 }
 
+/// iOS §2.1 hit slop around each 44×44 tab button: the clickable div is
+/// 44+2×8 px, pulled back with negative margins so layout (and the visual
+/// icon area) stays 44×44.
+const HIT_SLOP: f32 = 8.;
+
+/// Tab icon. §2.1 names a SwiftUI outline+filled pair per tab
+/// (`restaurant-outline`/`restaurant`); the vendored Lucide set (gpui-kit
+/// `assets`, 1 830 icons) is outline-only — no filled variants for these
+/// four — so the active state is conveyed by colour (primary vs tertiary)
+/// plus the 5×5 dot, matching §2.2's Android dialect. Documented limitation
+/// (see 4.2 evidence note).
 fn tab_icon(tab: Tab) -> IconName {
     match tab {
         Tab::Menus => IconName::Utensils,
@@ -122,7 +133,13 @@ fn tab_button(
             )
             .into_any_element()
     } else {
-        button.w(px(44.)).h(px(44.)).into_any_element()
+        // §2.1: 8 px hit slop — the div is 60×60 with -8 margins on every
+        // side, so it still occupies exactly 44×44 in the pill's layout.
+        button
+            .w(px(44. + 2. * HIT_SLOP))
+            .h(px(44. + 2. * HIT_SLOP))
+            .m(px(-HIT_SLOP))
+            .into_any_element()
     }
 }
 

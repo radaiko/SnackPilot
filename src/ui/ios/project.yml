@@ -112,6 +112,7 @@ targets:
     sources:
       - path: UITests/SpikeTapTests.swift
       - path: UITests/NotificationPermissionTests.swift
+      - path: UITests/DialogOcclusionTests.swift
     dependencies:
       - target: SnackPilot
     settings:
