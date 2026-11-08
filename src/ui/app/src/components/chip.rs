@@ -70,10 +70,14 @@ pub enum StatusTone {
 /// glassSuccess/Warning/Error on iOS, the matching surface tokens on Android
 /// (already folded into `theme.glass_*`).
 pub fn status_tag(label: impl Into<SharedString>, tone: StatusTone, theme: &AppTheme) -> Tag {
-    let (bg, fg) = match tone {
-        StatusTone::Success => (theme.glass_success, theme.success_text),
-        StatusTone::Warning => (theme.glass_warning, theme.warning_text),
-        StatusTone::Error => (theme.glass_error, theme.error_text),
+    let (bg, fg, edge) = match tone {
+        StatusTone::Success => (theme.glass_success, theme.success_text, theme.success),
+        StatusTone::Warning => (theme.glass_warning, theme.warning_text, theme.warning),
+        StatusTone::Error => (theme.glass_error, theme.error_text, theme.error),
     };
-    Tag::custom(bg, fg, bg).child(div().text_size(px(12.)).text_color(fg).child(label.into()))
+    // Android: `{success,warning,error}Surface` + 1 px border in the tone
+    // colour (04 §7); iOS badges are plain glass fills, so the border
+    // (always 1 px on the kit Tag) matches the background there.
+    let border = if theme.flat { edge } else { bg };
+    Tag::custom(bg, fg, border).child(div().text_size(px(12.)).text_color(fg).child(label.into()))
 }

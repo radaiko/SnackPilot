@@ -97,6 +97,13 @@ impl Recipe {
             shadow: (elevation > 0).then(|| elevation_shadow(elevation)),
         }
     }
+    /// Override the border (04 §7 `buttonSecondary` iOS wants a 1 px
+    /// `border`, not the usual 0.5 px glass hairline).
+    pub fn with_border(mut self, width: Pixels, color: Hsla) -> Self {
+        self.border = Some((width, color));
+        self
+    }
+
     /// A recipe with the border dropped (v1 `buttonPrimary`/`buttonDanger`).
     pub fn borderless(mut self) -> Self {
         self.border = None;
@@ -347,6 +354,7 @@ impl AppTheme {
             Recipe::flat(self.surface, 12., self.primary, 0)
         } else {
             Recipe::glass(self.glass_surface, 14., self.border, (0.04, 4., 1.))
+                .with_border(px(1.), self.border)
         }
     }
 
@@ -449,5 +457,74 @@ pub fn apply(div: Div, r: &Recipe) -> Div {
     match r.shadow.clone() {
         Some(s) => div.shadow(vec![s]),
         None => div,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Parse a token and return the 0-255 channels for comparison.
+    fn rgb(value: &str) -> (u32, u32, u32, u32) {
+        let rgba: Rgba = color(value).into();
+        let q = |x: f32| (x * 255.0).round() as u32;
+        (q(rgba.r), q(rgba.g), q(rgba.b), q(rgba.a))
+    }
+
+    #[test]
+    fn color_parses_every_token_shape() {
+        assert_eq!(rgb("#F00"), (255, 0, 0, 255));
+        assert_eq!(rgb("#F008"), (255, 0, 0, 136));
+        assert_eq!(rgb("#D4501A"), (212, 80, 26, 255));
+        assert_eq!(rgb("#D4501A80"), (212, 80, 26, 128));
+        // rgba() tokens: channels 0-255, alpha 0-1 (04 §8). Regression for
+        // the parser bug fixed in 82ede35.
+        assert_eq!(rgb("rgba(20, 32, 24, 0.5)"), (20, 32, 24, 128));
+        assert_eq!(rgb("rgba(255,255,255,1)"), (255, 255, 255, 255));
+        assert_eq!(rgb(" #F5F5F7 "), (245, 245, 247, 255));
+    }
+
+    #[test]
+    #[should_panic(expected = "token must be #hex or rgba()")]
+    fn color_rejects_garbage() {
+        color("transparent");
+    }
+
+    #[test]
+    fn resolve_follows_and_forces_appearance() {
+        let flat = use_flat_style();
+        let dark_text = AppTheme::build(true, AccentColor::Orange, flat).text_primary;
+        let light_text = AppTheme::build(false, AccentColor::Orange, flat).text_primary;
+        assert_ne!(dark_text, light_text);
+        // System follows the OS; Hell/Dunkel force their scheme.
+        let system_dark =
+            AppTheme::resolve(ThemePreference::System, AccentColor::Orange, true).text_primary;
+        let system_light =
+            AppTheme::resolve(ThemePreference::System, AccentColor::Orange, false).text_primary;
+        assert_eq!(system_dark, dark_text);
+        assert_eq!(system_light, light_text);
+        let forced_dark =
+            AppTheme::resolve(ThemePreference::Dark, AccentColor::Orange, false).text_primary;
+        let forced_light =
+            AppTheme::resolve(ThemePreference::Light, AccentColor::Orange, true).text_primary;
+        assert_eq!(forced_dark, dark_text);
+        assert_eq!(forced_light, light_text);
+    }
+
+    #[test]
+    fn recipes_match_spec_borders() {
+        let t = AppTheme::build(false, AccentColor::Orange, false);
+        // 04 §7: buttonSecondary iOS border 1 `border`; cardSurface 0.5.
+        let secondary = t.button_secondary();
+        assert_eq!(secondary.border.map(|(w, _)| w), Some(px(1.)));
+        let card = t.card_surface();
+        assert_eq!(card.border.map(|(w, _)| w), Some(px(0.5)));
+        // buttonPrimary and fab carry no border on iOS.
+        assert_eq!(t.button_primary().border, None);
+        assert_eq!(t.fab().border, None);
+        // Android: 1 px borders from the flat dialect.
+        let a = AppTheme::build(false, AccentColor::Orange, true);
+        assert_eq!(a.button_secondary().border.map(|(w, _)| w), Some(px(1.)));
+        assert_eq!(a.card_surface().border.map(|(w, _)| w), Some(px(1.)));
     }
 }

@@ -317,9 +317,15 @@ impl Render for GalleryRoot {
 /// Open the gallery as the app's root content (debug hook in `crate::mount` and
 /// `crate::mount_desktop`).
 pub fn mount_gallery(cx: &mut App, which: Section) {
+    let bounds = gallery_window_size().map(|(w, h)| {
+        gpui_kit::WindowBounds::Windowed(gpui_kit::Bounds::new(
+            gpui_kit::point(gpui_kit::px(60.), gpui_kit::px(60.)),
+            gpui_kit::size(w, h),
+        ))
+    });
     cx.open_window(
         gpui_kit::WindowOptions {
-            window_bounds: None,
+            window_bounds: bounds,
             ..Default::default()
         },
         |window, cx| {
@@ -329,4 +335,19 @@ pub fn mount_gallery(cx: &mut App, which: Section) {
     )
     .expect("open gallery window");
     cx.activate(true);
+}
+
+/// Debug-only window size for screenshot capture at specific widths:
+/// `SNACKPILOT_WINDOW=390x844` places the window at a fixed origin so
+/// `screencapture -R` can grab exactly it.
+#[cfg(debug_assertions)]
+fn gallery_window_size() -> Option<(gpui_kit::Pixels, gpui_kit::Pixels)> {
+    let s = std::env::var("SNACKPILOT_WINDOW").ok()?;
+    let (w, h) = s.split_once('x')?;
+    Some((gpui_kit::px(w.parse().ok()?), gpui_kit::px(h.parse().ok()?)))
+}
+
+#[cfg(not(debug_assertions))]
+fn gallery_window_size() -> Option<(gpui_kit::Pixels, gpui_kit::Pixels)> {
+    None
 }

@@ -5,16 +5,17 @@
 
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, App, ClickEvent, Div, ElementId, SharedString, Window};
+use gpui_kit::{div, App, ClickEvent, Div, ElementId, SharedString, Window};
 
 use crate::theme::{self, AppTheme};
 
 /// The kit's `Custom` variant fades its normal background to 20 % alpha
 /// (`bg_color` mixes with transparent), but §7 wants the opaque token fill.
 /// Laying the button over a div with the recipe's own background restores the
-/// exact colour: 20 % of `c` over `c` is `c`.
+/// exact colour: 20 % of `c` over `c` is `c`. The same shell carries the
+/// recipe's border and shadow (04 §7), which the kit variant does not paint.
 fn shell(button: Button, r: &theme::Recipe) -> Div {
-    div().bg(r.bg).rounded(r.radius).child(button)
+    theme::apply(div(), r).child(button)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,10 +134,4 @@ pub fn circle_button(
         ),
         &r,
     )
-}
-
-/// Small helper so this module does not import `px` at call sites.
-#[allow(dead_code)]
-fn _px(v: f32) -> gpui_kit::Pixels {
-    px(v)
 }

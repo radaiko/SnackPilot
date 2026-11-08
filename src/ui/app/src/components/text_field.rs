@@ -29,7 +29,9 @@ pub fn text_field(
 /// Style an existing `InputState` with the §7 `inputField` recipe.
 pub fn field_with_state(state: &Entity<InputState>, theme: &AppTheme) -> Div {
     let r = theme.input_field();
-    // The kit's Input paints its own theme background, so the recipe fill
-    // goes on the Input itself (caller style wins) as well as the wrapper.
-    theme::apply(div().w_full(), &r).child(Input::new(state).bg(r.bg).rounded(r.radius))
+    // The kit's Input paints its own theme background and a 1 px
+    // `theme.input` border (a bright ring in dark mode), so it is switched
+    // off; the §7 fill, radius and border all come from the wrapper.
+    theme::apply(div().w_full(), &r)
+        .child(Input::new(state).bg(r.bg).rounded(r.radius).bordered(false))
 }
