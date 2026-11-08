@@ -116,6 +116,8 @@ impl AppShell {
                     Dialog::Confirm {
                         title: "Abmelden?".into(),
                         message: "Möchtest du dich wirklich abmelden?".into(),
+                        confirm_label: None,
+                        cancel_label: None,
                         on_confirm: Rc::new(|_, _| {}),
                     },
                     cx,

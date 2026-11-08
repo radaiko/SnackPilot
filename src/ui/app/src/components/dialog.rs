@@ -24,6 +24,10 @@ pub enum Dialog {
     Confirm {
         title: SharedString,
         message: SharedString,
+        /// Overrides the default `"Bestätigen"` (§4.1 destructive label).
+        confirm_label: Option<&'static str>,
+        /// Overrides the default `"Abbrechen"`.
+        cancel_label: Option<&'static str>,
         on_confirm: ClickHandler,
     },
 }
@@ -83,6 +87,8 @@ pub fn dialog_overlay(dialog: &Dialog, theme: &AppTheme, on_dismiss: ClickHandle
             Dialog::Confirm {
                 title,
                 message,
+                confirm_label,
+                cancel_label,
                 on_confirm,
             } => {
                 let dismiss = on_dismiss.clone();
@@ -95,7 +101,7 @@ pub fn dialog_overlay(dialog: &Dialog, theme: &AppTheme, on_dismiss: ClickHandle
                     vec![
                         dialog_button(
                             "dialog-cancel",
-                            "Abbrechen",
+                            cancel_label.unwrap_or("Abbrechen"),
                             None,
                             Some(theme.border),
                             theme.text_secondary,
@@ -105,7 +111,7 @@ pub fn dialog_overlay(dialog: &Dialog, theme: &AppTheme, on_dismiss: ClickHandle
                         .into_any_element(),
                         dialog_button(
                             "dialog-confirm",
-                            "Bestätigen",
+                            confirm_label.unwrap_or("Bestätigen"),
                             Some(theme.error),
                             None,
                             theme.on_primary,

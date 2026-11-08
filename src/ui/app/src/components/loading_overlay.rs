@@ -16,6 +16,8 @@ use crate::theme::{self, AppTheme};
 pub fn loading_overlay(theme: &AppTheme) -> AnyElement {
     let card = theme.banner_surface();
     div()
+        .id("loading-overlay")
+        .occlude()
         .absolute()
         .inset_0()
         .bg(theme.overlay)
