@@ -93,7 +93,9 @@ fn debug_prop(name: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).trim().to_string())
 }
 
+// Unused in Android release builds, where the only callers are stubbed out.
 #[cfg(not(all(target_os = "android", debug_assertions)))]
+#[allow(dead_code)]
 fn debug_prop(_name: &str) -> Option<String> {
     None
 }

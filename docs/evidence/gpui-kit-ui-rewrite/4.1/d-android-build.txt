@@ -1,11 +1,18 @@
 Android workflow: tools/devops/ui-android-build.sh --release (cargo-ndk, jniLibs stripped with NDK llvm-strip)
-    Finished `release` profile [optimized] target(s) in 3m 35s
-     Copying libraries to /home/aiko/.local/share/opencode/worktree/482b90e394aced7ca4d3fcaf60fe15d9f7e44dbc/gpui-kit-mobile/src/ui/android/app/src/main/jniLibs
-▸ android/app/src/main/jniLibs/arm64-v8a//libsnackpilot_app.so (44M)
-▸ android/app/src/main/jniLibs/x86_64//libsnackpilot_app.so (43M)
+    Finished `release` profile [optimized] target(s) in 6.43s (incremental after a8ccf63)
+     Copying libraries to src/ui/android/app/src/main/jniLibs
+▸ android/app/src/main/jniLibs/arm64-v8a//libsnackpilot_app.so (41M)
+▸ android/app/src/main/jniLibs/x86_64//libsnackpilot_app.so (40M)
 
-Mac: ./gradlew :app:assembleDebug --no-daemon
+Mac: ./gradlew :app:assembleDebug --no-daemon — exit 0
+app/build/outputs/apk/debug/app-debug.apk (159 MB, 2026-11-08 18:21)
 
-BUILD SUCCESSFUL in 7s
-36 actionable tasks: 4 executed, 32 up-to-date
-Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Mac: desktop binary (task 4.1 acceptance: desktop build succeeds)
+  cargo build -p snackpilot-app --bin snackpilot-desktop — Finished
+  timeout 5 target/debug/snackpilot-desktop — exit=124 (still running), no panic,
+  stderr: "desktop platform ready: notifications=false geofence=false"
+
+Gallery screenshots b/c (full stack) and f/g (page "Bestellung & Status") were
+captured on the iOS simulator (iPhone 17 Pro, iOS 26.2) with launch args
+--gallery --gallery-section=light|dark [--gallery-page=top|bottom]; the Android
+emulator is blocked by the recorded vulkan.ranchu SIGSEGV (see e-*.txt).
