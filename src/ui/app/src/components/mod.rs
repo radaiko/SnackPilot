@@ -7,6 +7,7 @@
 //! Inter font; icons come from the gpui-kit asset bundle (Lucide).
 
 pub mod banner;
+pub mod bill_card;
 pub mod button;
 pub mod card;
 pub mod chip;
@@ -16,6 +17,7 @@ pub mod fab;
 pub mod loading_overlay;
 pub mod menu_card;
 pub mod order_item;
+pub mod pull_refresh;
 pub mod segment_tabs;
 pub mod spinner;
 pub mod swipe;
