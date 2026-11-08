@@ -111,6 +111,15 @@ impl AppShell {
         // `--tab=N` selects a tab (simulator captures cannot tap).
         #[cfg(debug_assertions)]
         {
+            // `--demo` signs in with the product's magic demo credentials so
+            // simulator captures show the real screens offline (task 5.1
+            // evidence; the login UI itself is 5.4).
+            if std::env::args().any(|a| a == "--demo") {
+                if let Some(model) = &shell.model {
+                    let result = model.login("demo", "demo1234!");
+                    log::info!("[5.1] demo login: {result:?}");
+                }
+            }
             let tab = std::env::args().find_map(|a| {
                 let rest = a.strip_prefix("--tab=")?;
                 rest.parse::<usize>().ok()
