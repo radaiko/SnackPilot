@@ -22,3 +22,6 @@ src/android/local.properties
 dist/
 .ship-history
 tools/devops/.build-number
+
+# Scratch simulator captures
+.shots/

@@ -46,7 +46,11 @@ mod android_host {
             std::sync::Arc::clone(&bridge) as std::sync::Arc<dyn snackpilot_model::Platform>,
         ) {
             Ok(model) => {
-                crate::platform::android::install_debug_session(std::sync::Arc::new(model));
+                let model = std::sync::Arc::new(model);
+                // The shell renders from the same AppModel the geofence
+                // session pumps (task 4.2).
+                crate::install_shell_model(std::sync::Arc::clone(&model));
+                crate::platform::android::install_debug_session(model);
                 log::info!("android_main: geofence session ready");
             }
             Err(e) => log::error!("android_main: model session unavailable: {e:?}"),

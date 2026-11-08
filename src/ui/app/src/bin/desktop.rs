@@ -25,6 +25,14 @@ fn main() {
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
+            // The shell renders from this AppModel (task 4.2).
+            match snackpilot_model::AppModel::new(
+                std::env::temp_dir().join("snackpilot-desktop"),
+                Arc::clone(&platform),
+            ) {
+                Ok(model) => snackpilot_app::install_shell_model(Arc::new(model)),
+                Err(e) => eprintln!("desktop: model unavailable: {e:?}"),
+            }
             snackpilot_app::mount_desktop(cx);
             // Kept alive for the app lifetime; the UI wires it into the model in
             // later tasks.

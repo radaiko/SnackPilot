@@ -4,9 +4,11 @@
 //! tab labels and a counter button, mounted through `gpui_kit::init(cx)` — the
 //! mobile hosts never call `gpui_kit::application()`.
 
+pub mod app;
 pub mod assets;
 pub mod components;
 pub mod gallery;
+pub mod navigation;
 pub mod platform;
 pub mod theme;
 
@@ -164,6 +166,23 @@ fn gallery_page() -> Option<String> {
     None
 }
 
+/// The `AppModel` the shell renders from, installed by each host before
+/// `mount` (task 4.2). The iOS host keeps its model inside the platform
+/// bridge, which is outside this task's files, so iOS renders the default
+/// state until a later task exposes a getter there.
+static SHELL_MODEL: std::sync::OnceLock<std::sync::Arc<snackpilot_model::AppModel>> =
+    std::sync::OnceLock::new();
+
+/// Install the shared model before the window opens (first call wins).
+pub fn install_shell_model(model: std::sync::Arc<snackpilot_model::AppModel>) {
+    let _ = SHELL_MODEL.set(model);
+}
+
+/// The installed model, if any.
+pub fn shell_model() -> Option<std::sync::Arc<snackpilot_model::AppModel>> {
+    SHELL_MODEL.get().cloned()
+}
+
 /// Mount the single spike Root: bundled Inter fonts, kit init, one window.
 ///
 /// Called exactly once per app start by each platform host (REQ-UI-03);
@@ -180,7 +199,7 @@ pub fn mount(cx: &mut App) {
             ..Default::default()
         },
         |window, cx| {
-            let content = cx.new(|_cx| SpikeRoot { count: 0 });
+            let content = cx.new(|cx| app::AppShell::new(shell_model(), cx));
             cx.new(|cx| Root::new(content, window, cx))
         },
     )
@@ -203,11 +222,11 @@ fn init_kit(cx: &mut App) {
     Theme::global_mut(cx).font_family = "Inter".into();
 }
 
-/// Desktop frame (task 2.3, REQ-UI-07): the same `SpikeRoot` centred in a
-/// column of at most 480 logical px; no sidebar (human-approved decision).
+/// Desktop frame (task 2.3, REQ-UI-07): the app shell centred in a column of
+/// at most 480 logical px; no sidebar (human-approved decision).
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 struct DesktopFrame {
-    root: Entity<SpikeRoot>,
+    root: Entity<app::AppShell>,
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
@@ -245,7 +264,7 @@ pub fn mount_desktop(cx: &mut App) {
             ..Default::default()
         },
         |window, cx| {
-            let content = cx.new(|_cx| SpikeRoot { count: 0 });
+            let content = cx.new(|cx| app::AppShell::new(shell_model(), cx));
             let frame = cx.new(|_cx| DesktopFrame { root: content });
             cx.new(|cx| Root::new(frame, window, cx))
         },

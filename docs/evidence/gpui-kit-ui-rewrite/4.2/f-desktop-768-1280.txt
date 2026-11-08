@@ -1,0 +1,25 @@
+Desktop 768/1280 px evidence (task 4.2) — BLOCKED, same TCC wall as 4.1 (f-desktop-hook.txt)
+
+Mac: cargo build -p snackpilot-app --bin snackpilot-desktop — Finished (only the
+pre-existing block v0.1.6 future-incompat notice).
+
+Launch at the required width (SNACKPILOT_WINDOW=768x1280, the desktop hook from
+4.1; the desktop frame centres the 480 px column per lib.rs mount_desktop):
+
+  PID=70235
+  desktop platform ready: notifications=false geofence=false
+  [model] state: update: preferences / reminder_state / location_state / diagnostic_log
+
+The app launches clean at 768x1280 with no panic — the window exists in the GUI
+session. Capture fails from headless SSH:
+
+  screencapture -x -o /tmp/opencode/desk42.png
+  could not create image from display
+
+osascript also cannot enumerate the window ("window 1 …" errors) — the SSH
+session lacks Screen Recording / Accessibility consent (TCC), which needs a
+one-time click at the Mac's own display. gpui-pre's window.render_to_image() is
+#[cfg(any(test, feature = "test-support"))] and its macOS backend implements it,
+so a follow-up could add a test-support capture binary; that is outside this
+task's files. The 4.1 note already records the same blocker and asks for the
+one-time consent; the PNGs belong here once a human grants it.

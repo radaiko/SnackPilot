@@ -1,0 +1,22 @@
+Mac gates (task 4.2), branch task/4.2-app-shell @ 359eae6
+
+Mac: cargo test -p snackpilot-app --lib — app-crate lib tests cannot run on Linux
+(fontconfig panic), run on the Mac per 4.1 precedent.
+
+test platform::android::tests::permission_times_out ... ok
+test platform::ios::tests::permission_times_out ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+Mac: cargo check -p snackpilot-app --release
+    Finished `release` profile [optimized + debuginfo] target(s)
+(pre-existing future-incompat warning for block v0.1.6 only)
+
+Mac: iOS spike host build (src/ui/ios, bootstrap.sh + xcodebuild, iPhone 17 Pro
+simulator C2994587-5046-4970-8DDE-3F003EB81D0D, iOS 26.2):
+
+** BUILD SUCCEEDED **
+
+Linux: LD_LIBRARY_PATH=/tmp/opencode/devlibs make check — exit 0
+(fmt, clippy, workspace tests incl. the 7 navigation tests tagged
+@req REQ-UI-04, tokens tests, all core suites)
