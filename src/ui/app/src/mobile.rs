@@ -63,30 +63,12 @@ mod android_host {
 mod ios_host {
     use gpui::App;
 
-    /// Routes Rust `log` to stderr; `xcrun simctl launch --console-pty` shows it.
-    struct StderrLogger;
-
-    impl log::Log for StderrLogger {
-        fn enabled(&self, _metadata: &log::Metadata) -> bool {
-            true
-        }
-        fn log(&self, record: &log::Record) {
-            eprintln!(
-                "[{}] {}: {}",
-                record.level(),
-                record.target(),
-                record.args()
-            );
-        }
-        fn flush(&self) {}
-    }
-
     /// Called by the UIKit host (Host/App.swift) before `gpui_ios_run_demo()`,
     /// which starts the GPUI run loop (gpui-mobile example pattern). The bridge
     /// supports exactly one GPUI view for the app lifetime.
     #[no_mangle]
     pub extern "C" fn gpui_ios_register_app() {
-        let _ = log::set_logger(&StderrLogger).map(|()| log::set_max_level(log::LevelFilter::Info));
+        crate::platform::ios::install_stderr_logger();
         std::panic::set_hook(Box::new(|info| eprintln!("GPUI PANIC: {info}")));
         gpui_mobile::ios::ffi::set_app_callback(Box::new(|cx: &mut App| crate::mount(cx)));
     }

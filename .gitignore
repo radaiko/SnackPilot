@@ -15,6 +15,9 @@ src/android/build/
 src/android/app/build/
 src/android/local.properties
 
+# Host test link shims (see docs/evidence note in task 3.5)
+.devlibs/
+
 # Devops
 dist/
 .ship-history

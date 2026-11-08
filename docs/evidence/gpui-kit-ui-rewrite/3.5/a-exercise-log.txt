@@ -1,0 +1,13 @@
+[INFO] snackpilot_app::platform::ios: [3.5] shim table registered
+[INFO] snackpilot_app::platform::ios: [3.5] request_notification_permission: granted=true
+[INFO] snackpilot_app::platform::ios: [3.5] save_credential(gourmet_username): ok
+[INFO] snackpilot_app::platform::ios: [3.5] credential round trip match=true key=gourmet_username
+[INFO] snackpilot_app::platform::ios: [3.5] notify fire-now: ok
+[INFO] snackpilot_app::platform::ios: [3.5] notify schedule-at: ok
+[INFO] snackpilot_app::platform::ios: [3.5] notify schedule-at: ok
+[INFO] snackpilot_app::platform::ios: [3.5] notify cancel-pending: ok
+[INFO] snackpilot_app::platform::ios: [3.5] start_geofence: ok
+[INFO] snackpilot_app::platform::ios: [3.5] is_geofence_monitoring: true
+[INFO] snackpilot_app::platform::ios: [3.5] stop_geofence: ok
+[INFO] snackpilot_app::platform::ios: [3.5] track: ok
+[INFO] snackpilot_app::platform::ios: [3.5] debug exercise finished in 45 ms
