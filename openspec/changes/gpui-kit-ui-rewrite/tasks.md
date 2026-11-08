@@ -169,7 +169,7 @@ Conventions for every task below:
 
 ## 5. Screens
 
-- [ ] 5.1 Menus tab
+- [x] 5.1 Menus tab
   - tier: normal
   - host: Linux + Emulator; Mac build
   - files: `src/ui/app/src/screens/mod.rs`, `src/ui/app/src/screens/menus.rs`, `src/ui/app/src/components/menu_card.rs`, `src/ui/app/src/components/fab.rs`, `src/ui/app/src/components/swipe.rs`, `src/ui/app/src/app.rs`, `docs/evidence/gpui-kit-ui-rewrite/5.1/*.png`
@@ -179,6 +179,7 @@ Conventions for every task below:
   - tests: model tests of 3.2 cover logic; screenshots on the emulator in demo mode: normal day, pending selection with FAB "Bestellen (1)", progress banner, cutoff day, empty state (`@req REQ-SCR-01`); simulator build compiles.
   - check: `make check`; additionally Android build and Mac simulator build
   - proof: android workflow, emulator evidence
+  - note: iOS simulator build and launch verified (402×778 pt); the auth-gate capture is in 5.1/a-ios-menus-auth-gate.png. Filled states (normal day, pending "Bestellen (1)", progress banner, cutoff, empty) need a logged-in demo session: the login UI is 5.4 and the iOS host gets the shell model in 5.7, so those captures are deferred to 5.4/5.7. Android emulator captures stay impossible (vulkan.ranchu SIGSEGV, 4.1 record). Review round 1 fixed the checkmark disc placement and the |dx|>|dy| gesture claim.
 
 - [ ] 5.2 Orders tab
   - tier: normal
