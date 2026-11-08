@@ -15,6 +15,8 @@ pub mod dialog;
 pub mod fab;
 pub mod loading_overlay;
 pub mod menu_card;
+pub mod order_item;
+pub mod segment_tabs;
 pub mod spinner;
 pub mod swipe;
 pub mod switch;

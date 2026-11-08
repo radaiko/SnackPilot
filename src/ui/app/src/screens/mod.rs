@@ -2,3 +2,4 @@
 //! content area below the DayNavigator.
 
 pub mod menus;
+pub mod orders;
