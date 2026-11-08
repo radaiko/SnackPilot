@@ -10,4 +10,4 @@
 [INFO] snackpilot_app::platform::ios: [3.5] is_geofence_monitoring: true
 [INFO] snackpilot_app::platform::ios: [3.5] stop_geofence: ok
 [INFO] snackpilot_app::platform::ios: [3.5] track: ok
-[INFO] snackpilot_app::platform::ios: [3.5] debug exercise finished in 45 ms
+[INFO] snackpilot_app::platform::ios: [3.5] debug exercise finished in 34 ms

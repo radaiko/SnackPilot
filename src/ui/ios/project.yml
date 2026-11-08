@@ -42,16 +42,17 @@ targets:
         PRODUCT_NAME: SnackPilot
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Manual
-        # Ad-hoc signing plus the keychain entitlements are simulator-only:
-        # the simulator needs a signed binary carrying an application-identifier
-        # or SecItemAdd returns -34018 (errSecMissingEntitlement). Device builds
-        # keep the pre-task config (signing off here; provisioning is owned by
-        # the human/devops release flow), so a real profile never collides with
-        # the ad-hoc identity or the bare application-identifier in
-        # Host/SnackPilot.entitlements.
+        # Ad-hoc signing is simulator-only and is what fixes the keychain:
+        # an unsigned binary gets SecItemAdd -34018 (errSecMissingEntitlement)
+        # on the simulator; the ad-hoc signature alone is enough. No
+        # entitlements file is used — Xcode's entitlements processor strips
+        # the profile-gated keys (application-identifier,
+        # keychain-access-groups) under ad-hoc signing with no team, so the
+        # file would be dead weight (verified on the Mac: the generated
+        # .xcent comes out an empty dict). Device builds keep signing off;
+        # release signing with a real profile is the human/devops flow.
         "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": "YES"
         "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
-        "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": "$(PROJECT_DIR)/Host/SnackPilot.entitlements"
         "CODE_SIGNING_ALLOWED[sdk=iphoneos*]": "NO"
         SWIFT_OBJC_BRIDGING_HEADER: "Host/PlatformShims.h"
         CLANG_ENABLE_MODULES: YES
@@ -110,6 +111,7 @@ targets:
     platform: iOS
     sources:
       - path: UITests/SpikeTapTests.swift
+      - path: UITests/NotificationPermissionTests.swift
     dependencies:
       - target: SnackPilot
     settings:
