@@ -1,0 +1,9 @@
+$ SNACKPILOT_GALLERY=1 SNACKPILOT_GALLERY_SECTION=light SNACKPILOT_WINDOW=390x844 snackpilot-desktop (Mac, LaunchAgent GUI session)
+desktop platform ready: notifications=false geofence=false
+(no panic; gallery window mounted and stayed alive 7 s until killed)
+
+Pixel capture of the desktop window is blocked from headless SSH: screencapture fails with
+"could not create image from display" even inside the GUI session (TCC screen-recording consent
+cannot be granted without a human at the Mac). The gallery itself is proven visually by the iOS
+simulator screenshots b*/c* (same mount_gallery code); the desktop hook is proven by this clean
+launch. Desktop-width screenshots are task 4.2 evidence and need one-time screen-recording consent.
