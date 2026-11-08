@@ -143,7 +143,7 @@ Conventions for every task below:
 
 ## 4. UI foundation
 
-- [ ] 4.1 Theme tokens, bundled assets and primitive components
+- [x] 4.1 Theme tokens, bundled assets and primitive components
   - tier: normal
   - host: Linux + Emulator; Mac build
   - files: `src/ui/app/src/theme.rs`, `src/ui/app/src/assets.rs`, `src/ui/app/src/components/mod.rs`, `src/ui/app/src/components/button.rs`, `src/ui/app/src/components/text_field.rs`, `src/ui/app/src/components/card.rs`, `src/ui/app/src/components/chip.rs`, `src/ui/app/src/components/switch.rs`, `src/ui/app/src/components/banner.rs`, `src/ui/app/src/components/spinner.rs`, `src/ui/app/src/gallery.rs`, `src/ui/model/src/tokens.rs`, `src/ui/model/tests/tokens.rs`, `docs/evidence/gpui-kit-ui-rewrite/4.1/*.png`
@@ -153,6 +153,7 @@ Conventions for every task below:
   - tests: `tokens.rs` compares every hex to a table copied from §8 (`@req REQ-UI-05`) and asserts the five accent labels; screenshots of the gallery on the emulator in light and dark, plus a successful iOS simulator build and desktop build (`@req REQ-UI-06`: umlauts visible).
   - check: `make check`; additionally `tools/devops/ui-android-build.sh` and `./gradlew :app:assembleDebug`; Mac build via `make mac-sync`
   - proof: ui workflow (token test), android workflow, emulator evidence
+  - note: token table 31 rows pinned against §8 incl. glass{Success,Warning,Error}; rgba() tokens carry 0-255 channels (parser bug fixed: only alpha is 0-1). Kit `Button` Custom variant fades its fill to 20 % alpha and replays caller style over all states, so §7 fills/borders/shadows are painted by a wrapper `Div` (`shell()`); kit `Input` paints its own theme background and a bright dark-mode border — switched off via `bordered(false)`, §7 fill/border come from the wrapper; kit `Switch` label follows the kit global theme, so `switch()` draws its own label from `theme.text_primary`. Gallery debug hook (env var, launch args, Android system property) is `#[cfg(debug_assertions)]`-gated with release stubs. Android emulator screenshot impossible: gfxstream SIGSEGV in vulkan.ranchu.so regardless of app code (e-android-emulator-gpu-crash.txt); iOS-simulator captures (b/c + page-2 shots) carry the visual proof — the page knob (`--gallery-page=bottom`) makes the lower sections fit one screen. Desktop gallery hook launches clean on the Mac (f-desktop-hook.txt) but headless `screencapture` is blocked by TCC screen-recording consent — 4.2 must deliver the 768/1280 px evidence (needs a one-time consent click at the Mac or another capture path). §2 icon mapping is per-screen and lands with the 5.x screens; components take caller-supplied gpui-kit Lucide `Icon`s.
 
 - [ ] 4.2 App shell: root, tab bar, navigation stack, dialogs, overlays and safe areas
   - tier: normal
