@@ -9,6 +9,7 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 
+use crate::navigation::ClickHandler;
 use crate::theme::AppTheme;
 
 /// The one visible dialog (§4.1 call shapes).
@@ -23,7 +24,7 @@ pub enum Dialog {
     Confirm {
         title: SharedString,
         message: SharedString,
-        on_confirm: Rc<dyn Fn(&mut Window, &mut App)>,
+        on_confirm: ClickHandler,
     },
 }
 
@@ -35,7 +36,7 @@ fn dialog_button(
     border: Option<Hsla>,
     fg: Hsla,
     grow: bool,
-    on_click: Rc<dyn Fn(&mut Window, &mut App)>,
+    on_click: ClickHandler,
 ) -> Stateful<Div> {
     let div = div()
         .id(SharedString::from(id))
@@ -58,11 +59,7 @@ fn dialog_button(
 /// The §4.1 modal: `overlay` backdrop with padding 40, content box centered
 /// (surface, radius 14, padding 24, maxWidth 340, 0.5 `border`).
 /// Tapping the backdrop calls `on_dismiss`; tapping the box does nothing.
-pub fn dialog_overlay(
-    dialog: &Dialog,
-    theme: &AppTheme,
-    on_dismiss: Rc<dyn Fn(&mut Window, &mut App)>,
-) -> AnyElement {
+pub fn dialog_overlay(dialog: &Dialog, theme: &AppTheme, on_dismiss: ClickHandler) -> AnyElement {
     let (title, message, buttons): (SharedString, Option<SharedString>, Vec<AnyElement>) =
         match dialog {
             Dialog::Alert { title, message } => {

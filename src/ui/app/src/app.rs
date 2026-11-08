@@ -90,13 +90,32 @@ impl AppShell {
             )
             .detach();
         }
-        AppShell {
+        let mut shell = AppShell {
             nav: Navigation::new(),
             dialog: None,
             toast: None,
             detail_title: "",
             model,
+        };
+        // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
+        // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast.
+        #[cfg(debug_assertions)]
+        {
+            if std::env::args().any(|a| a == "--dialog") {
+                shell.set_dialog(
+                    Dialog::Confirm {
+                        title: "Abmelden?".into(),
+                        message: "Möchtest du dich wirklich abmelden?".into(),
+                        on_confirm: Rc::new(|_, _| {}),
+                    },
+                    cx,
+                );
+            }
+            if std::env::args().any(|a| a == "--toast") {
+                shell.show_toast(cx);
+            }
         }
+        shell
     }
 
     /// Show the §4.8 new-menu toast; the phase state machine
@@ -171,14 +190,16 @@ impl AppShell {
         ];
 
         let mut list = div().flex_1().flex().flex_col().p(px(20.)).pb(px(100.));
-        for (index, (title, hint)) in rows.into_iter().enumerate() {
+        for (index, (title, hint)) in rows.iter().enumerate() {
+            let title = *title;
+            let hint = hint.clone();
             if index > 0 {
                 // §3.4: 1 px dividers, marginVertical 24.
                 list = list.child(div().h(px(1.)).my(px(24.)).bg(theme.divider()));
             }
             let entity = cx.entity().clone();
             let on_tap = Rc::new(move |_window: &mut Window, cx: &mut App| {
-                let _ = entity.update(cx, |this, cx| {
+                entity.update(cx, |this, cx| {
                     this.detail_title = title;
                     this.nav.push(Screen::SettingsDetail);
                     cx.notify();
@@ -221,7 +242,7 @@ impl AppShell {
         }
         let datenschutz = cx.entity().clone();
         let on_datenschutz = Rc::new(move |_window: &mut Window, cx: &mut App| {
-            let _ = datenschutz.update(cx, |this, cx| {
+            datenschutz.update(cx, |this, cx| {
                 this.set_dialog(
                     Dialog::Alert {
                         title: "Datenschutz".into(),
@@ -321,7 +342,7 @@ impl AppShell {
         if self.nav.top() == Screen::SettingsDetail {
             let entity = cx.entity().clone();
             let on_back = Rc::new(move |_window: &mut Window, cx: &mut App| {
-                let _ = entity.update(cx, |this, cx| {
+                entity.update(cx, |this, cx| {
                     this.nav.pop();
                     cx.notify();
                 });
@@ -342,15 +363,15 @@ impl AppShell {
                     );
                     let on_prev = Rc::new(move |_w: &mut Window, cx: &mut App| {
                         prev.prev_day();
-                        let _ = entity_p.update(cx, |_, cx| cx.notify());
+                        entity_p.update(cx, |_, cx| cx.notify());
                     });
                     let on_next = Rc::new(move |_w: &mut Window, cx: &mut App| {
                         next.next_day();
-                        let _ = entity_n.update(cx, |_, cx| cx.notify());
+                        entity_n.update(cx, |_, cx| cx.notify());
                     });
                     let on_today = Rc::new(move |_w: &mut Window, cx: &mut App| {
                         today.go_to_today();
-                        let _ = entity_t.update(cx, |_, cx| cx.notify());
+                        entity_t.update(cx, |_, cx| cx.notify());
                     });
                     column = column.child(day_navigator(
                         &snapshot.available_dates,
@@ -385,7 +406,7 @@ impl Render for AppShell {
 
         let entity = cx.entity().clone();
         let on_select = Rc::new(move |tab: Tab, _window: &mut Window, cx: &mut App| {
-            let _ = entity.update(cx, |this, cx| {
+            entity.update(cx, |this, cx| {
                 this.nav.select_tab(tab);
                 cx.notify();
             });
@@ -428,7 +449,7 @@ impl Render for AppShell {
         if let Some(dialog) = &self.dialog {
             let entity = cx.entity().clone();
             let on_dismiss = Rc::new(move |_window: &mut Window, cx: &mut App| {
-                let _ = entity.update(cx, |this, cx| {
+                entity.update(cx, |this, cx| {
                     this.dialog = None;
                     cx.notify();
                 });

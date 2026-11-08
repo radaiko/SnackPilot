@@ -14,13 +14,12 @@ use gpui_kit::component::{Icon, Sizable};
 
 use crate::theme::AppTheme;
 
+/// Shared click-closure type for the shell components.
+pub type ClickHandler = Rc<dyn Fn(&mut Window, &mut App)>;
+
 /// §3.5 back affordance row; `label` is the screen it returns to
 /// (`Einstellungen` for every pushed screen, §3.5–3.8).
-pub fn back_affordance(
-    label: &'static str,
-    theme: &AppTheme,
-    on_back: Rc<dyn Fn(&mut Window, &mut App)>,
-) -> AnyElement {
+pub fn back_affordance(label: &'static str, theme: &AppTheme, on_back: ClickHandler) -> AnyElement {
     div()
         .id("back-affordance")
         .flex()
@@ -48,7 +47,7 @@ pub fn back_affordance(
 pub fn settings_detail_screen(
     title: &'static str,
     theme: &AppTheme,
-    on_back: Rc<dyn Fn(&mut Window, &mut App)>,
+    on_back: ClickHandler,
 ) -> AnyElement {
     div()
         .size_full()

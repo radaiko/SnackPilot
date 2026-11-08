@@ -15,6 +15,9 @@ use snackpilot_model::navigation::Tab;
 
 use crate::theme::AppTheme;
 
+/// Tab-selection closure shared by the bar and its items.
+pub type TabSelect = Rc<dyn Fn(Tab, &mut Window, &mut App)>;
+
 /// Height of the iOS floating pill (§2.1).
 pub const IOS_PILL_HEIGHT: f32 = 56.;
 /// Height of the Android/desktop bottom bar (§2.2).
@@ -58,7 +61,7 @@ fn tab_button(
     active: bool,
     flat: bool,
     theme: &AppTheme,
-    on_select: Rc<dyn Fn(Tab, &mut Window, &mut App)>,
+    on_select: TabSelect,
 ) -> AnyElement {
     let color = if active {
         theme.primary
@@ -129,7 +132,7 @@ pub fn tab_bar(
     theme: &AppTheme,
     active: Tab,
     safe_bottom: f32,
-    on_select: Rc<dyn Fn(Tab, &mut Window, &mut App)>,
+    on_select: TabSelect,
 ) -> AnyElement {
     let buttons = Tab::ALL
         .into_iter()

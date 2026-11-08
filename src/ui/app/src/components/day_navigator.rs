@@ -7,12 +7,11 @@
 //! translucent `glass_surface` stands in (same approximation as the task 4.1
 //! banners), with the 0.5 px `glassShadowEdge` bottom hairline.
 
-use std::rc::Rc;
-
 use gpui::*;
 use snackpilot_model::format_day_short;
 
 use crate::components::tab_bar::elevation_shadow;
+use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 
 /// The §4.4 header. The shell renders it only when `dates` is non-empty
@@ -21,9 +20,9 @@ pub fn day_navigator(
     dates: &[String],
     selected: Option<&str>,
     theme: &AppTheme,
-    on_prev: Rc<dyn Fn(&mut Window, &mut App)>,
-    on_next: Rc<dyn Fn(&mut Window, &mut App)>,
-    on_today: Rc<dyn Fn(&mut Window, &mut App)>,
+    on_prev: ClickHandler,
+    on_next: ClickHandler,
+    on_today: ClickHandler,
 ) -> AnyElement {
     let index = selected
         .and_then(|s| dates.iter().position(|d| d == s))
@@ -31,10 +30,7 @@ pub fn day_navigator(
     let at_start = index == 0;
     let at_end = index + 1 >= dates.len();
 
-    let arrow = |id: &'static str,
-                 glyph: &'static str,
-                 disabled: bool,
-                 on: Rc<dyn Fn(&mut Window, &mut App)>| {
+    let arrow = |id: &'static str, glyph: &'static str, disabled: bool, on: ClickHandler| {
         let recipe = theme.circle_button();
         // theme::apply takes a plain Div, so the recipe goes on before .id().
         let button = theme::apply(
