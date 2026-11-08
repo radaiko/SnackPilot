@@ -12,5 +12,20 @@ fn main() {
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 fn main() {
-    gpui_kit::application().run(|cx| snackpilot_app::mount_desktop(cx));
+    use snackpilot_app::platform::desktop::DesktopPlatform;
+    use std::sync::Arc;
+
+    let platform: Arc<dyn snackpilot_model::Platform> = Arc::new(DesktopPlatform::new());
+    let caps = platform.capabilities();
+    eprintln!(
+        "desktop platform ready: notifications={} geofence={}",
+        caps.notifications, caps.geofence
+    );
+
+    gpui_kit::application().run(move |cx| {
+        snackpilot_app::mount_desktop(cx);
+        // Kept alive for the app lifetime; the UI wires it into the model in
+        // later tasks.
+        let _ = &platform;
+    });
 }

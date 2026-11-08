@@ -33,3 +33,23 @@ android-activity = { version = "0.6", features = ["native-activity"] }
 android_logger = "0.15"
 jni = "0.22"
 ndk-context = "0.1"
+
+# Desktop platform bridge (task 3.6): OS keychain credentials via `keyring`.
+# Only the platform-native stores that need no extra system libraries are
+# enabled: apple-native on macOS, windows-native on Windows (pure `windows`
+# crate). On Linux no native store is enabled (the native options link
+# libdbus); the desktop host runs there compile-only and tests use the
+# keyring mock store (dev-dependency below).
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6", features = ["apple-native"] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6", features = ["windows-native"] }
+
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+keyring = "3.6"
+
+# Tests drive the credential store through keyring's in-memory mock
+# (keyring::mock), so no real keychain is touched on the host.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dev-dependencies]
+keyring = "3.6"
