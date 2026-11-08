@@ -98,9 +98,18 @@ impl AppShell {
             model,
         };
         // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
-        // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast.
+        // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast,
+        // `--tab=N` selects a tab (simulator captures cannot tap).
         #[cfg(debug_assertions)]
         {
+            let tab = std::env::args().find_map(|a| {
+                let rest = a.strip_prefix("--tab=")?;
+                rest.parse::<usize>().ok()
+            });
+            if let Some(n) = tab.filter(|n| *n < Tab::ALL.len())
+            {
+                shell.nav.select_tab(Tab::ALL[n]);
+            }
             if std::env::args().any(|a| a == "--dialog") {
                 shell.set_dialog(
                     Dialog::Confirm {
