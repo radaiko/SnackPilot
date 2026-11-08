@@ -193,7 +193,7 @@ Conventions for every task below:
   - proof: android workflow, emulator evidence
   - note: iOS simulator build/launch verified and the §3.2 auth gate captured (5.2/a-ios-orders-gate.png); filled states (upcoming list, confirm banner, cancel dialog, selection mode, past tab, empty) need the login UI (5.4) and the iOS shell model (5.7), as in 5.1. Android emulator captures stay blocked (vulkan.ranchu SIGSEGV). Review round 1 disabled the cancel button past the cutoff and added the `@req REQ-SCR-02` gate test (`cancel_enabled`).
 
-- [ ] 5.3 Billing tab
+- [x] 5.3 Billing tab
   - tier: normal
   - host: Linux + Emulator; Mac build
   - files: `src/ui/app/src/screens/billing.rs`, `src/ui/app/src/components/bill_card.rs`, `src/ui/app/src/components/pull_refresh.rs`, `src/ui/app/src/screens/mod.rs`, `src/ui/app/src/app.rs`, `docs/evidence/gpui-kit-ui-rewrite/5.3/*.png`
@@ -203,6 +203,7 @@ Conventions for every task below:
   - tests: screenshots on the emulator in demo mode: all sources, Kantine filter, month with no data, loading state (`@req REQ-SCR-03`); `de-AT` amounts compared to the 3.2 format tests; simulator build compiles.
   - check: `make check`; additionally Android build and Mac simulator build
   - proof: android workflow, emulator evidence
+  - note: iOS simulator build/launch verified and the §3.3 auth gate captured (5.3/a-ios-billing-gate.png); month tabs, chips, summary, BillCard list, empty and loading states need the login UI (5.4) and the iOS shell model (5.7), as in 5.1/5.2. de-AT amounts come from the model's format_eur (covered by its tests). Android emulator captures stay blocked (vulkan.ranchu SIGSEGV). Review round 1 fixed the empty-state copy to "Keine Abrechnungsdaten für diesen Monat".
 
 - [ ] 5.4 Settings tab and both login screens (text input proof)
   - tier: hard
