@@ -90,6 +90,8 @@ impl AppShell {
             )
             .detach();
         }
+        // `mut` is only used by the debug-only evidence knobs below.
+        #[cfg_attr(not(debug_assertions), allow(unused_mut))]
         let mut shell = AppShell {
             nav: Navigation::new(),
             dialog: None,
