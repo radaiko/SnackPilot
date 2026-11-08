@@ -10,6 +10,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Register the platform shim table before any Rust code runs (task 3.5).
+        PlatformBridge.bootstrap()
+        // Evidence run: `xcrun simctl launch ... -DebugPlatformExercise YES`
+        // exercises credential, notification and schedule flows end to end;
+        // each step logs to stderr tagged "[3.5]".
+        if ProcessInfo.processInfo.arguments.contains("-DebugPlatformExercise") {
+            snackpilot_ios_run_debug_exercise()
+        }
         let window = UIWindow(frame: UIScreen.main.bounds)
         window.rootViewController = SpikeContainerController()
         window.makeKeyAndVisible()
