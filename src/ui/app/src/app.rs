@@ -24,6 +24,7 @@ use crate::components::loading_overlay::loading_overlay;
 use crate::components::tab_bar::{reserved_height, tab_bar};
 use crate::components::toast::{toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION};
 use crate::navigation::settings_detail_screen;
+use crate::screens::billing::billing_tab;
 use crate::screens::menus::menus_tab;
 use crate::screens::orders::orders_tab;
 use crate::theme::AppTheme;
@@ -426,6 +427,7 @@ impl AppShell {
                 Screen::Orders => {
                     orders_tab(state, self.model.as_ref(), self.orders_past, theme, cx)
                 }
+                Screen::Billing => billing_tab(state, self.model.as_ref(), theme, cx),
                 _ => self.placeholder(state, theme, cx),
             })
             .into_any_element()

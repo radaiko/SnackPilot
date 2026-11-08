@@ -1,0 +1,14 @@
+Task 5.3 — Billing tab, iOS simulator build and launch
+
+Mac: src/ui/ios bootstrap.sh — exit 0
+Mac: xcodebuild ... -sdk iphonesimulator -destination id=C2994587-... build —
+     ** BUILD SUCCEEDED **
+Mac: simctl install + launch --tab=2 — Abrechnung selected in the pill.
+
+a-ios-billing-gate.png — §3.3 auth gate ("Anmeldung erforderlich", 16,
+textTertiary) with neither Gourmet nor Ventopay credentials. As in 5.1/5.2 the
+filled states (month tabs, source chips, summary bar, BillCards, empty month,
+loading) need the login UI (5.4) and the iOS shell model (5.7); the Android
+emulator stays blocked by the recorded vulkan.ranchu SIGSEGV.
+
+Linux: cargo ndk -t x86_64 check -p snackpilot-app — clean.
