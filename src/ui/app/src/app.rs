@@ -106,8 +106,7 @@ impl AppShell {
                 let rest = a.strip_prefix("--tab=")?;
                 rest.parse::<usize>().ok()
             });
-            if let Some(n) = tab.filter(|n| *n < Tab::ALL.len())
-            {
+            if let Some(n) = tab.filter(|n| *n < Tab::ALL.len()) {
                 shell.nav.select_tab(Tab::ALL[n]);
             }
             if std::env::args().any(|a| a == "--dialog") {
