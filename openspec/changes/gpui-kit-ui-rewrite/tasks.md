@@ -181,7 +181,7 @@ Conventions for every task below:
   - proof: android workflow, emulator evidence
   - note: iOS simulator build and launch verified (402×778 pt); the auth-gate capture is in 5.1/a-ios-menus-auth-gate.png. Filled states (normal day, pending "Bestellen (1)", progress banner, cutoff, empty) need a logged-in demo session: the login UI is 5.4 and the iOS host gets the shell model in 5.7, so those captures are deferred to 5.4/5.7. Android emulator captures stay impossible (vulkan.ranchu SIGSEGV, 4.1 record). Review round 1 fixed the checkmark disc placement and the |dx|>|dy| gesture claim.
 
-- [ ] 5.2 Orders tab
+- [x] 5.2 Orders tab
   - tier: normal
   - host: Linux + Emulator; Mac build
   - files: `src/ui/app/src/screens/orders.rs`, `src/ui/app/src/components/order_item.rs`, `src/ui/app/src/components/segment_tabs.rs`, `src/ui/app/src/screens/mod.rs`, `src/ui/app/src/app.rs`, `docs/evidence/gpui-kit-ui-rewrite/5.2/*.png`
@@ -191,6 +191,7 @@ Conventions for every task below:
   - tests: screenshots on the emulator in demo mode after ordering via the Menus tab: upcoming list, confirm banner, cancel dialog, selection mode, past tab, empty state (`@req REQ-SCR-02`); logic covered by 3.2 tests; simulator build compiles.
   - check: `make check`; additionally Android build and Mac simulator build
   - proof: android workflow, emulator evidence
+  - note: iOS simulator build/launch verified and the §3.2 auth gate captured (5.2/a-ios-orders-gate.png); filled states (upcoming list, confirm banner, cancel dialog, selection mode, past tab, empty) need the login UI (5.4) and the iOS shell model (5.7), as in 5.1. Android emulator captures stay blocked (vulkan.ranchu SIGSEGV). Review round 1 disabled the cancel button past the cutoff and added the `@req REQ-SCR-02` gate test (`cancel_enabled`).
 
 - [ ] 5.3 Billing tab
   - tier: normal
