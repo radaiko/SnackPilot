@@ -153,7 +153,7 @@ pub fn order_item(
         } else {
             theme.glass_error
         };
-        let (fill, border, glyph, button) = if cutoff {
+        let (fill, border, glyph) = if cutoff {
             (
                 if theme.flat {
                     theme.surface_variant
@@ -162,34 +162,60 @@ pub fn order_item(
                 },
                 theme.text_tertiary,
                 theme.text_tertiary,
-                div().opacity(0.4),
             )
         } else {
-            (bg, theme.error, theme.error, div())
+            (bg, theme.error, theme.error)
         };
-        right = right.child(
+        let button = div()
+            .id(SharedString::from(format!(
+                "order-cancel-{}",
+                order.position_id
+            )))
+            .w(px(32.))
+            .h(px(32.))
+            .rounded(px(16.))
+            .bg(fill)
+            .border_1()
+            .border_color(border)
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .text_size(px(16.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(glyph)
+                    .child("✕"),
+            );
+        // §4.6: past the cutoff the button is disabled, not merely greyed.
+        let button = if cancel_enabled(can_cancel, cutoff) {
             button
-                .id("order-cancel")
-                .w(px(32.))
-                .h(px(32.))
-                .rounded(px(16.))
-                .bg(fill)
-                .border_1()
-                .border_color(border)
-                .flex()
-                .items_center()
-                .justify_center()
                 .cursor_pointer()
                 .on_click(move |_, window, cx| on_cancel(window, cx))
-                .child(
-                    div()
-                        .text_size(px(16.))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(glyph)
-                        .child("✕"),
-                ),
-        );
+        } else {
+            button.opacity(0.4)
+        };
+        right = right.child(button);
     }
 
     card.child(left).child(right)
+}
+
+/// §4.6: the cancel affordance is interactive only before the cutoff and
+/// while no other cancellation is in flight.
+pub fn cancel_enabled(can_cancel: bool, cutoff: bool) -> bool {
+    can_cancel && !cutoff
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cancel_enabled;
+
+    /// @req REQ-SCR-02
+    #[test]
+    fn cancel_button_disabled_past_the_cutoff() {
+        assert!(cancel_enabled(true, false));
+        assert!(!cancel_enabled(true, true));
+        assert!(!cancel_enabled(false, false));
+    }
 }
