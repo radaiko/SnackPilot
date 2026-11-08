@@ -9,6 +9,7 @@ mod fake;
 mod flows;
 mod format;
 mod menus;
+pub mod navigation;
 mod orders;
 mod platform;
 mod prefs;
