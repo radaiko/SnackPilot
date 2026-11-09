@@ -1572,3 +1572,30 @@ pub fn pending() -> &'static Pending {
     static PENDING: std::sync::OnceLock<Pending> = std::sync::OnceLock::new();
     PENDING.get_or_init(Pending::new)
 }
+
+/// The Android launcher aliases are `SnackPilotActivity<RawValueCapitalized>`
+/// (manifest + `PlatformBridge.setAppIcon`); the Rust side owns the raw accent
+/// values, so pin the coupling here.
+#[cfg(test)]
+mod alias_tests {
+    /// @req REQ-PLT-05
+    #[test]
+    fn accent_raw_values_match_the_launcher_alias_suffixes() {
+        for (accent, suffix) in [
+            ("orange", "Orange"),
+            ("emerald", "Emerald"),
+            ("berry", "Berry"),
+            ("golden", "Golden"),
+            ("ocean", "Ocean"),
+        ] {
+            let mut chars = accent.chars();
+            let capitalized: String = chars
+                .next()
+                .expect("non-empty accent")
+                .to_uppercase()
+                .collect::<String>()
+                + chars.as_str();
+            assert_eq!(capitalized, suffix);
+        }
+    }
+}

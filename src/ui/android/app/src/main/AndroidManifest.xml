@@ -76,13 +76,13 @@
         </activity>
 
         <!-- One launcher alias per accent (themes §6), as v1. Exactly one is enabled at a
-             time; PlatformBridge.setAppIcon toggles them. Orange is the default. Icons are
-             inherited from the application until the icon resources are ported. -->
+             time; PlatformBridge.setAppIcon toggles them. Orange is the default. -->
         <activity-alias
             android:name="dev.radaiko.gourmetclient.SnackPilotActivityOrange"
             android:enabled="true"
             android:exported="true"
             android:label="SnackPilot"
+            android:icon="@mipmap/ic_launcher"
             android:targetActivity="dev.radaiko.gourmetclient.SnackPilotActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -96,15 +96,72 @@
             />
         </activity-alias>
         <activity-alias
-            android:name="dev.radaiko.gourmetclient.SnackPilotActivityAlt"
+            android:name="dev.radaiko.gourmetclient.SnackPilotActivityEmerald"
             android:enabled="false"
             android:exported="true"
             android:label="SnackPilot"
+            android:icon="@mipmap/ic_launcher_emerald"
             android:targetActivity="dev.radaiko.gourmetclient.SnackPilotActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- NativeActivity.onCreate reads android.app.lib_name from the
+                 launched component, so the alias needs it too. -->
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="${nativeLibraryName}"
+            />
+        </activity-alias>
+        <activity-alias
+            android:name="dev.radaiko.gourmetclient.SnackPilotActivityBerry"
+            android:enabled="false"
+            android:exported="true"
+            android:label="SnackPilot"
+            android:icon="@mipmap/ic_launcher_berry"
+            android:targetActivity="dev.radaiko.gourmetclient.SnackPilotActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- NativeActivity.onCreate reads android.app.lib_name from the
+                 launched component, so the alias needs it too. -->
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="${nativeLibraryName}"
+            />
+        </activity-alias>
+        <activity-alias
+            android:name="dev.radaiko.gourmetclient.SnackPilotActivityGolden"
+            android:enabled="false"
+            android:exported="true"
+            android:label="SnackPilot"
+            android:icon="@mipmap/ic_launcher_golden"
+            android:targetActivity="dev.radaiko.gourmetclient.SnackPilotActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- NativeActivity.onCreate reads android.app.lib_name from the
+                 launched component, so the alias needs it too. -->
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="${nativeLibraryName}"
+            />
+        </activity-alias>
+        <activity-alias
+            android:name="dev.radaiko.gourmetclient.SnackPilotActivityOcean"
+            android:enabled="false"
+            android:exported="true"
+            android:label="SnackPilot"
+            android:icon="@mipmap/ic_launcher_ocean"
+            android:targetActivity="dev.radaiko.gourmetclient.SnackPilotActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- NativeActivity.onCreate reads android.app.lib_name from the
+                 launched component, so the alias needs it too. -->
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="${nativeLibraryName}"

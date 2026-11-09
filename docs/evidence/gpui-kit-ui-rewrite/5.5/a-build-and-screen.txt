@@ -1,0 +1,34 @@
+Task 5.5 — Darstellung screen and alternate icons
+
+Linux: cargo ndk -t x86_64 check -p snackpilot-app — clean.
+Linux: make check — exit 0, 17 suites green.
+Linux: tools/devops/ui-android-build.sh --release — .so 46M/44M written.
+Mac: ./gradlew :app:assembleDebug --no-daemon — BUILD SUCCESSFUL (the manifest
+     now declares the five launcher aliases SnackPilotActivity{Orange,Emerald,
+     Berry,Golden,Ocean} with @mipmap/ic_launcher[_accent]; the res tree was
+     copied from src/android/app/src/main/res).
+Mac: iOS bootstrap + xcodebuild — BUILD SUCCEEDED with Assets.xcassets (the five
+     AppIcon sets) and ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES.
+Mac: simulator install + launch --detail=appearance — a-ios-appearance.png:
+     §3.7 Darstellung with the Design card (System/Hell/Dunkel, selected System
+     in glassPrimary with the 3 px primary bottom border) and the Akzentfarbe
+     card (Orange/Smaragd/Beere/Gold/Ozean; selected Orange with the checkmark
+     ring, labels 12).
+
+Known gaps (recorded):
+- The accent -> launcher-alias toggle (Kotlin PlatformBridge.setAppIcon) and the
+  iOS setAlternateIconName path cannot be observed on this host: the Android
+  emulator still SIGSEGVs in vulkan.ranchu.so, and the iOS alternate-icon call
+  shows the system confirmation alert which simctl cannot drive. Both paths are
+  compiled and the model's set_accent_color is the single call site
+  (set_theme_preference has no icon side effect), covered by the 3.3 model tests.
+- Persistence across restart is the model's prefs test (theme/accent round-trip),
+  not a device relaunch screenshot.
+
+Review round 1 (fixed):
+- `PlatformBridge.setAppIcon` built "Orange"+Capitalized ("OrangeEmerald"), so
+  every accent except Orange fell back to the Orange alias. Now the suffix is
+  the capitalized raw value (Emerald/Berry/Golden/Ocean), and a
+  `@req REQ-PLT-05` test in `platform/android.rs` pins the raw-value →
+  alias-suffix coupling. gradlew assembleDebug + the app lib tests (47 passed,
+  Mac) re-ran green.

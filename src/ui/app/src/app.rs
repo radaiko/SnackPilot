@@ -24,6 +24,7 @@ use crate::components::dialog::{dialog_overlay, Dialog};
 use crate::components::loading_overlay::loading_overlay;
 use crate::components::tab_bar::{reserved_height, tab_bar};
 use crate::components::toast::{toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION};
+use crate::screens::appearance::appearance_screen;
 use crate::screens::billing::billing_tab;
 use crate::screens::login::{login_screen, LoginKind};
 use crate::screens::menus::menus_tab;
@@ -171,6 +172,8 @@ impl AppShell {
                 Some(match rest {
                     "login" => Detail::LoginKantine,
                     "automaten" => Detail::LoginAutomaten,
+                    "appearance" => Detail::Appearance,
+                    "notifications" => Detail::Notifications,
                     _ => return None,
                 })
             });
@@ -384,6 +387,9 @@ impl AppShell {
                     theme,
                     cx,
                 ),
+                (Detail::Appearance, _, _) => {
+                    appearance_screen(state, self.model.as_ref(), theme, cx)
+                }
                 (detail, _, _) => placeholder_detail(detail, theme, cx),
             };
         }
