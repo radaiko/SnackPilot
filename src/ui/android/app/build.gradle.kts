@@ -2,6 +2,8 @@
 // Packages the pre-built Rust cdylib from app/src/main/jniLibs/<abi>/ into an
 // APK hosted by a NativeActivity, mirroring the gpui-mobile example host.
 
+import java.util.Properties
+
 plugins {
     // AGP 9 compiles Kotlin itself; the standalone KGP plugin is forbidden here.
     id("com.android.application")
@@ -13,10 +15,10 @@ android {
 
     defaultConfig {
         applicationId = "dev.radaiko.gourmetclient"
-        minSdk = 26          // Vulkan 1.0 is mandatory from API 26+
+        minSdk = 29          // shipped v1 floor (task 6.1 checklist)
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.0.0"
+        versionCode = 35
+        versionName = "2.1.0"
 
         // x86_64 for the headless emulator, arm64-v8a for devices.
         ndk {
@@ -27,9 +29,33 @@ android {
         manifestPlaceholders["nativeLibraryName"] = "snackpilot_app"
     }
 
+    // Release signing reads the gitignored keystore.properties (created by
+    // `make android-keystore`). Without it the release build stays unsigned
+    // so a plain assembleDebug keeps working.
+    val keystoreProps = rootProject.file("keystore.properties")
+    val keystore = if (keystoreProps.exists()) {
+        Properties().apply { keystoreProps.inputStream().use { load(it) } }
+    } else {
+        null
+    }
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore.getProperty("storeFile"))
+                storePassword = keystore.getProperty("storePassword")
+                keyAlias = keystore.getProperty("keyAlias")
+                keyPassword = keystore.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isDebuggable = true
+        }
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

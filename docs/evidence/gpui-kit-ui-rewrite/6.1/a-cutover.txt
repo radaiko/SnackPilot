@@ -37,3 +37,16 @@ Gaps (recorded):
   simulator install path is already covered by the 5.x runs against src/ui/ios.
 - `src/core/scripts/build-{apple-xcframework,android-jni}.sh` are kept as the
   task requires; their header comments still say "for src/ios / src/android".
+
+
+Review round 1 (fixed — the hosts did not actually carry the release settings):
+- Android `build.gradle.kts`: minSdk 29 (was 26), versionCode 35, versionName
+  "2.1.0" (were 1 / 0.0.0); a `signingConfigs.release` reads
+  `src/ui/android/keystore.properties` when present and the release build type
+  uses it (unsigned without the file). Added `keystore.properties.example`.
+- iOS `project.yml`: MARKETING_VERSION 2.1.0, CURRENT_PROJECT_VERSION 35,
+  ITSAppUsesNonExemptEncryption NO, TARGETED_DEVICE_FAMILY "1"; deployment
+  target 17.0 and PrivacyInfo.xcprivacy were already present.
+- Re-verified on the Mac: Android `./gradlew clean :app:assembleDebug` BUILD
+  SUCCESSFUL (38 tasks); iOS xcodebuild BUILD SUCCEEDED and the built
+  Info.plist reports CFBundleShortVersionString 2.1.0 / CFBundleVersion 35.

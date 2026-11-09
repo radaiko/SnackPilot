@@ -41,7 +41,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.radaiko.gourmetclient
         PRODUCT_NAME: SnackPilot
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "2.1.0"
+        CURRENT_PROJECT_VERSION: "35"
+        ITSAppUsesNonExemptEncryption: "NO"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: "YES"
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-emerald AppIcon-berry AppIcon-golden AppIcon-ocean"
