@@ -205,7 +205,7 @@ Conventions for every task below:
   - proof: android workflow, emulator evidence
   - note: iOS simulator build/launch verified and the §3.3 auth gate captured (5.3/a-ios-billing-gate.png); month tabs, chips, summary, BillCard list, empty and loading states need the login UI (5.4) and the iOS shell model (5.7), as in 5.1/5.2. de-AT amounts come from the model's format_eur (covered by its tests). Android emulator captures stay blocked (vulkan.ranchu SIGSEGV). Review round 1 fixed the empty-state copy to "Keine Abrechnungsdaten für diesen Monat"; round 2 PASS. Follow-ups from review (non-blocking): `select_month`/`reload_billing` and the orders equivalents call `block_on` on the UI thread, so the loading spinner cannot paint during a fetch (same pattern in 5.2 — fix when the async host plumbing lands); badge letterSpacing 0.5 and one-line clamp on the Gourmet item description (§4.7) still missing in `bill_card.rs`.
 
-- [ ] 5.4 Settings tab and both login screens (text input proof)
+- [x] 5.4 Settings tab and both login screens (text input proof)
   - tier: hard
   - host: Linux + Emulator; Mac build and simulator run
   - files: `src/ui/app/src/screens/settings.rs`, `src/ui/app/src/screens/login.rs`, `src/ui/app/src/components/text_field.rs`, `src/ui/app/src/components/settings_row.rs`, `src/ui/app/src/screens/mod.rs`, `src/ui/app/src/app.rs`, `src/ui/android/app/src/main/AndroidManifest.xml` (soft-input mode only), `src/ui/ios/Host/App.swift` (keyboard handling only), `docs/evidence/gpui-kit-ui-rewrite/5.4/*.png`
@@ -215,6 +215,7 @@ Conventions for every task below:
   - tests: on the emulator type `demo` and `demo1234!` with `adb shell input text`, save, and screenshot the "Gespeichert" alert, then the Menus tab with demo data (`@req REQ-SCR-05`); wrong-credentials path against demo-mode `FakePlatform`-free core is covered by 3.1 tests; same typing proof on the simulator via XCUITest `typeText` (`@req REQ-SCR-06`); screenshots of Einstellungen with live hints (`@req REQ-SCR-04`).
   - check: `make check`; additionally Android build and Mac simulator build plus XCUITest run
   - proof: android workflow, ios workflow, emulator and simulator evidence
+  - note: iOS simulator typing proof passes (LoginTypingTests: system-keyboard taps, keyboard rises on focus and never covers the password field, pixel-diff typing/backspace, secure dots, §3.5 failure alert); `WindowExt::has_focused_input` + `gpui_mobile::show/hide_keyboard` drive the keyboard from focus, `Input.masked(true)` is the secure entry, `--detail=` opens a credential screen. Gaps carried forward: paste not exercised (XCUITest cannot drive the paste menu on a GPUI field; physical-device follow-up); no Android typing run (emulator vulkan.ranchu SIGSEGV, as 5.1–5.3; only cargo ndk check backs Android); on iOS before 5.7 save-before-login, the success alert, the authenticated Abmelden look and the credential prefill rest on code/model tests. Review r1 fixed the danger Abmelden recipe and added `AppModel::saved_credentials` for the §3.5 prefill.
 
 - [ ] 5.5 Appearance screen and alternate icons
   - tier: normal
