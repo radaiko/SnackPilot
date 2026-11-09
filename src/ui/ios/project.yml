@@ -33,6 +33,7 @@ targets:
         type: file
         buildPhase: headers
       - path: Shims
+      - path: Assets.xcassets
       - path: PrivacyInfo.xcprivacy
     dependencies:
       - package: Aptabase
@@ -41,6 +42,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.radaiko.gourmetclient
         PRODUCT_NAME: SnackPilot
         TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: "YES"
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-emerald AppIcon-berry AppIcon-golden AppIcon-ocean"
         CODE_SIGN_STYLE: Manual
         # Ad-hoc signing is simulator-only and is what fixes the keychain:
         # an unsigned binary gets SecItemAdd -34018 (errSecMissingEntitlement)

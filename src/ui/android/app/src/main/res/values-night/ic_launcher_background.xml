@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Adaptive-icon background in dark mode (themes §6 extension). The launcher resolves
+         @color/ic_launcher_background with the -night qualifier when the system is dark. -->
+    <color name="ic_launcher_background">#1C1C1E</color>
+</resources>

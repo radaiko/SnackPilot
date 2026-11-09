@@ -180,11 +180,18 @@ object PlatformBridge {
     fun setAppIcon(accent: String): String? = guard("setAppIcon") {
         val ctx = AppHolder.context
         val pkg = ctx.packageName
-        val orange = ComponentName(ctx, "$pkg.SnackPilotActivityOrange")
-        val alt = ComponentName(ctx, "$pkg.SnackPilotActivityAlt")
-        val (on, off) = if (accent == "orange") orange to alt else alt to orange
-        ctx.packageManager.setComponentEnabledSetting(on, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
-        ctx.packageManager.setComponentEnabledSetting(off, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+        val suffixes = listOf("Orange", "Emerald", "Berry", "Golden", "Ocean")
+        val wanted = "Orange" + accent.replaceFirstChar { it.uppercase() }
+        val target = if (suffixes.contains(wanted)) wanted else "Orange"
+        for (suffix in suffixes) {
+            val component = ComponentName(ctx, "$pkg.SnackPilotActivity$suffix")
+            val state = if (suffix == target) {
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } else {
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            }
+            ctx.packageManager.setComponentEnabledSetting(component, state, PackageManager.DONT_KILL_APP)
+        }
     }
 
     @JvmStatic
