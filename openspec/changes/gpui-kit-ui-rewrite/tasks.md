@@ -217,7 +217,7 @@ Conventions for every task below:
   - proof: android workflow, ios workflow, emulator and simulator evidence
   - note: iOS simulator typing proof passes (LoginTypingTests: system-keyboard taps, keyboard rises on focus and never covers the password field, pixel-diff typing/backspace, secure dots, §3.5 failure alert); `WindowExt::has_focused_input` + `gpui_mobile::show/hide_keyboard` drive the keyboard from focus, `Input.masked(true)` is the secure entry, `--detail=` opens a credential screen. Gaps carried forward: paste not exercised (XCUITest cannot drive the paste menu on a GPUI field; physical-device follow-up); no Android typing run (emulator vulkan.ranchu SIGSEGV, as 5.1–5.3; only cargo ndk check backs Android); on iOS before 5.7 save-before-login, the success alert, the authenticated Abmelden look and the credential prefill rest on code/model tests. Review r1 fixed the danger Abmelden recipe and added `AppModel::saved_credentials` for the §3.5 prefill.
 
-- [ ] 5.5 Appearance screen and alternate icons
+- [x] 5.5 Appearance screen and alternate icons
   - tier: normal
   - host: Linux + Emulator; Mac build
   - files: `src/ui/app/src/screens/appearance.rs`, `src/ui/app/src/screens/mod.rs`, `src/ui/android/app/src/main/AndroidManifest.xml` (five launcher aliases), `src/ui/android/app/src/main/res/**` (copy of the five launcher icon sets and `ic_launcher_background` values from `src/android/app/src/main/res`), `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/PlatformBridge.kt` (alias toggle), `src/ui/ios/Assets.xcassets/**` (copy of the five AppIcon sets), `src/ui/ios/Shims/AppIconService.swift`, `src/ui/ios/project.yml` (alternate icon build settings), `docs/evidence/gpui-kit-ui-rewrite/5.5/*.png`
@@ -227,6 +227,7 @@ Conventions for every task below:
   - tests: emulator screenshots: Hell, Dunkel, a non-default accent, then relaunch showing the choice persisted (`@req REQ-UI-05`, `@req REQ-SCR-07`); `adb shell pm` output shows exactly one enabled launcher alias after switching to Ozean (`@req REQ-PLT-05`); simulator build compiles with the alternate icon names.
   - check: `make check`; additionally Android build and Mac simulator build
   - proof: android workflow, emulator evidence
+  - note: iOS simulator screenshot of §3.7 (5.5/a-ios-appearance.png); Android Gradle debug APK builds with the five launcher aliases and the copied icon res, iOS builds with the five AppIcon sets and ASSETCATALOG alternate names. Runtime alias/alternate-icon switching cannot be observed here (emulator vulkan.ranchu SIGSEGV; iOS icon switch shows a system alert simctl cannot drive); the model's set_accent_color is the single icon call site with no startup reconciliation, and a `@req REQ-PLT-05` test pins accent raw values to the alias suffixes. Review r1 fixed the alias mapping that fell back to Orange for every accent.
 
 - [ ] 5.6 Notifications screen
   - tier: normal
