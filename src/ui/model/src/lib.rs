@@ -32,6 +32,9 @@ pub use platform::{
 };
 pub use prefs::{REMINDER_PICKER_DEFAULT_HOUR, REMINDER_PICKER_DEFAULT_MINUTE};
 pub use runtime::{block_on_model, log, metrics};
+#[cfg(test)]
+pub(crate) static BILLING_FETCHES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 pub use session::AppModel;
 pub use state::{
     AccentColor, Alert, BillingSource, ErrorText, ReminderTime, State, StateHub, Subscriber,

@@ -15,6 +15,17 @@ use crate::runtime::handle;
 use crate::session::AppModel;
 
 static FOREGROUND_RUNNING: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static FOREGROUND_RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Clears the re-entrancy flag on every exit path, including a panic.
+struct ForegroundGuard;
+
+impl Drop for ForegroundGuard {
+    fn drop(&mut self) {
+        FOREGROUND_RUNNING.store(false, Ordering::Release);
+    }
+}
 
 impl AppModel {
     /// Launch order of REQ-SCR-09.
@@ -98,11 +109,86 @@ impl AppModel {
         if FOREGROUND_RUNNING.swap(true, Ordering::AcqRel) {
             return;
         }
+        #[cfg(test)]
+        FOREGROUND_RUNS.fetch_add(1, Ordering::AcqRel);
+        let _guard = ForegroundGuard;
         handle().block_on(async {
             let _ = self.load_orders().await;
             self.load_billing(false).await;
         });
         self.refresh_broadcast();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FOREGROUND_RUNNING, FOREGROUND_RUNS};
+    use crate::{AppModel, FakePlatform};
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    fn model(tag: &str) -> AppModel {
+        let dir = std::env::temp_dir().join(format!(
+            "snackpilot-lifecycle-unit-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        AppModel::new(dir, Arc::new(FakePlatform::new())).unwrap()
+    }
+
+    /// @req REQ-SCR-09
+    #[test]
+    fn cache_first_publishes_the_core_snapshot() {
+        let model = model("cache");
+        let expected = model.core().menu_snapshot();
+        model.bootstrap();
+        assert_eq!(model.state().menu_snapshot, Some(expected));
+    }
+
+    /// @req REQ-SCR-09
+    #[test]
+    fn auto_login_fetches_billing_once() {
+        use crate::platform::Platform;
+        let platform = Arc::new(FakePlatform::new());
+        platform
+            .save_credential("gourmet_username", "demo")
+            .unwrap();
+        platform
+            .save_credential("gourmet_password", "demo1234!")
+            .unwrap();
+        platform
+            .save_credential("ventopay_username", "demo")
+            .unwrap();
+        platform
+            .save_credential("ventopay_password", "demo1234!")
+            .unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "snackpilot-lifecycle-unit-billing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = AppModel::new(dir, platform).unwrap();
+        crate::BILLING_FETCHES.store(0, Ordering::Release);
+        model.bootstrap();
+        assert_eq!(crate::BILLING_FETCHES.load(Ordering::Acquire), 1);
+    }
+
+    /// @req REQ-SCR-09
+    #[test]
+    fn foreground_guard_drops_reentrant_calls() {
+        let model = model("guard");
+        FOREGROUND_RUNNING.store(true, Ordering::Release);
+        let before = FOREGROUND_RUNS.load(Ordering::Acquire);
+        model.on_foreground();
+        assert_eq!(FOREGROUND_RUNS.load(Ordering::Acquire), before);
         FOREGROUND_RUNNING.store(false, Ordering::Release);
     }
 }

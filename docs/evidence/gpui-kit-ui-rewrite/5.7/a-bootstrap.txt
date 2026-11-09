@@ -39,3 +39,18 @@ Gaps (recorded):
   the foreground refresh; 5.1's e-resume proof covers state preservation.
 - Android bootstrap wiring compiles but cannot run on this host (emulator
   vulkan.ranchu SIGSEGV, recorded since 4.1).
+
+Review round 1 (fixed):
+- on_foreground now has a caller on every host: AppShell watches the window
+  activation transition in `render` (`was_active` false→true after the first
+  frame) and calls `AppModel::on_foreground`; a host callback is no longer
+  required. The old Android/desktop-only claim is withdrawn.
+- The re-entrancy flag is cleared by an RAII `ForegroundGuard`, so a panic in
+  the refresh cannot leave the process permanently guarded.
+- Added the three missing tests: cache-first snapshot publication, exactly one
+  billing fetch during auto-login (instrumented counter), and drop of a
+  re-entrant `on_foreground` call (all `@req REQ-SCR-09`).
+- Scope amendment: `model/src/state.rs` (broadcast fields), `model/src/session.rs`
+  (foreground stub moved), `model/src/lib.rs`, `app/src/platform/ios.rs` (iOS
+  model install + bootstrap) and `components/mod.rs` are recorded in the task's
+  `files:` line at tick time.

@@ -118,6 +118,10 @@ pub struct AppShell {
     /// Login form fields, created on push so typing survives re-renders.
     login_user: Option<Entity<InputState>>,
     login_pass: Option<Entity<InputState>>,
+    /// Window activation watcher: a false→true transition is a foreground
+    /// return and drives `AppModel::on_foreground` on every host (5.7).
+    was_active: bool,
+    seen_frame: bool,
     /// Debug knob (`--detail=login|automaten`): opens that credential screen
     /// on the first frame so a UI test can reach it without navigation.
     pending_detail: Option<Detail>,
@@ -168,6 +172,8 @@ impl AppShell {
             detail: Detail::Settings,
             login_user: None,
             login_pass: None,
+            was_active: true,
+            seen_frame: false,
             pending_detail: None,
             keyboard_up: false,
         };
@@ -486,6 +492,14 @@ impl Render for AppShell {
         if let Some(detail) = self.pending_detail.take() {
             self.open_detail(detail, window, cx);
         }
+        let active = window.is_window_active();
+        if self.seen_frame && active && !self.was_active {
+            if let Some(model) = &self.model {
+                model.on_foreground();
+            }
+        }
+        self.was_active = active;
+        self.seen_frame = true;
         self.sync_keyboard(window, cx);
         if self.dialog.is_none() {
             if let Some(alert) = self.model.as_ref().and_then(|m| m.take_location_alert()) {

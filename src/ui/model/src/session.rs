@@ -392,6 +392,8 @@ impl AppModel {
     /// swallowed (pull-to-refresh is the retry, v1 parity). `force` bypasses
     /// the core's past-month cache skip (Swift `reloadBilling` :601).
     pub(crate) async fn load_billing(&self, force: bool) {
+        #[cfg(test)]
+        crate::BILLING_FETCHES.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         self.hub
             .update("billing_loading", |s| s.billing_loading = true);
         let offset = self.hub.get().selected_offset;
