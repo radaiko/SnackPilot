@@ -16,7 +16,7 @@ Both rerun the platform `bootstrap.sh` only when `src/core/src` changed since th
 
 ## Release (local)
 - `make ios-archive` — build a signed release archive (auto-incrementing build number, team auto-detected from the keychain) and open it in **Xcode Organizer**. Then: *Distribute App → App Store Connect → Upload* → the build lands in **TestFlight**. `IOS_TEAM=<id>` overrides the team; `ORGANIZER_OPEN=0` skips opening Organizer (CI/tests). Organizer re-signs to the App Store *distribution* identity at the Distribute step.
-- `make android-keystore` — one-time: generate the signed-release keystore. Back up `src/android/snackpilot-release.jks` + `keystore.properties`.
+- `make android-keystore` — one-time: generate the signed-release keystore. Back up `src/ui/android/snackpilot-release.jks` + `keystore.properties`.
 - `make ship` — one command for the next release of both platforms. Prompts for a new semver
   (must be > the last) + platforms, bumps `Cargo.toml` / `project.yml` / `build.gradle.kts` + the
   shared build number (iOS `CURRENT_PROJECT_VERSION` / Android `versionCode`, auto-incrementing),
