@@ -7,8 +7,8 @@ DRY_RUN="${DRY_RUN:-0}"
 HISTORY="$REPO_ROOT/.ship-history"
 BUILDNO_FILE="$REPO_ROOT/tools/devops/.build-number"
 CARGO="src/core/Cargo.toml"
-PROJECT_YML="src/ios/project.yml"
-GRADLE="src/android/app/build.gradle.kts"
+PROJECT_YML="src/ui/ios/project.yml"
+GRADLE="src/ui/android/app/build.gradle.kts"
 
 # Revert the version-file bumps if we fail after editing them but before the commit lands.
 bumped=0; committed=0
@@ -84,14 +84,14 @@ fi
 
 # 5b. Android artifact
 if [[ $do_android -eq 1 ]]; then
-  [[ -f "src/android/keystore.properties" ]] || err "no keystore.properties — artifacts will be UNSIGNED (run: make android-keystore)"
+  [[ -f "src/ui/android/keystore.properties" ]] || err "no keystore.properties — artifacts will be UNSIGNED (run: make android-keystore)"
   # Rebuild the core .so/bindings if stale (incl. the version bump above) — gradle alone reuses the
   # prebuilt jniLibs, so without this the shipped app reports a stale core version.
-  bootstrap_if_stale android "$REPO_ROOT/src/android/app/src/main/jniLibs/arm64-v8a/libsnackpilot_core.so"
+  bootstrap_if_stale tools/devops/ui-android-build.sh "$REPO_ROOT/src/ui/android/app/src/main/jniLibs/arm64-v8a/libsnackpilot_app.so"
   info "Android: bundleRelease + assembleRelease"
-  ( cd src/android && ./gradlew :app:bundleRelease :app:assembleRelease )
-  cp src/android/app/build/outputs/bundle/release/app-release.aab "$outdir/SnackPilot-$VERSION.aab"
-  cp src/android/app/build/outputs/apk/release/app-release.apk "$outdir/SnackPilot-$VERSION.apk"
+  ( cd src/ui/android && ./gradlew :app:bundleRelease :app:assembleRelease )
+  cp src/ui/android/app/build/outputs/bundle/release/app-release.aab "$outdir/SnackPilot-$VERSION.aab"
+  cp src/ui/android/app/build/outputs/apk/release/app-release.apk "$outdir/SnackPilot-$VERSION.apk"
   ok "Android artifacts: $outdir/SnackPilot-$VERSION.{aab,apk}"
 fi
 

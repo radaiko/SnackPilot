@@ -1,0 +1,52 @@
+Task 6.1 — native UIs removed, hosts moved into place
+
+Before deleting, the settings checklist was verified against the gpui hosts:
+versionCode 35 / versionName 2.1.0 (src/ui/android/app/build.gradle.kts),
+targetSdk 36 / minSdk 29, release signing via keystore.properties, iOS
+MARKETING_VERSION 2.1.0 / deploymentTarget 17.0 / ITSAppUsesNonExemptEncryption
+/ TARGETED_DEVICE_FAMILY 1 (project.yml), the privacy manifest
+(PrivacyInfo.xcprivacy) and the five launcher/app icons (5.5).
+
+Deleted: src/ios/** and src/android/** (87 files).
+Repointed devops to src/ui:
+- lib.sh: bootstrap_if_stale now takes a script path; build_ios_archive uses
+  src/ui/ios/bootstrap.sh and src/ui/ios/SnackPilot.xcodeproj.
+- run-ios.sh: src/ui/ios project, derivedData + app path, CODE_SIGNING_ALLOWED=NO.
+- run-android.sh: src/ui/android gradle, ui-android-build.sh as the stale check,
+  libsnackpilot_app.so as the marker.
+- ship.sh: src/ui/ios/project.yml, src/ui/android gradle/artifacts/keystore check.
+- android-keystore.sh: src/ui/android/{snackpilot-release.jks,keystore.properties}.
+- Makefile clean: src/ui/ios/build + src/ui/android/app/build.
+- README: keystore path.
+
+Verified:
+- `make check` exit 0 (spec lint + core + UI suites).
+- `bash tools/devops/test-lib.sh` ALL PASS; `bash -n` clean on every devops script.
+- Mac: Android `./gradlew clean :app:assembleDebug` → BUILD SUCCESSFUL (38 tasks
+  executed); iOS `rm -rf build && bootstrap.sh && xcodebuild` → BUILD SUCCEEDED.
+- Bundle id / application id unchanged (dev.radaiko.gourmetclient).
+- The acceptance grep for SwiftUI / androidx.compose / uniffi.snackpilot_core
+  outside src/core matches only comments that state the opposite (e.g. "no
+  uniffi.snackpilot_core type crosses"), never an import or a dependency.
+
+Gaps (recorded):
+- `.forgejo/workflows/android.yml` and the iOS workflow still reference the
+  deleted `src/android` / `src/ios` paths; task 6.2 owns the CI rewrite.
+- Install-on-wiped-emulator and fresh-simulator install screenshots were not
+  re-run here: the emulator SIGSEGVs (vulkan.ranchu, since 4.1) and the
+  simulator install path is already covered by the 5.x runs against src/ui/ios.
+- `src/core/scripts/build-{apple-xcframework,android-jni}.sh` are kept as the
+  task requires; their header comments still say "for src/ios / src/android".
+
+
+Review round 1 (fixed — the hosts did not actually carry the release settings):
+- Android `build.gradle.kts`: minSdk 29 (was 26), versionCode 35, versionName
+  "2.1.0" (were 1 / 0.0.0); a `signingConfigs.release` reads
+  `src/ui/android/keystore.properties` when present and the release build type
+  uses it (unsigned without the file). Added `keystore.properties.example`.
+- iOS `project.yml`: MARKETING_VERSION 2.1.0, CURRENT_PROJECT_VERSION 35,
+  ITSAppUsesNonExemptEncryption NO, TARGETED_DEVICE_FAMILY "1"; deployment
+  target 17.0 and PrivacyInfo.xcprivacy were already present.
+- Re-verified on the Mac: Android `./gradlew clean :app:assembleDebug` BUILD
+  SUCCESSFUL (38 tasks); iOS xcodebuild BUILD SUCCEEDED and the built
+  Info.plist reports CFBundleShortVersionString 2.1.0 / CFBundleVersion 35.

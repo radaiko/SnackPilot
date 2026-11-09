@@ -9,7 +9,7 @@ BUNDLE_ID="dev.radaiko.gourmetclient"
 export IOS_SIM="${IOS_SIM:-iPhone 17 Pro}"
 cd "$REPO_ROOT"
 
-bootstrap_if_stale ios "src/ios/Frameworks/SnackPilotCore.xcframework"
+bootstrap_if_stale src/ui/ios/bootstrap.sh "src/ui/ios/.bootstrap-stamp"
 
 # Resolve a target simulator UDID: explicit DEVICE=, else the booted one, else IOS_SIM.
 udid="${DEVICE:-}"
@@ -32,11 +32,11 @@ fi
 xcrun simctl bootstatus "$udid" >/dev/null 2>&1 || true
 
 info "building (iphonesimulator)"
-xcodebuild -project src/ios/SnackPilot.xcodeproj -scheme SnackPilot \
+xcodebuild -project src/ui/ios/SnackPilot.xcodeproj -scheme SnackPilot \
   -sdk iphonesimulator -destination "id=$udid" \
-  -derivedDataPath src/ios/build build
+  -derivedDataPath src/ui/ios/build CODE_SIGNING_ALLOWED=NO build
 
-app="src/ios/build/Build/Products/Debug-iphonesimulator/SnackPilot.app"
+app="src/ui/ios/build/Build/Products/Debug-iphonesimulator/SnackPilot.app"
 [[ -d "$app" ]] || die "built .app not found at $app"
 
 info "installing + launching"

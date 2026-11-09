@@ -3,8 +3,8 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
 require_tool keytool "comes with a JDK"
-KS="$REPO_ROOT/src/android/snackpilot-release.jks"
-PROPS="$REPO_ROOT/src/android/keystore.properties"
+KS="$REPO_ROOT/src/ui/android/snackpilot-release.jks"
+PROPS="$REPO_ROOT/src/ui/android/keystore.properties"
 ALIAS="snackpilot"
 
 [[ -e "$KS" ]] && die "keystore already exists at $KS — refusing to overwrite (delete it manually to regenerate)"

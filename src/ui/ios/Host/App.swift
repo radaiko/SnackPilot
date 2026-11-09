@@ -10,6 +10,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Task 5.4 keyboard-debug knob: tee stderr (Rust logs, panics) into the
+        // app container so a runner-launched XCUITest run can be diagnosed.
+        if ProcessInfo.processInfo.arguments.contains("--log-kb") {
+            let path = NSTemporaryDirectory() + "sp54-stderr.log"
+            freopen(path.cString(using: .utf8), "a", stderr)
+            setvbuf(stderr, nil, _IONBF, 0)
+        }
         // Register the platform shim table before any Rust code runs (task 3.5).
         PlatformBridge.bootstrap()
         // Evidence run: `xcrun simctl launch ... -DebugPlatformExercise YES`

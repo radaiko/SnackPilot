@@ -36,7 +36,7 @@ doctor: ## Check that required build tools are installed
 	@bash $(DEVOPS)/doctor.sh
 
 clean: ## Remove dist/ and generated build artifacts
-	@rm -rf dist src/ios/build src/android/app/build && echo "cleaned dist/ + build outputs"
+	@rm -rf dist src/ui/ios/build src/ui/android/app/build && echo "cleaned dist/ + build outputs"
 
 mac-sync: ## Rsync this worktree to the Mac (~/vm-sync/SnackPilot-gpui) for Mac-side builds
 	@bash $(DEVOPS)/sync-mac.sh

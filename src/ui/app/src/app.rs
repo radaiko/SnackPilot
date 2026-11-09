@@ -310,6 +310,7 @@ impl AppShell {
         // iOS: an alert must not sit behind the soft keyboard (§4.1).
         #[cfg(target_os = "ios")]
         {
+            kb_log("set_dialog hides keyboard");
             gpui_mobile::hide_keyboard();
             self.keyboard_up = false;
         }

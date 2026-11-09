@@ -8,8 +8,8 @@ ANDROID_AVD="${ANDROID_AVD:-Medium_Phone_API_36.1}"
 cd "$REPO_ROOT"
 
 # newest .so is the freshness marker for the Android bindings
-so_marker="$(ls -t src/android/app/src/main/jniLibs/*/libsnackpilot_core.so 2>/dev/null | head -1 || true)"
-bootstrap_if_stale android "${so_marker:-/nonexistent}"
+so_marker="$(ls -t src/ui/android/app/src/main/jniLibs/*/libsnackpilot_app.so 2>/dev/null | head -1 || true)"
+bootstrap_if_stale tools/devops/ui-android-build.sh "${so_marker:-/nonexistent}"
 
 # Ensure a device/emulator is connected; else start the default AVD.
 if [[ -z "$(adb devices | awk 'NR>1 && $2=="device"{print $1}')" ]]; then
@@ -27,7 +27,7 @@ fi
 ok "device ready: $(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
 
 info "building + installing (installDebug)"
-( cd src/android && ./gradlew :app:installDebug )
+( cd src/ui/android && ./gradlew :app:installDebug )
 
 info "launching"
 launch_out="$(adb shell monkey -p "$BUNDLE_ID" -c android.intent.category.LAUNCHER 1 2>&1)"

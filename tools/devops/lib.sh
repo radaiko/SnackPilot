@@ -94,13 +94,13 @@ path_is_stale() {
 # version-only bump (every ship) must also force a core rebuild — and the version lives in
 # Cargo.toml, outside src/core/src. Without this the shipped app reports a stale core version.
 bootstrap_if_stale() {
-  local platform=$1 artifact=$2
+  local script=$1 artifact=$2
   if path_is_stale "$REPO_ROOT/src/core/src" "$artifact" \
      || [[ "$REPO_ROOT/src/core/Cargo.toml" -nt "$artifact" ]]; then
-    info "core changed (or bindings absent) → running src/$platform/bootstrap.sh"
-    ( cd "$REPO_ROOT/src/$platform" && ./bootstrap.sh )
+    info "core changed (or bindings absent) → running $script"
+    ( cd "$REPO_ROOT" && "$script" )
   else
-    ok "core bindings for $platform are up to date"
+    ok "core bindings are up to date"
   fi
 }
 
@@ -134,14 +134,14 @@ build_ios_archive() {
   [[ -n "$team" ]] || die "no Apple team in keychain — set IOS_TEAM=<teamid> (see: security find-identity -v -p codesigning)"
   # >&2: this function is called via $(...) to capture the archive path, so the bootstrap's stdout
   # (now that a version bump makes the core stale) must NOT leak into that capture.
-  bootstrap_if_stale ios "$REPO_ROOT/src/ios/Frameworks/SnackPilotCore.xcframework" >&2
+  bootstrap_if_stale src/ui/ios/bootstrap.sh "$REPO_ROOT/src/ui/ios/.bootstrap-stamp" >&2
   # Always regenerate the Xcode project so project.yml changes (esp. MARKETING_VERSION on a ship)
   # land in the build — bootstrap_if_stale skips xcodegen entirely when the core is unchanged.
-  ( cd "$REPO_ROOT/src/ios" && xcodegen generate >&2 )
+  ( cd "$REPO_ROOT/src/ui/ios" && xcodegen generate >&2 )
   mkdir -p "$archdir"
   local archive="$archdir/SnackPilot $(date +%H.%M) build-$buildno.xcarchive"
   info "iOS: archiving build $buildno (team $team)"
-  xcodebuild -project "$REPO_ROOT/src/ios/SnackPilot.xcodeproj" -scheme SnackPilot \
+  xcodebuild -project "$REPO_ROOT/src/ui/ios/SnackPilot.xcodeproj" -scheme SnackPilot \
     -sdk iphoneos -destination "generic/platform=iOS" \
     -archivePath "$archive" -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="$buildno" archive >&2
