@@ -9,7 +9,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::*;
+use gpui_kit::assets::IconName;
 use gpui_kit::component::switch::Switch;
+use gpui_kit::component::{Icon, Sizable};
 
 use crate::app::AppShell;
 use crate::components::time_chips::time_chips;
@@ -42,6 +44,7 @@ fn section(title: &'static str, hint: &'static str, theme: &AppTheme, body: Div)
 fn primary(
     id: &'static str,
     label: String,
+    icon: Option<IconName>,
     on_click: ClickHandler,
     theme: &AppTheme,
 ) -> AnyElement {
@@ -61,9 +64,18 @@ fn primary(
     } else {
         button.opacity(0.6)
     };
+    let mut button = button;
+    if let Some(icon) = icon {
+        button = button.child(
+            Icon::new(icon)
+                .with_size(px(16.))
+                .text_color(theme.on_primary),
+        );
+    }
     button
         .child(
             div()
+                .ml(px(6.))
                 .text_size(px(15.))
                 .font_weight(FontWeight::BOLD)
                 .text_color(theme.on_primary)
@@ -157,6 +169,12 @@ pub fn notifications_screen(
                     .on_click(move |_, window, cx| open(window, cx))
                     .child(
                         div()
+                            .flex()
+                            .items_start()
+                            .gap(px(8.))
+                            .child(Icon::new(IconName::Info).with_size(px(18.)).text_color(theme.text_tertiary))
+                            .child(
+                                div()
                             .text_size(px(12.))
                             .text_color(theme.text_secondary)
                             .child("Damit Erinnerungen zuverlässig funktionieren, muss die Hintergrundaktivität für diese App erlaubt sein. ")
@@ -167,13 +185,14 @@ pub fn notifications_screen(
                                     .text_color(theme.primary)
                                     .child("App-Einstellungen öffnen"),
                             ),
+                            ),
                     ),
             );
         }
     }
 
     // Section 2: location notifications.
-    let location_body = if let Some(location) = &state.company_location {
+    let location_body = if let Some(_location) = &state.company_location {
         let shell = cx.entity().clone();
         let model = model.clone();
         let remove = Rc::new(move |_: &mut Window, cx: &mut App| {
@@ -191,10 +210,7 @@ pub fn notifications_screen(
                 div()
                     .text_size(px(14.))
                     .text_color(theme.text_secondary)
-                    .child(format!(
-                        "Firmenstandort gesetzt ({:.5}, {:.5})",
-                        location.latitude, location.longitude
-                    )),
+                    .child("Firmenstandort gesetzt"),
             )
             .child(
                 theme::apply(
@@ -234,7 +250,7 @@ pub fn notifications_screen(
         div()
             .flex()
             .flex_col()
-            .child(primary("location-set", label.to_string(), set, theme))
+            .child(primary("location-set", label.to_string(), None, set, theme))
     };
 
     // Section 3: notification log.
@@ -286,6 +302,7 @@ pub fn notifications_screen(
             .child(primary(
                 "log-send",
                 "Log per E-Mail senden".to_string(),
+                Some(IconName::Mail),
                 send,
                 theme,
             ))
@@ -321,10 +338,17 @@ pub fn notifications_screen(
         div()
             .flex()
             .gap(px(12.))
-            .child(primary("log-12", "12 Stunden".to_string(), twelve, theme))
+            .child(primary(
+                "log-12",
+                "12 Stunden".to_string(),
+                None,
+                twelve,
+                theme,
+            ))
             .child(primary(
                 "log-24",
                 "24 Stunden".to_string(),
+                None,
                 twenty_four,
                 theme,
             ))
