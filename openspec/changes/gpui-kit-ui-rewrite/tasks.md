@@ -255,7 +255,7 @@ Conventions for every task below:
 
 ## 6. Cutover
 
-- [ ] 6.1 Delete the native UIs and move the hosts into place
+- [x] 6.1 Delete the native UIs and move the hosts into place
   - tier: normal
   - host: Linux, then Mac
   - files: `src/ios/**` (delete), `src/android/**` (delete), `src/core/scripts/build-apple-xcframework.sh` (keep), `src/core/scripts/build-android-jni.sh` (keep), `tools/devops/run-ios.sh`, `tools/devops/run-android.sh`, `tools/devops/archive-ios.sh`, `tools/devops/ship.sh`, `tools/devops/android-keystore.sh`, `tools/devops/doctor.sh`, `Makefile`, `src/ui/android/keystore.properties.example`, `src/ui/android/README.md`, `src/ui/ios/README.md`
