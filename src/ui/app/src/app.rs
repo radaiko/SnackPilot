@@ -14,6 +14,8 @@ use std::time::Duration;
 
 use gpui::*;
 use gpui_kit::component::input::InputState;
+#[cfg(target_os = "ios")]
+use gpui_kit::component::WindowExt;
 use snackpilot_model::navigation::{Navigation, Screen, Tab};
 use snackpilot_model::{format_day_short, AppModel, State};
 
@@ -38,6 +40,13 @@ pub(crate) enum Detail {
     LoginAutomaten,
     Appearance,
     Notifications,
+}
+
+/// iOS keyboard driver decision: `Some(true)` show, `Some(false)` hide,
+/// `None` no change (§3.6 typing proof, task 5.4).
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn keyboard_action(up: bool, focused: bool) -> Option<bool> {
+    (focused != up).then_some(focused)
 }
 
 /// Safe-area insets (top, bottom, left, right) in logical px, read from the
@@ -82,6 +91,12 @@ pub struct AppShell {
     /// Login form fields, created on push so typing survives re-renders.
     login_user: Option<Entity<InputState>>,
     login_pass: Option<Entity<InputState>>,
+    /// Debug knob (`--detail=login|automaten`): opens that credential screen
+    /// on the first frame so a UI test can reach it without navigation.
+    pending_detail: Option<Detail>,
+    /// iOS: whether the soft keyboard is currently shown (§3.6, task 5.4).
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    keyboard_up: bool,
 }
 
 impl AppShell {
@@ -126,6 +141,8 @@ impl AppShell {
             detail: Detail::Settings,
             login_user: None,
             login_pass: None,
+            pending_detail: None,
+            keyboard_up: false,
         };
         // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
         // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast,
@@ -148,6 +165,15 @@ impl AppShell {
             if let Some(n) = tab.filter(|n| *n < Tab::ALL.len()) {
                 shell.nav.select_tab(Tab::ALL[n]);
             }
+            // `--detail=login|automaten` opens a credential screen directly.
+            shell.pending_detail = std::env::args().find_map(|a| {
+                let rest = a.strip_prefix("--detail=")?;
+                Some(match rest {
+                    "login" => Detail::LoginKantine,
+                    "automaten" => Detail::LoginAutomaten,
+                    _ => return None,
+                })
+            });
             if std::env::args().any(|a| a == "--dialog") {
                 shell.set_dialog(
                     Dialog::Confirm {
@@ -219,8 +245,12 @@ impl AppShell {
                     .placeholder("Benutzername eingeben")
                     .default_value(username.clone())
             }));
-            self.login_pass =
-                Some(cx.new(|cx| InputState::new(window, cx).placeholder("Passwort eingeben")));
+            self.login_pass = Some(cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("Passwort eingeben")
+                    // §3.6 secure entry: the field renders dots, never the text.
+                    .masked(true)
+            }));
         }
         self.nav.push(Screen::SettingsDetail);
         cx.notify();
@@ -235,7 +265,36 @@ impl AppShell {
 
     pub(crate) fn set_dialog(&mut self, dialog: Dialog, cx: &mut Context<Self>) {
         self.dialog = Some(dialog);
+        // iOS: an alert must not sit behind the soft keyboard (§4.1).
+        #[cfg(target_os = "ios")]
+        {
+            gpui_mobile::hide_keyboard();
+            self.keyboard_up = false;
+        }
         cx.notify();
+    }
+
+    /// iOS soft-keyboard driver (§3.6, task 5.4): gpui-mobile creates the
+    /// native text input view hidden, so nothing raises the keyboard on its
+    /// own. gpui re-runs `render` on every repaint, so polling the focused
+    /// input here reacts to a tap-to-focus (focus change ⇒ repaint) and keeps
+    /// the keyboard in sync without patching the library.
+    fn sync_keyboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(target_os = "ios")]
+        if self.dialog.is_none() {
+            if let Some(show) = keyboard_action(self.keyboard_up, window.has_focused_input(cx)) {
+                self.keyboard_up = show;
+                if show {
+                    gpui_mobile::show_keyboard();
+                } else {
+                    gpui_mobile::hide_keyboard();
+                }
+            }
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = (&self, window, cx);
+        }
     }
     fn placeholder(&self, state: &State, theme: &AppTheme, cx: &mut Context<Self>) -> AnyElement {
         let (title, hint): (&str, String) = match self.nav.top() {
@@ -376,6 +435,10 @@ impl AppShell {
 
 impl Render for AppShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(detail) = self.pending_detail.take() {
+            self.open_detail(detail, window, cx);
+        }
+        self.sync_keyboard(window, cx);
         let state = self
             .model
             .as_ref()
@@ -442,5 +505,21 @@ impl Render for AppShell {
             root = root.child(dialog_overlay(dialog, &theme, on_dismiss));
         }
         root
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keyboard_action;
+
+    /// The soft keyboard follows focus changes and stays put otherwise
+    /// (§3.6 typing proof; the iOS side is proven by the XCUITest run).
+    /// @req REQ-SCR-06
+    #[test]
+    fn keyboard_follows_focus_changes() {
+        assert_eq!(keyboard_action(false, true), Some(true)); // tap focuses a field
+        assert_eq!(keyboard_action(true, false), Some(false)); // focus lost
+        assert_eq!(keyboard_action(true, true), None); // unchanged
+        assert_eq!(keyboard_action(false, false), None); // unchanged
     }
 }

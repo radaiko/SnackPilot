@@ -24,6 +24,11 @@ pub enum LoginKind {
     Automaten,
 }
 
+/// §3.5 failure alert copy, also shown when no session model is installed
+/// (iOS before 5.7); the model's own `error_text` wins when present.
+const FAILURE_TITLE: &str = "Login fehlgeschlagen";
+const FAILURE_FALLBACK: &str = "Anmeldung nicht möglich. Bitte Zugangsdaten prüfen.";
+
 impl LoginKind {
     fn title(self) -> &'static str {
         match self {
@@ -247,6 +252,16 @@ fn save_handler(
                 return;
             }
             let Some(model) = &s.model else {
+                // iOS before task 5.7 has no session model installed yet;
+                // show the §3.5 failure alert instead of swallowing the tap.
+                // The success alert lands with 5.7 when the model is wired.
+                s.set_dialog(
+                    crate::components::dialog::Dialog::Alert {
+                        title: FAILURE_TITLE.into(),
+                        message: Some(FAILURE_FALLBACK.into()),
+                    },
+                    cx,
+                );
                 return;
             };
             let result = match kind {
@@ -259,14 +274,12 @@ fn save_handler(
                     kind.success_message().to_string(),
                 ),
                 Err(_) => (
-                    "Login fehlgeschlagen".to_string(),
+                    FAILURE_TITLE.to_string(),
                     model
                         .state()
                         .error_text
                         .map(|e| e.message)
-                        .unwrap_or_else(|| {
-                            "Anmeldung nicht möglich. Bitte Zugangsdaten prüfen.".to_string()
-                        }),
+                        .unwrap_or_else(|| FAILURE_FALLBACK.to_string()),
                 ),
             };
             s.set_dialog(
@@ -293,4 +306,21 @@ fn logout_handler(kind: LoginKind, cx: &mut Context<AppShell>) -> crate::navigat
             cx.notify();
         });
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FAILURE_FALLBACK, FAILURE_TITLE};
+
+    /// The failure alert copy of §3.5, used for a rejected login and for the
+    /// iOS path without a session model (before 5.7 wires it).
+    /// @req REQ-SCR-05
+    #[test]
+    fn failure_alert_copy_matches_spec() {
+        assert_eq!(FAILURE_TITLE, "Login fehlgeschlagen");
+        assert_eq!(
+            FAILURE_FALLBACK,
+            "Anmeldung nicht möglich. Bitte Zugangsdaten prüfen."
+        );
+    }
 }

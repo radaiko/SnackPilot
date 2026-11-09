@@ -1,0 +1,36 @@
+Task 5.4 — typing, secure entry, keyboard and save alert on the iOS simulator
+
+Mac: iPhone 17 Pro simulator (C2994587-5046-4970-8DDE-3F003EB81D0D), iOS 26.2,
+Debug build from this commit series.
+
+xcodebuild test -project src/ui/ios/SnackPilot.xcodeproj -scheme SnackPilot \
+  -destination id=C2994587-5046-4970-8DDE-3F003EB81D0D \
+  -only-testing:SnackPilotUITests/LoginTypingTests
+→ ** TEST SUCCEEDED ** (1 test, 0 failures, 38 s)
+
+The earlier blocker (typeText: "no element or descendant has keyboard focus")
+was real: XCUIApplication.typeText cannot synthesize GPUI input. The fix keeps
+production behaviour and changes only the evidence route:
+- AppShell now drives the soft keyboard on iOS from focus changes
+  (`WindowExt::has_focused_input` → `gpui_mobile::show_keyboard/hide_keyboard`);
+  the kit Input's focus is the source of truth, no library patch.
+- The password Input is `.masked(true)` (§3.5/§3.6 secure entry).
+- `--detail=login|automaten` opens a credential screen on the first frame,
+  same debug-knob pattern as `--tab`/`--dialog`.
+- The UI test taps the *system keyboard keys* (accessible elements), which send
+  real input through the focused field, and proves the field contents by pixel
+  diffs of the field region.
+
+What the passing run proves (attachments exported from the .xcresult):
+0-settings.png        Einstellungen rows with live hints (§3.4).
+a-login-empty.png     pushed "Kantine-Zugangsdaten", keyboard down.
+b-username-typed.png  "demo" typed via the keyboard; keyboard up, field above it.
+c-password-empty.png  password focused, keyboard does not cover the field.
+d-password-filled.png secure entry: dots only, "demo1234!" never visible.
+e-password-backspace.png delete key changed the field (>500 byte pixel diff).
+f-save-alert.png      Speichern → "Login fehlgeschlagen / Anmeldung nicht
+                      möglich. Bitte Zugangsdaten prüfen." (§3.5), keyboard
+                      dropped before the alert. No session model on iOS until
+                      5.7, so the failure path is what this build can show.
+
+Linux: cargo ndk -t x86_64 check -p snackpilot-app — clean; make check exit 0.
