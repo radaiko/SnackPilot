@@ -13,8 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::*;
-use gpui_kit::assets::IconName;
-use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::component::input::InputState;
+#[cfg(target_os = "ios")]
+use gpui_kit::component::WindowExt;
 use snackpilot_model::navigation::{Navigation, Screen, Tab};
 use snackpilot_model::{format_day_short, AppModel, State};
 
@@ -23,14 +24,30 @@ use crate::components::dialog::{dialog_overlay, Dialog};
 use crate::components::loading_overlay::loading_overlay;
 use crate::components::tab_bar::{reserved_height, tab_bar};
 use crate::components::toast::{toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION};
-use crate::navigation::settings_detail_screen;
 use crate::screens::billing::billing_tab;
+use crate::screens::login::{login_screen, LoginKind};
 use crate::screens::menus::menus_tab;
 use crate::screens::orders::orders_tab;
+use crate::screens::settings::{placeholder_detail, settings_tab};
 use crate::theme::AppTheme;
 
-/// §3.4 Datenschutz alert message, verbatim.
-const DATENSCHUTZ_MESSAGE: &str = "Diese App erfasst anonyme Nutzungsstatistiken zur Verbesserung der Benutzererfahrung. Die Analyse erfolgt über TelemetryDeck — einen datenschutzfreundlichen, cookielosen Dienst. Es werden keine persönlichen Daten, Passwörter, Menüauswahl oder Abrechnungsdaten erfasst.";
+/// The pushed settings screens (one detail at a time under
+/// `Screen::SettingsDetail`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Detail {
+    Settings,
+    LoginKantine,
+    LoginAutomaten,
+    Appearance,
+    Notifications,
+}
+
+/// iOS keyboard driver decision: `Some(true)` show, `Some(false)` hide,
+/// `None` no change (§3.6 typing proof, task 5.4).
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn keyboard_action(up: bool, focused: bool) -> Option<bool> {
+    (focused != up).then_some(focused)
+}
 
 /// Safe-area insets (top, bottom, left, right) in logical px, read from the
 /// host platform. Android asks the live window; iOS reads the FFI window list
@@ -60,9 +77,6 @@ pub struct AppShell {
     nav: Navigation,
     dialog: Option<Dialog>,
     toast: Option<Toast>,
-    /// Title of the pushed `SettingsDetail` screen, set when a settings row
-    /// pushes it (tasks 5.x replace the placeholder body).
-    detail_title: &'static str,
     pub(crate) model: Option<Arc<AppModel>>,
     /// Transient swipe-between-days gesture state (§3.1): pointer origin and
     /// the current (damped) horizontal offset.
@@ -72,6 +86,17 @@ pub struct AppShell {
     pub(crate) swipe_dx: f32,
     /// Orders tab: true shows the past segment (UI-only).
     pub(crate) orders_past: bool,
+    /// Which pushed settings screen is shown.
+    pub(crate) detail: Detail,
+    /// Login form fields, created on push so typing survives re-renders.
+    login_user: Option<Entity<InputState>>,
+    login_pass: Option<Entity<InputState>>,
+    /// Debug knob (`--detail=login|automaten`): opens that credential screen
+    /// on the first frame so a UI test can reach it without navigation.
+    pending_detail: Option<Detail>,
+    /// iOS: whether the soft keyboard is currently shown (§3.6, task 5.4).
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    keyboard_up: bool,
 }
 
 impl AppShell {
@@ -107,13 +132,17 @@ impl AppShell {
             nav: Navigation::new(),
             dialog: None,
             toast: None,
-            detail_title: "",
             model,
             swipe_start: None,
             swipe_start_y: None,
             swipe_claimed: false,
             swipe_dx: 0.,
             orders_past: false,
+            detail: Detail::Settings,
+            login_user: None,
+            login_pass: None,
+            pending_detail: None,
+            keyboard_up: false,
         };
         // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
         // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast,
@@ -136,6 +165,15 @@ impl AppShell {
             if let Some(n) = tab.filter(|n| *n < Tab::ALL.len()) {
                 shell.nav.select_tab(Tab::ALL[n]);
             }
+            // `--detail=login|automaten` opens a credential screen directly.
+            shell.pending_detail = std::env::args().find_map(|a| {
+                let rest = a.strip_prefix("--detail=")?;
+                Some(match rest {
+                    "login" => Detail::LoginKantine,
+                    "automaten" => Detail::LoginAutomaten,
+                    _ => return None,
+                })
+            });
             if std::env::args().any(|a| a == "--dialog") {
                 shell.set_dialog(
                     Dialog::Confirm {
@@ -188,128 +226,78 @@ impl AppShell {
         .detach();
     }
 
-    pub(crate) fn set_dialog(&mut self, dialog: Dialog, cx: &mut Context<Self>) {
-        self.dialog = Some(dialog);
+    /// Push a settings detail screen; login details create fresh inputs.
+    pub(crate) fn open_detail(
+        &mut self,
+        detail: Detail,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.detail = detail;
+        if matches!(detail, Detail::LoginKantine | Detail::LoginAutomaten) {
+            // §3.5: both fields pre-fill from the stored credentials.
+            let (username, password) = self
+                .model
+                .as_ref()
+                .map(|m| m.saved_credentials(detail == Detail::LoginAutomaten))
+                .unwrap_or_default();
+            self.login_user = Some(cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("Benutzername eingeben")
+                    .default_value(username.unwrap_or_default())
+            }));
+            self.login_pass = Some(cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("Passwort eingeben")
+                    // §3.6 secure entry: the field renders dots, never the text.
+                    .masked(true)
+                    .default_value(password.unwrap_or_default())
+            }));
+        }
+        self.nav.push(Screen::SettingsDetail);
         cx.notify();
     }
 
-    /// §3.4 settings rows: title 18/600, hint 13/tertiary, trailing chevron 20.
-    fn settings_screen(
-        &self,
-        state: &State,
-        theme: &AppTheme,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let gourmet_hint = match &state.user_info {
-            Some(user) if state.gourmet_authenticated => {
-                format!("Angemeldet als {}", user.username)
-            }
-            _ => "Nicht angemeldet".to_string(),
-        };
-        let ventopay_hint = if state.ventopay_authenticated {
-            "Sitzung aktiv"
-        } else {
-            "Nicht angemeldet"
-        };
-        let theme_hint = match state.theme {
-            snackpilot_model::ThemePreference::System => "System",
-            snackpilot_model::ThemePreference::Light => "Hell",
-            snackpilot_model::ThemePreference::Dark => "Dunkel",
-        };
-        let rows: [(&'static str, String); 4] = [
-            ("Kantine-Zugangsdaten", gourmet_hint),
-            ("Automaten-Zugangsdaten", ventopay_hint.to_string()),
-            ("Darstellung", theme_hint.to_string()),
-            (
-                "Benachrichtigungen",
-                "Erinnerungen und Standort-Benachrichtigungen".to_string(),
-            ),
-        ];
-
-        let mut list = div().flex_1().flex().flex_col().p(px(20.)).pb(px(100.));
-        for (index, (title, hint)) in rows.iter().enumerate() {
-            let title = *title;
-            let hint = hint.clone();
-            if index > 0 {
-                // §3.4: 1 px dividers, marginVertical 24.
-                list = list.child(div().h(px(1.)).my(px(24.)).bg(theme.divider()));
-            }
-            let entity = cx.entity().clone();
-            let on_tap = Rc::new(move |_window: &mut Window, cx: &mut App| {
-                entity.update(cx, |this, cx| {
-                    this.detail_title = title;
-                    this.nav.push(Screen::SettingsDetail);
-                    cx.notify();
-                });
-            });
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("settings-{title}")))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .py(px(8.))
-                    .cursor_pointer()
-                    .on_click(move |_, window, cx| on_tap(window, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(px(18.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme.text_primary)
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .mt(px(2.))
-                                    .text_size(px(13.))
-                                    .text_color(theme.text_tertiary)
-                                    .child(hint),
-                            ),
-                    )
-                    .child(
-                        Icon::new(IconName::ChevronRight)
-                            .with_size(px(20.))
-                            .text_color(theme.text_tertiary),
-                    ),
-            );
-        }
-        let datenschutz = cx.entity().clone();
-        let on_datenschutz = Rc::new(move |_window: &mut Window, cx: &mut App| {
-            datenschutz.update(cx, |this, cx| {
-                this.set_dialog(
-                    Dialog::Alert {
-                        title: "Datenschutz".into(),
-                        message: Some(DATENSCHUTZ_MESSAGE.into()),
-                    },
-                    cx,
-                );
-            });
-        });
-        list.child(
-            div()
-                .id("datenschutz")
-                .w_full()
-                .flex()
-                .justify_center()
-                .py(px(16.))
-                .cursor_pointer()
-                .on_click(move |_, window, cx| on_datenschutz(window, cx))
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .text_color(theme.text_tertiary)
-                        .child("Datenschutz"),
-                ),
-        )
-        .into_any_element()
+    /// Pop back to the settings root.
+    pub(crate) fn pop_detail(&mut self, cx: &mut Context<Self>) {
+        self.nav.pop();
+        self.detail = Detail::Settings;
+        cx.notify();
     }
 
-    /// One tab's placeholder content: page title plus a line from the model
-    /// state. Tasks 5.x replace these with the real screens.
+    pub(crate) fn set_dialog(&mut self, dialog: Dialog, cx: &mut Context<Self>) {
+        self.dialog = Some(dialog);
+        // iOS: an alert must not sit behind the soft keyboard (§4.1).
+        #[cfg(target_os = "ios")]
+        {
+            gpui_mobile::hide_keyboard();
+            self.keyboard_up = false;
+        }
+        cx.notify();
+    }
+
+    /// iOS soft-keyboard driver (§3.6, task 5.4): gpui-mobile creates the
+    /// native text input view hidden, so nothing raises the keyboard on its
+    /// own. gpui re-runs `render` on every repaint, so polling the focused
+    /// input here reacts to a tap-to-focus (focus change ⇒ repaint) and keeps
+    /// the keyboard in sync without patching the library.
+    fn sync_keyboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(target_os = "ios")]
+        if self.dialog.is_none() {
+            if let Some(show) = keyboard_action(self.keyboard_up, window.has_focused_input(cx)) {
+                self.keyboard_up = show;
+                if show {
+                    gpui_mobile::show_keyboard();
+                } else {
+                    gpui_mobile::hide_keyboard();
+                }
+            }
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = (&self, window, cx);
+        }
+    }
     fn placeholder(&self, state: &State, theme: &AppTheme, cx: &mut Context<Self>) -> AnyElement {
         let (title, hint): (&str, String) = match self.nav.top() {
             Screen::Menus => match &state.menu_snapshot {
@@ -347,7 +335,7 @@ impl AppShell {
                     ("Abrechnung", "Keine Abrechnungsdaten".to_string())
                 }
             }
-            Screen::Settings => return self.settings_screen(state, theme, cx),
+            Screen::Settings => return settings_tab(state, theme, cx),
             Screen::SettingsDetail => unreachable!("handled before placeholders"),
         };
         div()
@@ -377,14 +365,27 @@ impl AppShell {
     /// Menus tab and the §3.5 back affordance on pushed screens.
     fn screen(&self, state: &State, theme: &AppTheme, cx: &mut Context<Self>) -> AnyElement {
         if self.nav.top() == Screen::SettingsDetail {
-            let entity = cx.entity().clone();
-            let on_back = Rc::new(move |_window: &mut Window, cx: &mut App| {
-                entity.update(cx, |this, cx| {
-                    this.nav.pop();
-                    cx.notify();
-                });
-            });
-            return settings_detail_screen(self.detail_title, theme, on_back);
+            return match (self.detail, &self.login_user, &self.login_pass) {
+                (Detail::LoginKantine, Some(user), Some(pass)) => login_screen(
+                    LoginKind::Kantine,
+                    state,
+                    self.model.as_ref(),
+                    user,
+                    pass,
+                    theme,
+                    cx,
+                ),
+                (Detail::LoginAutomaten, Some(user), Some(pass)) => login_screen(
+                    LoginKind::Automaten,
+                    state,
+                    self.model.as_ref(),
+                    user,
+                    pass,
+                    theme,
+                    cx,
+                ),
+                (detail, _, _) => placeholder_detail(detail, theme, cx),
+            };
         }
 
         let mut column = div().flex_1().flex().flex_col().overflow_hidden();
@@ -436,6 +437,10 @@ impl AppShell {
 
 impl Render for AppShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(detail) = self.pending_detail.take() {
+            self.open_detail(detail, window, cx);
+        }
+        self.sync_keyboard(window, cx);
         let state = self
             .model
             .as_ref()
@@ -502,5 +507,21 @@ impl Render for AppShell {
             root = root.child(dialog_overlay(dialog, &theme, on_dismiss));
         }
         root
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keyboard_action;
+
+    /// The soft keyboard follows focus changes and stays put otherwise
+    /// (§3.6 typing proof; the iOS side is proven by the XCUITest run).
+    /// @req REQ-SCR-06
+    #[test]
+    fn keyboard_follows_focus_changes() {
+        assert_eq!(keyboard_action(false, true), Some(true)); // tap focuses a field
+        assert_eq!(keyboard_action(true, false), Some(false)); // focus lost
+        assert_eq!(keyboard_action(true, true), None); // unchanged
+        assert_eq!(keyboard_action(false, false), None); // unchanged
     }
 }
