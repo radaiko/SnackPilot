@@ -267,7 +267,7 @@ Conventions for every task below:
   - proof: android and ios workflows (after 6.2), final emulator and simulator evidence
   - note: src/ios and src/android deleted (87 files); devops scripts, Makefile and README repointed to src/ui/ios|android; `make check`, test-lib and bash -n green; Mac gradle clean assembleDebug and iOS xcodebuild green. Review r1 carried the shipped v1 settings into the hosts: minSdk 29, versionCode 35, versionName 2.1.0, keystore.properties-driven release signing; iOS MARKETING_VERSION 2.1.0, CURRENT_PROJECT_VERSION 35, ITSAppUsesNonExemptEncryption NO, TARGETED_DEVICE_FAMILY 1 (verified in the built Info.plist). keystore.properties and *.jks are gitignored. Remaining: CI workflow paths and stale old-path mentions are task 6.2; the wiped-emulator install stays blocked by the recorded vulkan.ranchu SIGSEGV.
 
-- [ ] 6.2 CI, docs and process text
+- [x] 6.2 CI, docs and process text
   - tier: normal
   - host: Linux
   - files: `.forgejo/workflows/ios.yml`, `.forgejo/workflows/android.yml`, `.forgejo/workflows/ui.yml`, `docs/requirements/08-gpui-desktop.md` (new file only), `AGENTS.md`, `README.md`, `openspec/config.yaml`, `tools/devops/README.md`, `openspec/changes/gpui-kit-ui-rewrite/design.md` (append measured binary sizes and startup times)
