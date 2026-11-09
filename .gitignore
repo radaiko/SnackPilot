@@ -18,6 +18,10 @@ src/android/local.properties
 # Host test link shims (see docs/evidence note in task 3.5)
 .devlibs/
 
+# Release signing (never commit)
+src/ui/android/keystore.properties
+src/ui/android/*.jks
+
 # Devops
 dist/
 .ship-history
