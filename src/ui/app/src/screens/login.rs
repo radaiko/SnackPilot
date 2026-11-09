@@ -243,6 +243,11 @@ fn save_handler(
     Rc::new(move |_: &mut Window, cx: &mut App| {
         let username = user.read(cx).value().to_string();
         let password = pass.read(cx).value().to_string();
+        // Never log the password itself, only its length.
+        crate::app::kb_log(&format!(
+            "save clicked (user={username:?} pass_len={})",
+            password.len()
+        ));
         let _ = shell.update(cx, |s, cx| {
             if username.trim().is_empty() || password.is_empty() {
                 s.set_dialog(

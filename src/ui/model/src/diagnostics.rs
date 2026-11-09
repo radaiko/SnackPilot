@@ -80,3 +80,101 @@ fn format_expiry(epoch_ms: i64) -> String {
         .format("%d.%m., %H:%M")
         .to_string()
 }
+
+/// Plain-text export of the log (§4 of notification-log): one block per entry,
+/// `[ts] [subsystem] [LEVEL] event`, plus `\n  detail` when present.
+fn format_log_entries(entries: &[snackpilot_core::notify::log::LogEntry]) -> String {
+    use snackpilot_core::notify::log::{LogLevel, LogSubsystem};
+    if entries.is_empty() {
+        return "(keine Einträge aufgezeichnet)".to_string();
+    }
+    entries
+        .iter()
+        .map(|e| {
+            let subsystem = match e.subsystem {
+                LogSubsystem::Geofence => "geofence",
+                LogSubsystem::OrderSync => "order-sync",
+                LogSubsystem::DailyReminder => "daily-reminder",
+                LogSubsystem::MenuCheck => "menu-check",
+            };
+            let level = match e.level {
+                LogLevel::Info => "INFO",
+                LogLevel::Guard => "GUARD",
+                LogLevel::Error => "ERROR",
+                LogLevel::Notification => "NOTIFICATION",
+            };
+            let mut block = format!("[{}] [{}] [{}] {}", e.ts, subsystem, level, e.event);
+            if let Some(detail) = &e.detail {
+                block.push_str(&format!("\n  {detail}"));
+            }
+            block
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+impl AppModel {
+    /// The §3.8 "Log per E-Mail senden" composer payload: recipient, subject
+    /// with the full de-AT expiry, body = the plain-text export.
+    pub fn diagnostic_log_email(&self) -> crate::platform::SupportEmail {
+        let entries = self.core.log_entries();
+        let until = self
+            .kv
+            .get(ACTIVATED_UNTIL_KEY)
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse::<i64>().ok());
+        let expiry = until
+            .and_then(DateTime::<chrono::Utc>::from_timestamp_millis)
+            .map(|utc| {
+                utc.with_timezone(&Vienna)
+                    .format("%d.%m.%Y, %H:%M")
+                    .to_string()
+            })
+            .unwrap_or_default();
+        crate::platform::SupportEmail {
+            to: "aiko@spitzbub.app".to_string(),
+            subject: format!("SnackPilot Notification Log (bis {expiry})"),
+            body: format_log_entries(&entries),
+        }
+    }
+
+    /// Open the system mail composer with the log; failures surface as the
+    /// §3.8 `Fehler` alert at the call site.
+    pub fn send_diagnostic_log(&self) -> Result<(), crate::PlatformError> {
+        self.platform.compose_email(self.diagnostic_log_email())
+    }
+}
+
+#[cfg(test)]
+mod email_tests {
+    use super::format_log_entries;
+    use snackpilot_core::notify::log::{LogEntry, LogLevel, LogSubsystem};
+
+    /// @req REQ-SCR-08
+    #[test]
+    fn email_export_matches_the_v1_format() {
+        assert_eq!(format_log_entries(&[]), "(keine Einträge aufgezeichnet)");
+        let entries = vec![
+            LogEntry {
+                ts: "2026-01-01T08:00:00Z".into(),
+                subsystem: LogSubsystem::Geofence,
+                level: LogLevel::Info,
+                event: "enter".into(),
+                detail: None,
+            },
+            LogEntry {
+                ts: "2026-01-01T08:05:00Z".into(),
+                subsystem: LogSubsystem::OrderSync,
+                level: LogLevel::Error,
+                event: "fail".into(),
+                detail: Some("status=500".into()),
+            },
+        ];
+        assert_eq!(
+            format_log_entries(&entries),
+            "[2026-01-01T08:00:00Z] [geofence] [INFO] enter\n\
+             [2026-01-01T08:05:00Z] [order-sync] [ERROR] fail\n  status=500"
+        );
+    }
+}

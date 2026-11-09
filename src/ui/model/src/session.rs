@@ -16,7 +16,7 @@ use snackpilot_core::storage::FileKv;
 use crate::errors::{human_error, is_demo_user};
 use crate::platform::{Platform, PlatformAnalytics, PlatformError};
 use crate::runtime::{handle, log};
-use crate::state::{ErrorText, State, StateHub, Subscriber};
+use crate::state::{Alert, ErrorText, State, StateHub, Subscriber};
 
 /// The single model instance the UI binds to (Swift `AppModel`).
 pub struct AppModel {
@@ -267,6 +267,21 @@ impl AppModel {
                 s.ventopay_month = None;
             });
         });
+    }
+
+    /// Open the system app settings (§3.8 Android hint / permission alerts).
+    pub fn open_app_settings(&self) -> Result<(), PlatformError> {
+        self.platform.open_app_settings()
+    }
+
+    /// Take the pending location/reminder alert so the UI can present it once
+    /// (§3.8 flows set it from the model).
+    pub fn take_location_alert(&self) -> Option<Alert> {
+        let mut taken = None;
+        self.hub.update("alert_taken", |s| {
+            taken = s.location_alert.take();
+        });
+        taken
     }
 
     /// Saved credentials for the login form prefill (§3.5): username and

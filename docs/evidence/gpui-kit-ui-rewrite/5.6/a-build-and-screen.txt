@@ -1,0 +1,32 @@
+Task 5.6 — Benachrichtigungen screen
+
+Linux: cargo ndk -t x86_64 check -p snackpilot-app — clean.
+Linux: make check — exit 0, 17 suites green, including the new
+       `diagnostics::email_tests::email_export_matches_the_v1_format`
+       (`@req REQ-SCR-08`, v1 format with "(keine Einträge aufgezeichnet)").
+Mac: iOS bootstrap + xcodebuild — BUILD SUCCEEDED.
+Mac: simulator install + launch --detail=notifications — a-ios-notifications.png:
+     back affordance "Einstellungen", title "Benachrichtigungen",
+     Bestell-Erinnerung (Aktiviert switch off), Standort-Benachrichtigungen
+     (primary "Aktuellen Standort als Firmenstandort setzen"), separators and
+     Benachrichtigungs-Log with the 12/24 Stunden buttons.
+
+Model support (existing 3.3 plus two small wrappers added here):
+- reminder toggle goes through the permission-gated `set_daily_reminder_enabled`
+  (§3.8: denial leaves the switch off and sets the §7.1 alert; the shell takes
+  `AppModel::take_location_alert` once and shows it as the §4.1 alert dialog);
+- location set/remove call the §7/§8 flows; their alerts surface the same way;
+- log activate/clear/refresh exist; the mail export is new:
+  `diagnostic_log_email` (recipient aiko@spitzbub.app, subject
+  "SnackPilot Notification Log (bis dd.MM.yyyy, HH:mm)", body per the §4 v1
+  format) and `send_diagnostic_log` → `Platform::compose_email`; failure shows
+  the §3.8 "E-Mail-App konnte nicht geöffnet werden." alert.
+
+Known gaps (recorded):
+- Time chips (12 options 11:00–13:45) only render while the reminder is enabled;
+  enabling needs a permission dialog + a tap that simctl cannot drive, so the
+  chip row and the Android-only background-activity hint are not in the capture.
+  The chip generator is `time_chips::times()` (hour 11–13 × 0/15/30/45).
+- Log active/expired states need a time-boxed run; the inactive state is shown.
+- The Android-only hint and mail composer were not exercised on a device
+  (emulator SIGSEGV as recorded since 4.1).

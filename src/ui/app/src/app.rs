@@ -28,6 +28,7 @@ use crate::screens::appearance::appearance_screen;
 use crate::screens::billing::billing_tab;
 use crate::screens::login::{login_screen, LoginKind};
 use crate::screens::menus::menus_tab;
+use crate::screens::notifications::notifications_screen;
 use crate::screens::orders::orders_tab;
 use crate::screens::settings::{placeholder_detail, settings_tab};
 use crate::theme::AppTheme;
@@ -48,6 +49,30 @@ pub(crate) enum Detail {
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 fn keyboard_action(up: bool, focused: bool) -> Option<bool> {
     (focused != up).then_some(focused)
+}
+
+/// Debug knob (`--log-kb`): appends keyboard-driver transitions to the app's
+/// temp dir so the UI test can tell whether the driver or UIKit dropped the
+/// keyboard (§3.6 typing proof, task 5.4). Read on the host via
+/// `xcrun simctl get_app_container <udid> <bundle> data`/tmp/sp54-kb.log.
+pub(crate) fn kb_log(line: &str) {
+    #[cfg(target_os = "ios")]
+    if std::env::args().any(|a| a == "--log-kb") {
+        use std::io::Write;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(std::env::temp_dir().join("sp54-kb.log"))
+        {
+            let _ = writeln!(f, "{stamp} {line}");
+        }
+    }
+    #[cfg(not(target_os = "ios"))]
+    let _ = line;
 }
 
 /// Safe-area insets (top, bottom, left, right) in logical px, read from the
@@ -237,6 +262,11 @@ impl AppShell {
         cx: &mut Context<Self>,
     ) {
         self.detail = detail;
+        if detail == Detail::Notifications {
+            if let Some(model) = &self.model {
+                model.refresh_diagnostic_log();
+            }
+        }
         if matches!(detail, Detail::LoginKantine | Detail::LoginAutomaten) {
             // §3.5: both fields pre-fill from the stored credentials.
             let (username, password) = self
@@ -287,7 +317,13 @@ impl AppShell {
     fn sync_keyboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         #[cfg(target_os = "ios")]
         if self.dialog.is_none() {
-            if let Some(show) = keyboard_action(self.keyboard_up, window.has_focused_input(cx)) {
+            let focused = window.has_focused_input(cx);
+            if let Some(show) = keyboard_action(self.keyboard_up, focused) {
+                kb_log(&format!(
+                    "driver {} (focused={focused} was_up={})",
+                    if show { "show" } else { "hide" },
+                    self.keyboard_up
+                ));
                 self.keyboard_up = show;
                 if show {
                     gpui_mobile::show_keyboard();
@@ -390,6 +426,9 @@ impl AppShell {
                 (Detail::Appearance, _, _) => {
                     appearance_screen(state, self.model.as_ref(), theme, cx)
                 }
+                (Detail::Notifications, _, _) => {
+                    notifications_screen(state, self.model.as_ref(), theme, cx)
+                }
                 (detail, _, _) => placeholder_detail(detail, theme, cx),
             };
         }
@@ -447,6 +486,14 @@ impl Render for AppShell {
             self.open_detail(detail, window, cx);
         }
         self.sync_keyboard(window, cx);
+        if self.dialog.is_none() {
+            if let Some(alert) = self.model.as_ref().and_then(|m| m.take_location_alert()) {
+                self.dialog = Some(Dialog::Alert {
+                    title: alert.title.into(),
+                    message: Some(alert.message.into()),
+                });
+            }
+        }
         let state = self
             .model
             .as_ref()
