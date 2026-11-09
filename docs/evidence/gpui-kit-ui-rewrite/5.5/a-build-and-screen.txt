@@ -24,3 +24,11 @@ Known gaps (recorded):
   (set_theme_preference has no icon side effect), covered by the 3.3 model tests.
 - Persistence across restart is the model's prefs test (theme/accent round-trip),
   not a device relaunch screenshot.
+
+Review round 1 (fixed):
+- `PlatformBridge.setAppIcon` built "Orange"+Capitalized ("OrangeEmerald"), so
+  every accent except Orange fell back to the Orange alias. Now the suffix is
+  the capitalized raw value (Emerald/Berry/Golden/Ocean), and a
+  `@req REQ-PLT-05` test in `platform/android.rs` pins the raw-value →
+  alias-suffix coupling. gradlew assembleDebug + the app lib tests (47 passed,
+  Mac) re-ran green.

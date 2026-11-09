@@ -181,7 +181,7 @@ object PlatformBridge {
         val ctx = AppHolder.context
         val pkg = ctx.packageName
         val suffixes = listOf("Orange", "Emerald", "Berry", "Golden", "Ocean")
-        val wanted = "Orange" + accent.replaceFirstChar { it.uppercase() }
+        val wanted = accent.replaceFirstChar { it.uppercase() }
         val target = if (suffixes.contains(wanted)) wanted else "Orange"
         for (suffix in suffixes) {
             val component = ComponentName(ctx, "$pkg.SnackPilotActivity$suffix")
