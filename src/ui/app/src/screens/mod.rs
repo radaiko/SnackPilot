@@ -5,5 +5,6 @@ pub mod appearance;
 pub mod billing;
 pub mod login;
 pub mod menus;
+pub mod notifications;
 pub mod orders;
 pub mod settings;
