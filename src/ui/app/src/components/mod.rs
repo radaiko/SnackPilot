@@ -8,6 +8,7 @@
 
 pub mod banner;
 pub mod bill_card;
+pub mod broadcast_banner;
 pub mod button;
 pub mod card;
 pub mod chip;

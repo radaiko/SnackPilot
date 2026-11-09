@@ -50,6 +50,7 @@ mod android_host {
                 // The shell renders from the same AppModel the geofence
                 // session pumps (task 4.2).
                 crate::install_shell_model(std::sync::Arc::clone(&model));
+                model.bootstrap();
                 crate::platform::android::install_debug_session(model);
                 log::info!("android_main: geofence session ready");
             }

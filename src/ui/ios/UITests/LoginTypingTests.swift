@@ -91,7 +91,7 @@ final class LoginTypingTests: XCTestCase {
             app = XCUIApplication(bundleIdentifier: "dev.radaiko.gourmetclient")
         } else {
             app = XCUIApplication()
-            app.launchArguments = ["--detail=login"]
+            app.launchArguments = ["--detail=login", "--log-kb"]
             app.launch()
         }
         // A stale system alert could swallow the coordinate taps.

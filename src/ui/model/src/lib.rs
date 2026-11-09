@@ -8,6 +8,7 @@ mod errors;
 mod fake;
 mod flows;
 mod format;
+mod lifecycle;
 mod menus;
 pub mod navigation;
 mod orders;

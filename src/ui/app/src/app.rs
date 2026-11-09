@@ -19,6 +19,7 @@ use gpui_kit::component::WindowExt;
 use snackpilot_model::navigation::{Navigation, Screen, Tab};
 use snackpilot_model::{format_day_short, AppModel, State};
 
+use crate::components::broadcast_banner::broadcast_banner;
 use crate::components::day_navigator::day_navigator;
 use crate::components::dialog::{dialog_overlay, Dialog};
 use crate::components::loading_overlay::loading_overlay;
@@ -516,14 +517,34 @@ impl Render for AppShell {
         });
         let bar = tab_bar(&theme, self.nav.active_tab(), safe_bottom, on_select);
 
-        let content = self.screen(&state, &theme, cx);
+        let mut banner = None;
+        if let Some(message) = state
+            .broadcast
+            .as_ref()
+            .filter(|_| !state.broadcast_dismissed)
+        {
+            let entity = cx.entity().clone();
+            let dismiss = Rc::new(move |_w: &mut Window, cx: &mut App| {
+                let _ = entity.update(cx, |this, cx| {
+                    if let Some(model) = &this.model {
+                        model.dismiss_broadcast();
+                    }
+                    cx.notify();
+                });
+            });
+            banner = Some(broadcast_banner(message, dismiss, &theme));
+        }
+        let screen_content = self.screen(&state, &theme, cx);
         let mut content = div()
             .flex_1()
             .flex()
             .flex_col()
             .overflow_hidden()
-            .pt(px(safe_top))
-            .child(content);
+            .pt(px(safe_top));
+        if let Some(banner) = banner {
+            content = content.child(banner);
+        }
+        let mut content = content.child(screen_content);
         let mut root = div().size_full().flex().flex_col().bg(theme.background);
         if theme.flat {
             // §2.2: in-flow bottom bar; the safe-area strip under it keeps

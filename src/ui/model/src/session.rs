@@ -89,11 +89,6 @@ impl AppModel {
         });
     }
 
-    /// Inbound: the app came to the foreground.
-    pub fn on_foreground(&self) {
-        log("lifecycle", "foreground");
-    }
-
     /// Inbound: the app went to the background.
     pub fn on_background(&self) {
         log("lifecycle", "background");
