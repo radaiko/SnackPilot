@@ -5,9 +5,9 @@ name: ios
 on:
   push:
     branches: [main]
-    paths: ["src/core/**", "src/ios/**", ".forgejo/workflows/ios.yml"]
+    paths: ["src/core/**", "src/ui/**", ".forgejo/workflows/ios.yml"]
   pull_request:
-    paths: ["src/core/**", "src/ios/**", ".forgejo/workflows/ios.yml"]
+    paths: ["src/core/**", "src/ui/**", ".forgejo/workflows/ios.yml"]
   workflow_dispatch:
 
 jobs:
@@ -21,17 +21,17 @@ jobs:
 
       - name: Build the core and generate the Xcode project
         run: ./bootstrap.sh
-        working-directory: src/ios
+        working-directory: src/ui/ios
 
       - name: Build for the simulator
         run: |
           xcodebuild -scheme SnackPilot -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/ci CODE_SIGNING_ALLOWED=NO build
-        working-directory: src/ios
+        working-directory: src/ui/ios
 
       - name: Smoke test on a simulator
-        working-directory: src/ios
+        working-directory: src/ui/ios
         run: |
           mkdir -p build/ci/smoke
           read -r runtime devtype < <(xcrun simctl list runtimes available -j | python3 -c "import json,sys; r=[r for r in json.load(sys.stdin)['runtimes'] if r['platform']=='iOS'][-1]; print(r['identifier'],[d['identifier'] for d in r['supportedDeviceTypes'] if d['productFamily']=='iPhone'][-1])")
@@ -54,4 +54,4 @@ jobs:
         uses: https://data.forgejo.org/forgejo/upload-artifact@v4
         with:
           name: ios-simulator
-          path: src/ios/build/ci/smoke/
+          path: src/ui/ios/build/ci/smoke/

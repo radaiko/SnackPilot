@@ -33,3 +33,14 @@ jobs:
 
       - name: UI check
         run: make ui-check
+
+  # The gpui app crate needs the host graphics libraries; the macos runner has
+  # them, the android runner does not.
+  app-check:
+    runs-on: macos
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile the gpui app crate for the host
+        run: cargo check -p snackpilot-app
+        working-directory: src/ui
