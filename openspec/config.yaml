@@ -1,7 +1,7 @@
 schema: spec-driven
 
 context: |
-  Native iOS and Android apps over a shared Rust core. docs/requirements/ is authoritative.
+  gpui-kit UI over a shared Rust core for iOS, Android and desktop. docs/requirements/ is authoritative.
   Never deviate from the scraping specs in docs/requirements/01 and 02: deviations can get user accounts banned.
   Forgejo is the source of truth; GitHub is a public mirror, so nothing internal goes into the repository.
 

@@ -1,17 +1,24 @@
 # SnackPilot
 
-Native iOS & Android app for ordering and billing at the company cafeteria. Scrapes two
+Ordering and billing app for the company cafeteria — one Rust UI for iOS, Android
+and a desktop development window. Scrapes two
 external systems — Kantine (Gourmet) for menus/orders/billing and Automaten (Ventopay)
 for POS transactions.
 
 ## Architecture
 
-Shared Rust core (scraping, caching, business logic, notifications, demo mode) exposed via
-UniFFI to two native shells:
+Shared Rust core (scraping, caching, business logic, notifications, demo mode) and one
+gpui-kit UI written in Rust, mounted by thin platform hosts:
 
-- iOS — SwiftUI (iOS 17+), `src/ios/`
-- Android — Jetpack Compose (Android 10+/API 29), `src/android/`
-- Core — `src/core/` (crate `snackpilot-core`)
+- UI — `src/ui/app` (gpui-pre + gpui-kit), screens in `src/ui/app/src/screens/`
+- Model — `src/ui/model` (`snackpilot-model`: session, state, screen logic, tests)
+- Hosts — `src/ui/ios` (UIKit containment, iOS 17+), `src/ui/android`
+  (NativeActivity, Android 10+/API 29), `src/ui/app/src/bin/desktop.rs` (macOS)
+- Core — `src/core/` (crate `snackpilot-core`), unchanged
+
+`make check` runs the core suites and `make ui-check` (UI fmt, clippy, model tests).
+See [`docs/requirements/08-gpui-desktop.md`](docs/requirements/08-gpui-desktop.md) for the
+desktop addendum and known regressions.
 
 ## Build & release
 
@@ -21,7 +28,7 @@ UniFFI to two native shells:
 ## History
 
 v1 (Expo React Native + Tauri desktop, through v1.4.5) is preserved on the `archive/v1`
-branch. Desktop is not supported in v2.
+branch. v2 ships iOS and Android; the macOS window is a development/gallery target.
 
 ## Credits
 

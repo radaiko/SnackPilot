@@ -1,9 +1,9 @@
 # SnackPilot - agent instructions
 
-Native cafeteria ordering and billing: iOS (SwiftUI) and Android (Compose) over a
-shared Rust core (`src/core`, UniFFI) that owns scraping, parsing, caching,
-fingerprinting and notification decisions. There are no first-party servers; the app
-scrapes Gourmet and Ventopay directly.
+Cafeteria ordering and billing: one gpui-kit UI in Rust (`src/ui`) for iOS, Android
+and a desktop development window, over a shared Rust core (`src/core`, UniFFI) that
+owns scraping, parsing, caching, fingerprinting and notification decisions. There are
+no first-party servers; the app scrapes Gourmet and Ventopay directly.
 
 ## Source of truth
 
@@ -53,6 +53,8 @@ subagent per task, `make check`, one `review`, merge, tick.
 ## Conventions
 
 - Rust (edition in `src/core/Cargo.toml`); core tests under `src/core/tests`.
+- UI workspace `src/ui`: model tests under `src/ui/model/tests`, screens in
+  `src/ui/app/src/screens`, hosts in `src/ui/{ios,android}`; `make ui-check` in `make check`.
 - Some odd behaviour is deliberate v1 parity: persist-before-validate, logout keeps
   credentials, cookies retained across logout, device-local midnight for the
   upcoming/past split, `de-AT` formatting, the 200-entry notification log cap. Check

@@ -285,3 +285,13 @@ window-server capture over remote access, so the visual check (resizable,
 360 px min width, centred ≤480 px column) is **human-by-eye** per the task's
 allowance; `docs/evidence/gpui-kit-ui-rewrite/2.3/desktop.png` is intentionally
 absent.
+
+## Measured artifacts (task 6.2, 2026-11-09)
+
+- Android release cdylib (`tools/devops/ui-android-build.sh --release`): 46 MB
+  arm64-v8a, 44 MB x86_64 (unstripped by design); Gradle debug APK ≈159 MB with
+  both ABIs.
+- iOS simulator debug staticlib `libsnackpilot_app.a`: ≈1.2 GB (debug); the
+  release archive links the same crate optimised.
+- Startup: no first-frame timestamp hook exists yet, so end-to-end launch time
+  is not measured; recorded as a follow-up rather than estimated.

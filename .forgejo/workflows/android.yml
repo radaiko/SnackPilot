@@ -5,9 +5,9 @@ name: android
 on:
   push:
     branches: [main]
-    paths: ["src/core/**", "src/android/**", ".forgejo/workflows/android.yml"]
+    paths: ["src/core/**", "src/ui/**", ".forgejo/workflows/android.yml"]
   pull_request:
-    paths: ["src/core/**", "src/android/**", ".forgejo/workflows/android.yml"]
+    paths: ["src/core/**", "src/ui/**", ".forgejo/workflows/android.yml"]
   workflow_dispatch:
 
 jobs:
@@ -26,21 +26,21 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             src/core/target
-          key: android-${{ hashFiles('src/core/Cargo.lock', 'src/android/gradle/**', 'src/android/**/*.gradle.kts') }}
+            src/ui/target
+          key: android-${{ hashFiles('src/core/Cargo.lock', 'src/ui/Cargo.lock', 'src/ui/android/gradle/**', 'src/ui/android/**/*.gradle.kts') }}
 
-      - name: Build the core and copy it into the app
-        run: ./bootstrap.sh
-        working-directory: src/android
+      - name: Build the Rust app for the Android targets
+        run: tools/devops/ui-android-build.sh
 
       - name: Build the debug app
         run: ./gradlew :app:assembleDebug --no-daemon
-        working-directory: src/android
+        working-directory: src/ui/android
 
       # The app has known lint errors from before CI existed. Remove continue-on-error once they are fixed.
       - name: Lint
         continue-on-error: true
         run: ./gradlew :app:lintDebug --no-daemon
-        working-directory: src/android
+        working-directory: src/ui/android
 
       - name: Upload APK and lint report
         if: always()
@@ -48,5 +48,5 @@ jobs:
         with:
           name: android-debug
           path: |
-            src/android/app/build/outputs/apk/debug/*.apk
-            src/android/app/build/reports/lint-results-debug.html
+            src/ui/android/app/build/outputs/apk/debug/*.apk
+            src/ui/android/app/build/reports/lint-results-debug.html
