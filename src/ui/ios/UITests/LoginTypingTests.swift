@@ -84,9 +84,16 @@ final class LoginTypingTests: XCTestCase {
     }
 
     func testLoginTypingKeyboardAndSave() throws {
-        let app = XCUIApplication()
-        app.launchArguments = ["--detail=login"]
-        app.launch()
+        // Debug mode: the app was launched externally with --console-pty so its
+        // stderr (Rust logs) is captured; drive it without relaunching.
+        let app: XCUIApplication
+        if ProcessInfo.processInfo.environment["ATTACH_TO_RUNNING"] == "1" {
+            app = XCUIApplication(bundleIdentifier: "dev.radaiko.gourmetclient")
+        } else {
+            app = XCUIApplication()
+            app.launchArguments = ["--detail=login"]
+            app.launch()
+        }
         // A stale system alert could swallow the coordinate taps.
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         for title in ["Don’t Allow", "OK"] {

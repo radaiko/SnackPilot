@@ -183,22 +183,25 @@ pub fn login_screen(
                         .child(kind.session_text(state)),
                 )
                 .child(
-                    div()
-                        .id("login-logout")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .py(px(14.))
-                        .px(px(24.))
-                        .cursor_pointer()
-                        .on_click(move |_, window, cx| logout(window, cx))
-                        .child(
-                            div()
-                                .text_size(px(15.))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(theme.on_primary)
-                                .child("Abmelden"),
-                        ),
+                    theme::apply(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .py(px(14.))
+                            .px(px(24.)),
+                        &theme.button_danger(),
+                    )
+                    .id("login-logout")
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| logout(window, cx))
+                    .child(
+                        div()
+                            .text_size(px(15.))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(theme.on_primary)
+                            .child("Abmelden"),
+                    ),
                 ),
         );
     }

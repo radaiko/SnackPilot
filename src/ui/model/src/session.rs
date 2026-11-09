@@ -269,6 +269,19 @@ impl AppModel {
         });
     }
 
+    /// Saved credentials for the login form prefill (§3.5): username and
+    /// password of the Kantine (or Automaten) pair, when stored.
+    pub fn saved_credentials(&self, ventopay: bool) -> (Option<String>, Option<String>) {
+        let prefix = if ventopay { "ventopay" } else { "gourmet" };
+        let read = |field: &str| {
+            self.platform
+                .get_credential(&format!("{prefix}_{field}"))
+                .ok()
+                .flatten()
+        };
+        (read("username"), read("password"))
+    }
+
     /// Swift `attemptAutoLogin` (AppModel.swift:166): restore both sessions
     /// from saved credentials. Ventopay is authenticated first WITHOUT its
     /// own billing fetch, so the Gourmet session-load fetches the month

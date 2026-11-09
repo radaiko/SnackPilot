@@ -235,21 +235,23 @@ impl AppShell {
     ) {
         self.detail = detail;
         if matches!(detail, Detail::LoginKantine | Detail::LoginAutomaten) {
-            let username = self
+            // §3.5: both fields pre-fill from the stored credentials.
+            let (username, password) = self
                 .model
                 .as_ref()
-                .and_then(|m| m.state().user_info.map(|u| u.username))
+                .map(|m| m.saved_credentials(detail == Detail::LoginAutomaten))
                 .unwrap_or_default();
             self.login_user = Some(cx.new(|cx| {
                 InputState::new(window, cx)
                     .placeholder("Benutzername eingeben")
-                    .default_value(username.clone())
+                    .default_value(username.unwrap_or_default())
             }));
             self.login_pass = Some(cx.new(|cx| {
                 InputState::new(window, cx)
                     .placeholder("Passwort eingeben")
                     // §3.6 secure entry: the field renders dots, never the text.
                     .masked(true)
+                    .default_value(password.unwrap_or_default())
             }));
         }
         self.nav.push(Screen::SettingsDetail);

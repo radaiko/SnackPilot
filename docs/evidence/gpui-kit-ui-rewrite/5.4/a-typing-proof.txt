@@ -34,3 +34,22 @@ f-save-alert.png      Speichern → "Login fehlgeschlagen / Anmeldung nicht
                       5.7, so the failure path is what this build can show.
 
 Linux: cargo ndk -t x86_64 check -p snackpilot-app — clean; make check exit 0.
+
+Review round 1 follow-ups (fixed in this series):
+- Abmelden now uses the §3.5 `buttonDanger` recipe (was white text on the page
+  background). The authenticated state itself cannot be captured on iOS before
+  task 5.7 installs the shell model, so the button's look is unverified by
+  screenshot; the recipe is the same one the §4.1 destructive confirm uses.
+- Both login fields pre-fill from the stored credentials on push
+  (`AppModel::saved_credentials`, added for §3.5). The password pre-fill cannot
+  be captured on iOS until 5.7 wires the model; the read is the platform keychain
+  call the model already uses for auto-login.
+
+Named gaps (not silently missing):
+- Paste is not exercised by the UI test. XCUITest paste needs a long-press menu
+  on a GPUI field, which this harness cannot drive; the kit Input's paste path is
+  the shared gpui clipboard handler. Follow-up: drive paste on a physical device.
+- On iOS before 5.7 (no session model installed) Speichern cannot persist or
+  authenticate; it shows the §3.5 failure alert, as captured in f-save-alert.png.
+  Save-before-login and the success alert are therefore verified by code and the
+  model tests, not on iOS.
