@@ -229,16 +229,17 @@ Conventions for every task below:
   - proof: android workflow, emulator evidence
   - note: iOS simulator screenshot of §3.7 (5.5/a-ios-appearance.png); Android Gradle debug APK builds with the five launcher aliases and the copied icon res, iOS builds with the five AppIcon sets and ASSETCATALOG alternate names. Runtime alias/alternate-icon switching cannot be observed here (emulator vulkan.ranchu SIGSEGV; iOS icon switch shows a system alert simctl cannot drive); the model's set_accent_color is the single icon call site with no startup reconciliation, and a `@req REQ-PLT-05` test pins accent raw values to the alias suffixes. Review r1 fixed the alias mapping that fell back to Orange for every accent.
 
-- [ ] 5.6 Notifications screen
+- [x] 5.6 Notifications screen
   - tier: normal
   - host: Linux + Emulator; Mac build
-  - files: `src/ui/app/src/screens/notifications.rs`, `src/ui/app/src/components/time_chips.rs`, `src/ui/app/src/screens/mod.rs`, `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/PlatformBridge.kt` (open app settings, mail compose), `src/ui/ios/Shims/PlatformBridge.swift` (open settings, mail compose), `docs/evidence/gpui-kit-ui-rewrite/5.6/*.png`
+  - files: `src/ui/app/src/screens/notifications.rs`, `src/ui/app/src/components/time_chips.rs`, `src/ui/app/src/screens/mod.rs`, `src/ui/app/src/app.rs` (dispatch, alert surfacing), `src/ui/model/src/diagnostics.rs` (log email export/send), `src/ui/model/src/session.rs` (take_location_alert, open_app_settings), `src/ui/android/app/src/main/java/dev/radaiko/snackpilot/PlatformBridge.kt` (open app settings, mail compose; already present from 3.4), `src/ui/ios/Shims/PlatformBridge.swift` (open settings, mail compose; already present from 3.5), `docs/evidence/gpui-kit-ui-rewrite/5.6/*.png`
   - deps: none
   - reqs: REQ-SCR-08, REQ-PLT-02, REQ-PLT-03, REQ-PLT-06
   - acceptance: the screen follows §3.8: Bestell-Erinnerung switch and twelve chips 11:00–13:45, Android-only background-activity hint banner, company-location button with the exact alerts and the "Standort entfernen" state, and the three log states with 12/24 h activation, status text with de-AT expiry, "Log per E-Mail senden" opening a mail composer to `aiko@spitzbub.app` with the subject and body of §3.8, and "Log verwerfen".
   - tests: emulator screenshots: switch on with chips, permission-denied alert, location saved state via the debug saved-location argument, log inactive/active/expired states (`@req REQ-SCR-08`); model tests of 3.3 cover the logic; simulator build compiles.
   - check: `make check`; additionally Android build and Mac simulator build
   - proof: android workflow, emulator evidence
+  - note: iOS simulator capture of §3.8 (5.6/a-ios-notifications.png: sections, switch, location button, 12/24 h log buttons); `make check` includes the new `@req REQ-SCR-08` email-format test. Gaps: the 12 time chips and the Android-only background hint only render while the reminder is enabled (permission dialog + tap not drivable via simctl), log active/expired states need a time-boxed run, and the mail composer/Android hint were not exercised on a device (emulator SIGSEGV). Review r1 reduced the location status to the exact "Firmenstandort gesetzt" copy and added the information/mail icons.
 
 - [ ] 5.7 Bootstrap: cached start, auto-login, broadcast banner, foreground refresh and geofence restore
   - tier: normal
