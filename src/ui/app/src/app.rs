@@ -19,6 +19,7 @@ use gpui_kit::component::WindowExt;
 use snackpilot_model::navigation::{Navigation, Screen, Tab};
 use snackpilot_model::{format_day_short, AppModel, State};
 
+use crate::components::broadcast_banner::broadcast_banner;
 use crate::components::day_navigator::day_navigator;
 use crate::components::dialog::{dialog_overlay, Dialog};
 use crate::components::loading_overlay::loading_overlay;
@@ -117,6 +118,10 @@ pub struct AppShell {
     /// Login form fields, created on push so typing survives re-renders.
     login_user: Option<Entity<InputState>>,
     login_pass: Option<Entity<InputState>>,
+    /// Window activation watcher: a false→true transition is a foreground
+    /// return and drives `AppModel::on_foreground` on every host (5.7).
+    was_active: bool,
+    seen_frame: bool,
     /// Debug knob (`--detail=login|automaten`): opens that credential screen
     /// on the first frame so a UI test can reach it without navigation.
     pending_detail: Option<Detail>,
@@ -167,6 +172,8 @@ impl AppShell {
             detail: Detail::Settings,
             login_user: None,
             login_pass: None,
+            was_active: true,
+            seen_frame: false,
             pending_detail: None,
             keyboard_up: false,
         };
@@ -485,6 +492,14 @@ impl Render for AppShell {
         if let Some(detail) = self.pending_detail.take() {
             self.open_detail(detail, window, cx);
         }
+        let active = window.is_window_active();
+        if self.seen_frame && active && !self.was_active {
+            if let Some(model) = &self.model {
+                model.on_foreground();
+            }
+        }
+        self.was_active = active;
+        self.seen_frame = true;
         self.sync_keyboard(window, cx);
         if self.dialog.is_none() {
             if let Some(alert) = self.model.as_ref().and_then(|m| m.take_location_alert()) {
@@ -516,14 +531,34 @@ impl Render for AppShell {
         });
         let bar = tab_bar(&theme, self.nav.active_tab(), safe_bottom, on_select);
 
-        let content = self.screen(&state, &theme, cx);
+        let mut banner = None;
+        if let Some(message) = state
+            .broadcast
+            .as_ref()
+            .filter(|_| !state.broadcast_dismissed)
+        {
+            let entity = cx.entity().clone();
+            let dismiss = Rc::new(move |_w: &mut Window, cx: &mut App| {
+                let _ = entity.update(cx, |this, cx| {
+                    if let Some(model) = &this.model {
+                        model.dismiss_broadcast();
+                    }
+                    cx.notify();
+                });
+            });
+            banner = Some(broadcast_banner(message, dismiss, &theme));
+        }
+        let screen_content = self.screen(&state, &theme, cx);
         let mut content = div()
             .flex_1()
             .flex()
             .flex_col()
             .overflow_hidden()
-            .pt(px(safe_top))
-            .child(content);
+            .pt(px(safe_top));
+        if let Some(banner) = banner {
+            content = content.child(banner);
+        }
+        let mut content = content.child(screen_content);
         let mut root = div().size_full().flex().flex_col().bg(theme.background);
         if theme.flat {
             // §2.2: in-flow bottom bar; the safe-area strip under it keeps

@@ -30,7 +30,12 @@ fn main() {
                 std::env::temp_dir().join("snackpilot-desktop"),
                 Arc::clone(&platform),
             ) {
-                Ok(model) => snackpilot_app::install_shell_model(Arc::new(model)),
+                Ok(model) => {
+                    snackpilot_app::install_shell_model(Arc::new(model));
+                    if let Some(model) = snackpilot_app::shell_model() {
+                        model.bootstrap();
+                    }
+                }
                 Err(e) => eprintln!("desktop: model unavailable: {e:?}"),
             }
             snackpilot_app::mount_desktop(cx);

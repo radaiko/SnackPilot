@@ -196,6 +196,10 @@ pub struct State {
     pub log_expired: bool,
     /// Single-line status label for the diagnostics screen (04-ui-ux §3.8).
     pub log_status: String,
+    /// Operator broadcast message (gist), shown as the foreground banner.
+    pub broadcast: Option<String>,
+    /// Banner dismissed for the current foreground (reset on the next one).
+    pub broadcast_dismissed: bool,
 }
 
 /// Which billing source to show (BillingView's "Alle/Gourmet/Ventopay" picker).

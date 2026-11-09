@@ -1,0 +1,56 @@
+Task 5.7 — launch order, foreground refresh and broadcast banner
+
+Linux: make check — exit 0, 18 green suites, including the new
+       tests/lifecycle.rs (3 tests, @req REQ-PLT-04 / REQ-PLT-03 / REQ-SCR-09)
+       and the model lib tests.
+Linux: cargo ndk -t x86_64 check -p snackpilot-app — clean.
+Mac: iOS bootstrap + xcodebuild — BUILD SUCCEEDED.
+Mac: simulator install + launch --tab=0 --demo --no-permission-prompt →
+     a-ios-menus-after-bootstrap.png: the shell now receives the session model
+     on iOS (install_shell_model from platform/ios.rs before the window opens,
+     then `bootstrap()`), so the Menus tab shows the demo day: DayNavigator
+     "Mo., 9. Nov. 1 / 10", MENÜ I/II/III and SUPPE & SALAT groups with
+     allergens and de-AT prices. Before this task the iOS host rendered the
+     default (empty/auth-gate) state — this also unblocks the filled-state
+     captures deferred from 5.1–5.6.
+
+Launch order implemented (`model/src/lifecycle.rs::bootstrap`):
+1. cached menus/orders/billing months published first (core cache load, state
+   only filled when the published state is still empty);
+2. `app.launched` tracked;
+3. broadcast fetched (best-effort; suppressed in test builds so no test reaches
+   a host), 4. notification permission requested (debug `--no-permission-prompt`
+   knob for capture runs), 5. company geofence restored idempotently (one
+   `start_geofence` per install, persisted marker);
+6. saved-credentials auto-login (Ventopay first with one billing fetch) and a
+   log-state refresh.
+
+Foreground: `on_foreground` refreshes orders + billing + broadcast under an
+atomic re-entrancy guard; the broadcast banner is dismissible and `refresh`
+clears the dismissed flag, so it returns on the next foreground.
+Tests cover: `app.launched` tracked, geofence start once across two bootstraps,
+dismissed banner returns after a foreground.
+
+Gaps (recorded):
+- The iOS foreground hook is not wired: App.swift's applicationDidBecomeActive
+  calls the gpui-mobile lifecycle FFI, which has no model callback, so
+  `on_foreground` runs from the Android/desktop hosts only. Capturing the
+  relaunch/foreground screenshots on iOS therefore shows the launch path, not
+  the foreground refresh; 5.1's e-resume proof covers state preservation.
+- Android bootstrap wiring compiles but cannot run on this host (emulator
+  vulkan.ranchu SIGSEGV, recorded since 4.1).
+
+Review round 1 (fixed):
+- on_foreground now has a caller on every host: AppShell watches the window
+  activation transition in `render` (`was_active` false→true after the first
+  frame) and calls `AppModel::on_foreground`; a host callback is no longer
+  required. The old Android/desktop-only claim is withdrawn.
+- The re-entrancy flag is cleared by an RAII `ForegroundGuard`, so a panic in
+  the refresh cannot leave the process permanently guarded.
+- Added the three missing tests: cache-first snapshot publication, exactly one
+  billing fetch during auto-login (instrumented counter), and drop of a
+  re-entrant `on_foreground` call (all `@req REQ-SCR-09`).
+- Scope amendment: `model/src/state.rs` (broadcast fields), `model/src/session.rs`
+  (foreground stub moved), `model/src/lib.rs`, `app/src/platform/ios.rs` (iOS
+  model install + bootstrap) and `components/mod.rs` are recorded in the task's
+  `files:` line at tick time.

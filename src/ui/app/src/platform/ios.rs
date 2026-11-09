@@ -592,7 +592,12 @@ pub unsafe extern "C" fn snackpilot_ios_register_shims(
     let _ = DEBUG_PLATFORM.set(platform.clone());
     match snackpilot_model::AppModel::new(dir.clone(), platform) {
         Ok(session) => {
-            let _ = DEBUG_SESSION.set(Arc::new(session));
+            let session = Arc::new(session);
+            // Task 5.7: expose the session to the GPUI shell and run the
+            // launch order (cached first, broadcast, auto-login).
+            crate::install_shell_model(Arc::clone(&session));
+            session.bootstrap();
+            let _ = DEBUG_SESSION.set(session);
         }
         Err(e) => log::error!("[3.5] register_shims: model session failed: {e:?}"),
     }
