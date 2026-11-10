@@ -121,19 +121,46 @@ impl AppModel {
     }
 
     /// Swift `cancelSelectedOrders` (:536): batch-cancel the selection in ONE
-    /// edit-mode session; guarded on a non-empty selection and `!busy`.
-    pub fn cancel_selected_orders(&self) {
-        let state = self.state();
-        let ids = state.selected_order_ids.clone();
-        if ids.is_empty() || state.busy {
-            return;
+    /// edit-mode session; guarded on a non-empty selection and `!busy` in a
+    /// single atomic check-and-set, so a double tap runs exactly one operation.
+    /// Returns whether the batch started. The selection stays visible while
+    /// the flow runs and is cleared when it ends.
+    pub fn cancel_selected_orders(&self) -> bool {
+        let mut ids = Vec::new();
+        let started = self.hub().try_update(
+            "busy",
+            |s| !s.busy && !s.selected_order_ids.is_empty(),
+            |s| {
+                ids = s.selected_order_ids.clone();
+                s.busy = true;
+            },
+        );
+        if !started {
+            return false;
         }
-        self.hub().update("busy", |s| s.busy = true);
         handle().block_on(async {
             let _ = self.core().cancel_orders(ids).await;
             let _ = self.load_orders().await;
         });
         self.end_order_selection();
-        self.hub().update("busy_off", |s| s.busy = false);
+        self.hub().update("busy_off", |s| {
+            s.busy = false;
+            crate::desktop::clear_claim(s, "order.cancel_selected");
+        });
+        true
+    }
+
+    /// Switch the orders segment (desktop-ui-redesign D2): `past` shows the
+    /// "Vergangen" list. The preview of the other segment's rows goes with the
+    /// context; entering past exits batch selection (checks cleared, nothing
+    /// cancelled).
+    pub fn set_orders_segment(&self, past: bool) {
+        self.hub().update("orders_segment", |s| {
+            s.orders_past = past;
+            s.set_preview(crate::navigation::ListKind::Orders, None);
+        });
+        if past && self.state().order_selection_mode {
+            self.end_order_selection();
+        }
     }
 }

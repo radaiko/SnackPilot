@@ -13,6 +13,19 @@ use crate::runtime::handle;
 use crate::session::AppModel;
 use crate::state::{ErrorText, StateHub};
 
+/// Releases the command claim on scope exit, including during a panic
+/// unwind out of the flow, so a crashed flow never wedges the claim guard
+/// (mirrors `ClearCancelling` in orders.rs).
+struct ClearClaim<'a>(&'a StateHub, &'static str);
+
+impl Drop for ClearClaim<'_> {
+    fn drop(&mut self) {
+        self.0.update("claim_released", |s| {
+            crate::desktop::clear_claim(s, self.1);
+        });
+    }
+}
+
 /// Ordering of category sections: MENÜ I, II, III, SUPPE & SALAT, UNKNOWN
 /// (MenusView `categoryOrder`, menus §5).
 pub fn category_rank(category: MenuCategory) -> u8 {
@@ -32,6 +45,12 @@ pub fn category_heading(category: MenuCategory) -> Option<&'static str> {
         MenuCategory::SoupAndSalad => None,
         other => Some(other.display()),
     }
+}
+
+/// Stable list identity of a menu row: the core's composite key
+/// `"menuId|YYYY-MM-DD"` (features/menus.rs `split_key`), never a row index.
+pub fn menu_key(item: &MenuItem) -> String {
+    format!("{}|{}", item.id, item.day)
 }
 
 /// Live submit-pipeline phase labels (MenusView `progressLabel`, menus §6.6).
@@ -93,6 +112,8 @@ impl AppModel {
     /// Swift `refreshMenus` (:336): force a fresh fetch and republish
     /// ("Erneut versuchen"); failures surface via `error_text`.
     pub fn refresh_menus(&self) {
+        let hub = self.hub();
+        let _claim = ClearClaim(hub, "refresh");
         handle().block_on(async {
             self.hub().update("busy", |s| {
                 s.busy = true;
@@ -110,7 +131,9 @@ impl AppModel {
                     });
                 }),
             }
-            self.hub().update("busy_off", |s| s.busy = false);
+            self.hub().update("busy_off", |s| {
+                s.busy = false;
+            });
         });
     }
 
@@ -143,8 +166,12 @@ impl AppModel {
     pub fn select_day(&self, date_key: &str) {
         self.core().set_selected_date(date_key.to_string());
         let day = date_key.to_string();
-        self.hub()
-            .update("selected_day", move |s| s.selected_day = Some(day));
+        self.hub().update("selected_day", move |s| {
+            s.selected_day = Some(day);
+            // Context change: the day's rows are a different list, so the
+            // menus preview goes; the cursor stays (desktop-ui-redesign D2).
+            s.set_preview(crate::navigation::ListKind::Menus, None);
+        });
     }
 
     /// Swift `prevDay` (:401): no-op at the first day or when the current day
@@ -217,6 +244,8 @@ impl AppModel {
     /// listener, then republish menus and reload orders (the core refreshes
     /// orders internally; Swift reloads for the notification commands).
     pub fn submit_orders(&self) {
+        let hub = self.hub();
+        let _claim = ClearClaim(hub, "order.today");
         handle().block_on(async {
             self.hub().update("busy", |s| {
                 s.busy = true;

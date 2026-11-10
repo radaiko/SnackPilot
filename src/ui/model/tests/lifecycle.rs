@@ -5,7 +5,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use snackpilot_model::{AppModel, FakePlatform};
+use snackpilot_model::navigation::{ListKind, SettingsDetail, Tab};
+use snackpilot_model::{menu_key, AppModel, FakePlatform};
 
 fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -66,4 +67,68 @@ fn dismissed_broadcast_returns_on_the_next_foreground() {
     assert!(model.state().broadcast_dismissed);
     model.on_foreground();
     assert!(!model.state().broadcast_dismissed);
+}
+
+/// @req REQ-UI-04
+#[test]
+fn foreground_preserves_workspace_identities() {
+    let platform = Arc::new(FakePlatform::new());
+    let model = AppModel::new(temp_dir("fg-identity"), platform).unwrap();
+    model.login("demo", "demo1234!").unwrap();
+
+    // Build up the desktop workspace state: pending cart, previews, cursor,
+    // settings detail and the past segment.
+    let day = model
+        .state()
+        .selected_day
+        .clone()
+        .expect("demo day selected");
+    let item = model
+        .state()
+        .menu_snapshot
+        .clone()
+        .expect("menus loaded")
+        .items
+        .into_iter()
+        .find(|i| i.day == day)
+        .expect("demo day has items");
+    let key = menu_key(&item);
+    model.toggle(&item);
+    model.open_preview(ListKind::Menus, &key);
+    model.set_cursor(ListKind::Menus, Some(key.clone()));
+    model.open_preview(ListKind::Receipts, "g-1");
+    model.open_settings_detail(SettingsDetail::Data);
+    model.set_orders_segment(true);
+
+    model.on_foreground();
+
+    assert_eq!(model.state().navigation.active_tab(), Tab::Menus);
+    assert_eq!(
+        model.preview(ListKind::Menus).as_deref(),
+        Some(key.as_str()),
+        "foreground must keep the menus preview"
+    );
+    assert_eq!(
+        model.cursor(ListKind::Menus).as_deref(),
+        Some(key.as_str()),
+        "foreground must keep the menus cursor"
+    );
+    assert_eq!(
+        model.preview(ListKind::Receipts).as_deref(),
+        Some("g-1"),
+        "foreground must keep the receipts preview"
+    );
+    assert_eq!(
+        model.settings_detail(),
+        Some(SettingsDetail::Data),
+        "foreground must keep the settings detail"
+    );
+    assert!(
+        model.state().orders_past,
+        "foreground must keep the segment"
+    );
+    assert!(
+        model.has_pending_changes(),
+        "foreground must keep the pending cart"
+    );
 }

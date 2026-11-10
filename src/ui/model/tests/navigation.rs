@@ -95,3 +95,119 @@ fn multiple_pushes_pop_in_reverse_order() {
     assert_eq!(nav.pop(), None);
     assert_eq!(nav.top(), Screen::Menus);
 }
+
+// --- model-owned workspace identities (REQ-UI-04) ---------------------------
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use snackpilot_model::navigation::{ListKind, SettingsDetail};
+use snackpilot_model::{menu_key, AppModel, FakePlatform};
+
+fn temp_dir(tag: &str) -> PathBuf {
+    static SEQ: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "snackpilot-model-nav-{tag}-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::SeqCst)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn demo_model(tag: &str) -> (AppModel, Arc<FakePlatform>) {
+    let fake = Arc::new(FakePlatform::new());
+    let model = AppModel::new(temp_dir(tag), fake.clone()).unwrap();
+    model.login("demo", "demo1234!").unwrap();
+    (model, fake)
+}
+
+fn first_item(model: &AppModel) -> snackpilot_core::domain::MenuItem {
+    let day = model
+        .state()
+        .selected_day
+        .clone()
+        .expect("demo day selected");
+    model
+        .state()
+        .menu_snapshot
+        .clone()
+        .expect("menus loaded")
+        .items
+        .into_iter()
+        .find(|i| i.day == day)
+        .expect("demo day has items")
+}
+
+#[test]
+/// @req REQ-UI-04
+fn active_tab_activation_is_a_no_op() {
+    let (model, _fake) = demo_model("tab-noop");
+
+    let notifies = Arc::new(AtomicUsize::new(0));
+    let counter = notifies.clone();
+    model.subscribe(Box::new(move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+    }));
+    let baseline = notifies.load(Ordering::SeqCst);
+
+    let active = model.state().navigation.active_tab();
+    assert!(
+        !model.select_tab(active),
+        "activating the active tab must change nothing"
+    );
+    assert_eq!(
+        notifies.load(Ordering::SeqCst),
+        baseline,
+        "a no-op tab activation must not notify subscribers"
+    );
+
+    let other = if active == Tab::Orders {
+        Tab::Billing
+    } else {
+        Tab::Orders
+    };
+    assert!(model.select_tab(other), "switching tabs must change state");
+    assert_eq!(notifies.load(Ordering::SeqCst), baseline + 1);
+    assert_eq!(model.state().navigation.active_tab(), other);
+}
+
+#[test]
+/// @req REQ-UI-04
+fn switching_tabs_resets_the_departing_tab() {
+    let (model, _fake) = demo_model("tab-reset");
+    let item = first_item(&model);
+    let key = menu_key(&item);
+
+    model.toggle(&item);
+    model.open_preview(ListKind::Menus, &key);
+    model.set_cursor(ListKind::Menus, Some(key.clone()));
+    model.open_settings_detail(SettingsDetail::Security);
+    assert!(
+        model.has_pending_changes(),
+        "toggle must add a pending change"
+    );
+
+    assert!(model.select_tab(Tab::Orders));
+
+    assert_eq!(
+        model.preview(ListKind::Menus),
+        None,
+        "the departing tab's preview is cleared"
+    );
+    assert_eq!(
+        model.cursor(ListKind::Menus),
+        None,
+        "the departing tab's cursor is cleared"
+    );
+    assert_eq!(
+        model.settings_detail(),
+        None,
+        "a settings detail is cleared by a tab switch"
+    );
+    assert!(
+        model.has_pending_changes(),
+        "pending menu changes survive a tab switch"
+    );
+}

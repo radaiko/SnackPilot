@@ -43,8 +43,12 @@ pub struct BillingTotals {
 impl AppModel {
     /// Swift `selectMonth` (:546): select a month offset and load its billing.
     pub fn select_month(&self, offset: u8) {
-        self.hub()
-            .update("selected_offset", move |s| s.selected_offset = offset);
+        self.hub().update("selected_offset", move |s| {
+            s.selected_offset = offset;
+            // Context change: another month's rows, so the receipts preview
+            // goes; the cursor stays (desktop-ui-redesign D2).
+            s.set_preview(crate::navigation::ListKind::Receipts, None);
+        });
         handle().block_on(self.load_billing(false));
     }
 
@@ -56,8 +60,12 @@ impl AppModel {
 
     /// BillingView's source picker (UI-only state, mirrors `sourceFilter`).
     pub fn set_billing_source(&self, source: BillingSource) {
-        self.hub()
-            .update("billing_source", move |s| s.billing_source = source);
+        self.hub().update("billing_source", move |s| {
+            s.billing_source = source;
+            // Context change: the filtered list is a different set of rows,
+            // so the receipts preview goes; the cursor stays (D2).
+            s.set_preview(crate::navigation::ListKind::Receipts, None);
+        });
     }
 
     /// Swift `billingError` (:602): the core's last billing fetch/parse error;

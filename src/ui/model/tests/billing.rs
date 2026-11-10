@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{AppModel, BillingSource, FakePlatform};
 
 const DEMO_USER: &str = "demo";
@@ -216,5 +217,59 @@ fn empty_month_renders_no_entries_and_zero_totals() {
         (totals.gesamt, totals.belege, totals.zuschuss),
         (0.0, 0, 0.0),
         "the filtered-out view must total to zero"
+    );
+}
+
+#[test]
+/// @req REQ-SCR-03
+fn receipt_identities_are_stable_and_context_change_clears_only_them() {
+    let model = demo_model("receipt-identity");
+    model.select_month(1);
+    let first = model.merged_entries();
+    assert!(!first.is_empty(), "demo month must have entries");
+
+    // Newest-first, prefixed identities, stable across a re-merge.
+    assert!(
+        first.windows(2).all(|w| w[0].epoch_ms >= w[1].epoch_ms),
+        "merged list is not sorted newest first"
+    );
+    for entry in &first {
+        assert!(
+            entry.id.starts_with("g-") || entry.id.starts_with("v-"),
+            "unexpected receipt identity {}",
+            entry.id
+        );
+    }
+    let again = model.merged_entries();
+    assert_eq!(
+        first.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
+        again.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
+        "receipt identities must be stable across a re-merge"
+    );
+
+    // A context change clears only the receipts preview; the cursor stays.
+    let id = first[0].id.clone();
+    model.open_preview(ListKind::Receipts, &id);
+    model.set_cursor(ListKind::Receipts, Some(id.clone()));
+    model.set_billing_source(BillingSource::Gourmet);
+    assert_eq!(
+        model.preview(ListKind::Receipts),
+        None,
+        "a source change must clear the receipts preview"
+    );
+    assert_eq!(
+        model.cursor(ListKind::Receipts).as_deref(),
+        Some(id.as_str()),
+        "a context change must keep the cursor"
+    );
+
+    // A month change clears the receipts preview the same way.
+    model.set_billing_source(BillingSource::All);
+    model.open_preview(ListKind::Receipts, &id);
+    model.select_month(0);
+    assert_eq!(
+        model.preview(ListKind::Receipts),
+        None,
+        "a month change must clear the receipts preview"
     );
 }

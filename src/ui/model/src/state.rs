@@ -200,6 +200,65 @@ pub struct State {
     pub broadcast: Option<String>,
     /// Banner dismissed for the current foreground (reset on the next one).
     pub broadcast_dismissed: bool,
+
+    // ---- desktop-ui-redesign task 1.1: workspace identities ----
+    /// Navigation instance: which tab is active (desktop-ui-redesign D1).
+    pub navigation: crate::navigation::Navigation,
+    /// Host kind the model was built for; layout breakpoints only apply on Desktop.
+    pub host_kind: crate::desktop::HostKind,
+    /// Last content width reported by the host, in pixels.
+    pub content_width: f32,
+    /// Open settings-detail section; the narrow layout projects it as a pushed screen.
+    pub settings_detail: Option<crate::navigation::SettingsDetail>,
+    /// Menus list preview, keyed by [`crate::menus::menu_key`].
+    pub preview: Option<String>,
+    /// Orders list preview, keyed by position id.
+    pub order_preview: Option<String>,
+    /// Receipts list preview, keyed by `g-{bill_nr}` or `v-{tx.id}`.
+    pub receipt_preview: Option<String>,
+    /// List cursor per [`crate::navigation::ListKind`], indexed by `index()`.
+    pub cursors: [Option<String>; 3],
+    /// Orders segment: false = upcoming, true = past.
+    pub orders_past: bool,
+    /// A text field currently captures keys; workspace shortcuts must not.
+    pub text_input_focused: bool,
+    /// A modal is open; Esc closes it before anything else.
+    pub modal_open: bool,
+    /// Identity of the command currently claimed; released by its flow.
+    pub claimed_command: Option<String>,
+}
+
+impl State {
+    pub(crate) fn preview_of(&self, kind: crate::navigation::ListKind) -> Option<&str> {
+        let id = match kind {
+            crate::navigation::ListKind::Menus => self.preview.as_ref(),
+            crate::navigation::ListKind::Orders => self.order_preview.as_ref(),
+            crate::navigation::ListKind::Receipts => self.receipt_preview.as_ref(),
+        };
+        id.map(String::as_str)
+    }
+
+    pub(crate) fn set_preview(&mut self, kind: crate::navigation::ListKind, id: Option<String>) {
+        match kind {
+            crate::navigation::ListKind::Menus => self.preview = id,
+            crate::navigation::ListKind::Orders => self.order_preview = id,
+            crate::navigation::ListKind::Receipts => self.receipt_preview = id,
+        }
+    }
+
+    pub(crate) fn cursor_of(&self, kind: crate::navigation::ListKind) -> Option<&str> {
+        self.cursors[kind.index()].as_deref()
+    }
+
+    pub(crate) fn set_cursor(&mut self, kind: crate::navigation::ListKind, id: Option<String>) {
+        self.cursors[kind.index()] = id;
+    }
+
+    /// Drops both the preview and the cursor of one list.
+    pub(crate) fn clear_list(&mut self, kind: crate::navigation::ListKind) {
+        self.set_preview(kind, None);
+        self.set_cursor(kind, None);
+    }
 }
 
 /// Which billing source to show (BillingView's "Alle/Gourmet/Ventopay" picker).
