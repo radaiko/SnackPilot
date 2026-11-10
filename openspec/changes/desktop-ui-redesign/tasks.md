@@ -15,7 +15,7 @@ Conventions for every task below (same contract fields as the archived gpui-kit 
 
 ## 1. Desktop workspace and shipping
 
-- [ ] 1.1 Model workspace identities, navigation projection and guarded intents; prove invariants with offline model tests
+- [x] 1.1 Model workspace identities, navigation projection and guarded intents; prove invariants with offline model tests
   - tier: normal
   - host: Linux
   - files: `src/ui/model/src/navigation.rs`, `src/ui/model/src/desktop.rs` (new), `src/ui/model/src/lib.rs`, `src/ui/model/src/state.rs`, `src/ui/model/src/session.rs`, `src/ui/model/src/menus.rs`, `src/ui/model/src/orders.rs`, `src/ui/model/src/billing.rs`, `src/ui/model/src/lifecycle.rs`, `src/ui/model/tests/navigation.rs`, `src/ui/model/tests/desktop.rs` (new), `src/ui/model/tests/menus.rs`, `src/ui/model/tests/orders.rs`, `src/ui/model/tests/billing.rs`, `src/ui/model/tests/lifecycle.rs`
