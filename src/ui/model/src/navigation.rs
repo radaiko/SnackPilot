@@ -30,6 +30,47 @@ pub enum Direction {
     Back,
 }
 
+/// Open section of the settings screen (desktop-ui-redesign D1). On wide
+/// layouts it is a containment field of the settings workspace; on narrow
+/// layouts it is projected as a pushed [`Screen::SettingsDetail`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SettingsDetail {
+    Profile,
+    Security,
+    Notifications,
+    Data,
+    Advanced,
+}
+
+/// The three long lists with an identity-stable preview and cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ListKind {
+    Menus,
+    Orders,
+    Receipts,
+}
+
+impl ListKind {
+    /// Index into [`crate::state::State::cursors`].
+    pub fn index(self) -> usize {
+        match self {
+            ListKind::Menus => 0,
+            ListKind::Orders => 1,
+            ListKind::Receipts => 2,
+        }
+    }
+
+    /// The list the tab shows, if it has one.
+    pub fn for_tab(tab: Tab) -> Option<ListKind> {
+        match tab {
+            Tab::Menus => Some(ListKind::Menus),
+            Tab::Orders => Some(ListKind::Orders),
+            Tab::Billing => Some(ListKind::Receipts),
+            Tab::Settings => None,
+        }
+    }
+}
+
 impl Tab {
     pub const ALL: [Tab; 4] = [Tab::Menus, Tab::Orders, Tab::Billing, Tab::Settings];
 

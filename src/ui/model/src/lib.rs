@@ -3,6 +3,7 @@
 //! session flows, the observable state hub and the `Platform` host abstraction.
 
 mod billing;
+pub mod desktop;
 mod diagnostics;
 mod errors;
 mod fake;
@@ -25,7 +26,7 @@ pub use fake::FakePlatform;
 pub use format::{
     day_key_from_epoch_ms, format_date_long, format_day_short, format_eur, format_time, today_key,
 };
-pub use menus::{category_heading, category_rank, nearest_day, progress_label};
+pub use menus::{category_heading, category_rank, menu_key, nearest_day, progress_label};
 pub use orders::unconfirmed_banner_text;
 pub use platform::{
     Capabilities, LocationFix, Platform, PlatformAnalytics, PlatformError, SupportEmail,

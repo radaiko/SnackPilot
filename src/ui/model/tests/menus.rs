@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use snackpilot_core::domain::{MenuCategory, MenuItem, MenuSnapshot, OrderProgress};
+use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{
-    category_heading, category_rank, nearest_day, progress_label, AppModel, FakePlatform,
+    category_heading, category_rank, menu_key, nearest_day, progress_label, AppModel, FakePlatform,
 };
 
 const DEMO_USER: &str = "demo";
@@ -175,7 +176,8 @@ fn toggle_tracks_pending_and_clear_pending_resets() {
 /// @req REQ-SCR-01
 fn fab_label_follows_the_pending_queues() {
     let (model, _fake) = demo_model();
-    let day = model.state().selected_day.unwrap();
+    // Order the last offered day: today is past the 09:00 cutoff (§6.3).
+    let day = snapshot(&model).available_dates.last().unwrap().clone();
     assert_eq!(model.fab_label(), "Bestellen (0)", "idle label");
 
     let a = item_in(&model, &day, MenuCategory::Menu1);
@@ -242,7 +244,8 @@ fn categories_are_ordered_and_soup_heading_suppressed() {
 /// @req REQ-SCR-01
 fn submit_reports_progress_and_orders_the_item() {
     let (model, _fake) = demo_model();
-    let day = model.state().selected_day.unwrap();
+    // Order the last offered day: today is past the 09:00 cutoff (§6.3).
+    let day = snapshot(&model).available_dates.last().unwrap().clone();
     let item = item_in(&model, &day, MenuCategory::Menu1);
 
     let phases = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -288,7 +291,8 @@ fn submit_reports_progress_and_orders_the_item() {
 /// @req REQ-SCR-01
 fn is_ordered_cross_references_the_orders_list() {
     let (model, _fake) = demo_model();
-    let day = model.state().selected_day.unwrap();
+    // Order the last offered day: today is past the 09:00 cutoff (§6.3).
+    let day = snapshot(&model).available_dates.last().unwrap().clone();
     let item = item_in(&model, &day, MenuCategory::Menu2);
     assert!(!model.is_ordered(&item), "not ordered before submit");
 
@@ -346,4 +350,54 @@ fn progress_labels_are_the_pinned_german_strings() {
         progress_label(OrderProgress::Refreshing),
         "Menüs werden aktualisiert..."
     );
+}
+
+#[test]
+/// @req REQ-SCR-01
+fn preview_and_pending_are_separate_sets() {
+    let (model, _fake) = demo_model();
+    let day = model
+        .state()
+        .selected_day
+        .clone()
+        .expect("demo day selected");
+    let item = item_in(&model, &day, MenuCategory::Menu1);
+    let key = menu_key(&item);
+
+    // Opening a preview and toggling the same dish touch different sets.
+    model.open_preview(ListKind::Menus, &key);
+    model.toggle(&item);
+    assert!(model.has_pending_changes(), "toggle adds to pending");
+    assert_eq!(
+        model.preview(ListKind::Menus).as_deref(),
+        Some(key.as_str()),
+        "toggling the previewed dish must keep the preview open"
+    );
+
+    // A context change clears only the preview, never the pending cart.
+    let dates = snapshot(&model).available_dates;
+    let other = dates
+        .iter()
+        .find(|d| **d != day)
+        .cloned()
+        .expect("two days");
+    model.select_day(&other);
+    assert_eq!(
+        model.preview(ListKind::Menus),
+        None,
+        "day change must clear the menus preview"
+    );
+    assert!(
+        model.has_pending_changes(),
+        "day change must keep the pending cart"
+    );
+
+    // Toggling again removes the dish from pending; the preview stayed closed.
+    model.select_day(&day);
+    model.toggle(&item);
+    assert!(
+        !model.has_pending_changes(),
+        "toggling again must remove it from pending"
+    );
+    assert_eq!(model.preview(ListKind::Menus), None);
 }

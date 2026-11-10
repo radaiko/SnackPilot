@@ -362,6 +362,12 @@ impl AppModel {
         orders
     }
 
+    /// Reload of the Bestellungen tab (Cmd+R): run the orders load to
+    /// completion; failures surface via `orders_error` like the async flow.
+    pub fn refresh_orders(&self) {
+        let _ = handle().block_on(self.load_orders());
+    }
+
     /// Swift `loadOrders` (AppModel.swift:350): fetch orders — which returns
     /// the post-fetch notification decisions — then publish the split and
     /// deliver the commands. The split is published even when the bridge

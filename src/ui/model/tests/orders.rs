@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use snackpilot_core::domain::{MenuCategory, MenuItem, OrderedMenu};
+use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{unconfirmed_banner_text, AppModel, FakePlatform, Platform, PlatformError};
 
 const DEMO_USER: &str = "demo";
@@ -214,9 +215,23 @@ fn item_in(model: &AppModel, day: &str, category: MenuCategory) -> MenuItem {
         .unwrap_or_else(|| panic!("no {} item on {day}", category.display()))
 }
 
-/// Order one item of the selected day through the real submit pipeline.
+/// The last offered day: always in the future, so the 09:00 Vienna ordering
+/// cutoff (docs/requirements/06-testing.md §6.3) can never block the submit.
+fn future_day(model: &AppModel) -> String {
+    model
+        .state()
+        .menu_snapshot
+        .as_ref()
+        .expect("menus loaded")
+        .available_dates
+        .last()
+        .cloned()
+        .expect("demo offers days")
+}
+
+/// Order one item of the last offered day through the real submit pipeline.
 fn order_one(model: &AppModel, category: MenuCategory) -> MenuItem {
-    let day = model.state().selected_day.clone().expect("day selected");
+    let day = future_day(model);
     let item = item_in(model, &day, category);
     model.toggle(&item);
     model.submit_orders();
@@ -325,13 +340,7 @@ fn cancel_is_single_flight() {
     let (gate, entered, release_tx) = GatePlatform::new(fake.clone(), "track(order.cancelled)");
     let model = demo_model_in(temp_dir("single-flight"), gate);
     order_one(&model, MenuCategory::Menu1);
-    let item2 = item_in(
-        &model,
-        &model.state().selected_day.clone().unwrap(),
-        MenuCategory::Menu2,
-    );
-    model.toggle(&item2);
-    model.submit_orders();
+    order_one(&model, MenuCategory::Menu2);
 
     let orders = upcoming(&model);
     assert_eq!(orders.len(), 2, "two orders needed for the guard test");
@@ -589,4 +598,46 @@ fn cancel_clears_single_flight_marker_when_the_flow_panics() {
         "cancel after the panic did not complete"
     );
     assert!(model.state().cancelling_id.is_none());
+}
+
+#[test]
+/// @req REQ-SCR-02
+fn past_segment_exits_batch_without_cancel() {
+    let (model, fake) = demo_model("segment-exit");
+    order_one(&model, MenuCategory::Menu1);
+    let pid = upcoming(&model)[0].position_id.clone();
+
+    model.begin_order_selection();
+    model.toggle_order_selection(&pid);
+    assert_eq!(
+        model.state().selected_order_ids.len(),
+        1,
+        "the order must be checked"
+    );
+    model.open_preview(ListKind::Orders, &pid);
+
+    model.set_orders_segment(true);
+
+    assert!(model.state().orders_past, "segment must switch to past");
+    assert!(
+        !model.state().order_selection_mode,
+        "entering past must exit batch selection"
+    );
+    assert!(
+        model.state().selected_order_ids.is_empty(),
+        "entering past must clear the checks"
+    );
+    assert_eq!(
+        model.preview(ListKind::Orders),
+        None,
+        "the segment change must clear the orders preview"
+    );
+    assert!(
+        upcoming(&model).iter().any(|o| o.position_id == pid),
+        "the order must still be in the upcoming list"
+    );
+    assert!(
+        cancelled_tracks(&fake).is_empty(),
+        "a segment switch must not cancel anything"
+    );
 }
