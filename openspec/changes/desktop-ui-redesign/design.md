@@ -6,7 +6,7 @@ See `proposal.md` for motivation, confirmed release answers and approval boundar
 
 The approved `docs/design/desktop-ui-redesign.md` is the visual and per-screen contract, including exact geometry, tokens, copy, states, keyboard map and evidence matrix. Do not repeat or reinterpret its taste decisions. Two explicit human amendments override its release proposals: **Windows 11 x64 also ships unsigned as an installer**, and **macOS 26+ arm64 ships as a signed `.app`, not DMG**. All other visual decisions remain fixed. Apply the desktop screen dialect to both desktop hosts; native macOS menu/window semantics stay macOS-only.
 
-Observed implementation:
+Pre-implementation baseline (historical inventory used to plan this change, not current implementation reality):
 
 - `src/ui/app/src/lib.rs::DesktopFrame` unconditionally caps the app at 480; the desktop default is 420×760, minimum height zero. `app.rs` paints the bottom bar regardless of desktop width.
 - The gpui-free `Navigation` exists, but the instance, settings `Detail` enum and `orders_past` live in `AppShell`; filters/pending sets already live in `State`. Login `InputState` entities are created in `open_detail` and must not be recreated on resize.
@@ -29,6 +29,8 @@ Extend `src/ui/model/src/navigation.rs` and add `desktop.rs` for pure host/width
 
 Use one shared navigation intent for bottom tab, rail, shortcut and native menu; same-tab activation is a no-op. A changed tab resets the departing navigation detail/preview/cursor but not pending menu changes. A day/month/source/segment change invalidates only its context's preview. Esc clears preview without forgetting list cursor, so next arrow/row activation can reopen it. Foreground data publication reconciles preview IDs; rendering alone never resets them.
 
+Task 1.5 owns the approved 720 px settings projection correction: compact and expanded desktop contain the selected settings detail without a push; phone projection retains exactly one push. Prove this with a 719→720→719 model-stack test, keeping the same view-owned inputs and unsaved text.
+
 Rejected: independent wide/narrow navigation trees or storing the new state only in a desktop host. Those break resize/resume and cannot be covered by model tests. No new dependency is needed.
 
 ### D2. Project the shell, reuse record/form content
@@ -36,6 +38,8 @@ Rejected: independent wide/narrow navigation trees or storing the new state only
 Determine layout from **host AND content width**, not theme.flat or OS appearance. `Phone` applies to all mobile widths and desktop <720; `DesktopCompact` is [720,1024); `DesktopExpanded` is >=1024. Put dimensions in named desktop tokens, with geometry assertions at 719/720/768/1023/1024/1280. The brief's exact rail/gutter/split formulas win; remove the outer 480 cap only for wide desktop and paint overlays outside the rail/workspace cap.
 
 Add shared `DesktopNavigationRail`, `SplitWorkspace`, `RecordTable`, header/toolbar/action-strip compositions within `components`. Existing screen functions choose containment/presentation rather than duplicating screens or business logic. Menu rows preview only; the existing toggle is an explicit detail button. Order body previews, checkbox toggles batch set with propagation stopped. Read-only receipt detail reuses existing item/formatting data. Settings passes a containment mode to the same credential/appearance content; resize does not call form entry/prefill. In-flight operations dispatch outside the render thread using the existing model/runtime and publish state back; do not add sleeps, extra scrapes or another client.
+
+Dispatch is host-gated, not rail-gated: 1.2 supplies shared infrastructure, 1.3/1.4 wire menu/order/billing, and 1.5 completes credentials, keyboard/menu refresh, foreground and narrow desktop paths. Test pointer, shortcut/menu and foreground dispatch at 360 and 720. Height never changes the width-selected layout; short windows only add reachability/scroll obligations.
 
 Rejected: a parallel desktop screen tree/data-table library, new detail routes for narrow menu/order/billing, or width-only mobile switching.
 
@@ -53,6 +57,8 @@ Use typed shared intents with pure enablement/scope decisions tested in the mode
 
 Focus order/traversal follows the brief. Each rail/list/option group is one Tab stop with a roving cursor; focus moves to revealed rows without scrolling the other pane. Inputs receive native editing first, masking prevents password copy/cut, Return saves once only if eligible. Modal focus is captured on open, initially OK/confirm, cycles only inside actions, Enter uses focused action, Esc/backdrop cancels index 0. Restore the origin or nearest surviving row/heading. Underlying tab/settings/refresh/back intents disable while modal; native quit/hide/minimise remain available. Keep the same dialog API, texts and destructive labels.
 
+Navigation chords remain available while editing unless a modal is open; native editing keys retain priority, without view-only eligibility exceptions. Wide-record-list roving focus and nearest-surviving-row restoration are behaviour required in 1.5, not host blockers waived by a capture deferral.
+
 Rejected: separate keyboard and pointer eligibility, one key handler that captures arrows globally, separate native alert system, or repeat suppression by timing hacks.
 
 ### D5. Native Mac menus/window behaviour through the pinned host facilities
@@ -60,6 +66,8 @@ Rejected: separate keyboard and pointer eligibility, one key handler that captur
 Use the existing pinned GPUI/gpui-kit native actions/menu facilities, adding only a desktop host module within `src/ui/app/src/desktop/` if needed. Follow the brief's German menu inventory verbatim: SnackPilot / Ablage / Bearbeiten / Darstellung / Fenster. No Rust dependency changes or upstream edits are preapproved. If a required host capability cannot be implemented with the pinned facilities, report the exact gap and request approval instead of silently claiming support.
 
 Menus read the same model/command enablement; About uses one themed alert and real release metadata. `init_kit`, shared assets and one installed model remain process-wide; reopening after Mac window close mounts at most one live main window using that session. Default 1180×780/minimum 360×480, work-area clamping, native decorations and live appearance. Window bounds can be host-persisted where supported; no domain navigation moves into host-only storage. Gallery/debug arguments remain debug-gated.
+
+About/privacy copy follows authoritative `docs/requirements/07-release.md`: self-hosted Aptabase, not the historical TelemetryDeck paragraph. Retain the GourmetClient credit and truthful desktop-only no-statistics sentence. The human approved only these narrow copy amendments to the brief and affected deltas.
 
 Windows gets standard native decorated/resizable window controls, shared keyboard/pointer behaviour and built-in OS close/edit semantics; a Mac-style global menu or new custom toolbar is not implied. Windows-specific native menu design beyond this is not part of the amendment.
 
@@ -79,16 +87,20 @@ Extend `ship.sh`/`lib.sh`, don't add a second release orchestrator. Preserve exi
 
 Builders run natively: Mac `.app` via the synced tree, Windows build/installer via a provided Windows working copy/native command. `make ship` orchestrates selected native commands, rejects unavailable hosts/tools/artifact mismatches, and never fabricates a Windows artifact on Mac/Linux. A configured external Windows build command can supply the native build; keep addresses/secrets outside source, validate returned platform/version/build/checksum before success. No host provisioning or CI modification is authorised. Preserve no auto-push/upload. Fail all validation before commit/tags/history/counter; restore only edits owned by the invocation, never `git checkout` user work. Offline stubs exercise each selector and failure stage. Dry-run bypasses mutation and external distribution/notarization submission, may produce isolated unsigned test artifacts explicitly labelled nonrelease, and cannot report them as signed releases.
 
+Tasks 1.6/1.7 generate one native-build receipt contract consumed by `ship.sh` in 1.8: platform, architecture, version, build, artifact path, trust state, checksum scheme and checksum. Mac trust is `developer-id-notarized-stapled` after verification; Windows is `unsigned`. Windows hashes the installer with SHA-256. A Mac `.app` uses SHA-256 of a deterministic bundle-content manifest (sorted relative paths, entry types, modes, symlink targets and file SHA-256 values; no timestamps/absolute paths), not a public ZIP. Consumer tests recompute checksums and reject mismatched fields/trust/artifacts before bookkeeping. Task 1.8 audits the cumulative diff read-only; its edits stay within its own allowlist, with separately approved follow-up contracts for integration defects.
+
 ## Verification plan
 
 Every task: `make check`. Additional commands are not substitutes:
 
 - Mac sync/build/run: `make mac-sync`; remote commands start `export PATH=/opt/homebrew/bin:$HOME/.cargo/bin:$PATH`, use `~/vm-sync/SnackPilot-gpui/`; in `src/ui`, `cargo build --locked -p snackpilot-app --bin snackpilot-desktop`, `cargo test --locked -p snackpilot-app --lib`, then launch debug with offline fixture/demo data in the GUI and exercise real input/menu/resize. A bounded 5-second no-panic run proves liveness only, not appearance.
 - iOS: after sync, run `bash src/ui/ios/bootstrap.sh`; in `src/ui/ios`, `xcodebuild -project SnackPilot.xcodeproj -scheme SnackPilot -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build`; use the established simulator ad-hoc signing from project settings (unsigned simulators cannot prove keychain). Install/launch a concrete simulator and run relevant XCUITests with `-destination 'platform=iOS Simulator,id=<UDID>'`.
-- Android: `bash tools/devops/ui-android-build.sh --release`, then from `src/ui/android` `./gradlew :app:assembleDebug --no-daemon`; install/launch on a working emulator/device for regression evidence. Do not delete a user's installed app/data without permission; use dedicated test devices/simulators/profiles.
+- Android: compile the Rust library with `bash tools/devops/ui-android-build.sh --release` as a check, then rebuild without `--release` (`bash tools/devops/ui-android-build.sh`) before `./gradlew :app:assembleDebug --no-daemon` from `src/ui/android` and captures. The debug APK must contain the debug library for gallery/debug evidence entries. Install/launch on a working emulator/device for regression evidence. Do not delete a user's installed app/data without permission; use dedicated test devices/simulators/profiles.
 - Windows: from `src/ui`, `cargo build --locked --release -p snackpilot-app --bin snackpilot-desktop --target x86_64-pc-windows-msvc`, native app tests, `ISCC.exe` via the packaging script, then install/upgrade/uninstall and real keyboard/pointer/resize smoke on Windows 11 x64.
 - Actual screenshots for four roots/reachable details at desktop **360/720/1280**, plus **390/768** checkpoints; before/after mobile at corresponding widths, light/dark and all five accents. Follow the brief's populated/empty/auth/loading/cached-refresh/error/selection/disabled/long-content matrix; focused/hovered controls and 720's 263 px detail are essential. Store fixture/demo-only images, action traces and command output in `docs/evidence/desktop-ui-redesign/<task-id>/`; annotate scale/content widths, do not relabel phone images desktop. Tests never reach real hosts; fixture startup disables/isolates live broadcast as well as auth requests.
 - Final release: Mac install to Applications, notarization/trust validation, relaunch/update and dummy keychain/settings continuity; Windows unsigned installer on clean Windows 11 profile, launch/edit/resize, update and uninstall preserving state. Record actual artifact size and launch-to-first-frame timing with method/host, not extrapolations. `make check` is not a release trust or visual PASS.
+
+Task 1.5 supplies a debug-only isolated startup/foreground harness: select isolated data and dummy credentials and suppress live broadcast/auth before bootstrap; never read or write normal credential slots. No core/manifest changes. Register `DesktopRegressionTests.swift` explicitly in `SnackPilotUITests.sources`, regenerate the project and run on a concrete simulator UDID. The `tasks.md` evidence-status rule and named 1.2–1.4 debt remain binding: a human-approved deferral is not PASS, does not consume a fix round, and never waives behaviour or mandatory release trust/install proof.
 
 ## Risks / Trade-offs
 

@@ -23,12 +23,13 @@ Human answers in this session: Apple Silicon only; macOS 26 Tahoe and newer; exi
 
 ### Approval scope for implementation
 
-Planning writes only this change directory and makes no commit. Approval of implementation must cover the exact task file lists, including:
+Planning writes only this change directory plus the human-approved narrow Aptabase About/privacy copy amendment in `docs/design/desktop-ui-redesign.md`, and makes no commit. Approval of implementation must cover the exact task file lists, including:
 
 - `docs/requirements/08-gpui-desktop.md` shipping amendment; scope-only supersession pointers in `00-overview.md`, `04-ui-ux.md` and `07-release.md` without rewriting historical v1 content or mobile contracts.
 - `Makefile` shipping entry points and shell-test wiring; desktop packaging under `src/ui/desktop/` and `tools/devops/`; README/devops documentation and the incumbent-system inventory `docs/design/DESIGN.md`.
 - No new runtime crates or changes to dependency manifests, lockfiles, CI, `src/core`, scraping requirements, or request shapes. Inno Setup 6 is a Windows **build tool only**, explicitly named in task 1.7. If the pinned stack cannot support a required native feature, stop for approval rather than upgrading dependencies or restoring Tauri/Velopack.
 - `openspec/specs/` remains untouched during implementation; normal reviewed delta sync/archive is separate. No push, merge, release execution or signing-secret access is authorised by this planning request.
+- Approved in-flight contract repair: task 1.5's purpose-scoped keyboard/focus, settings projection/command policy, explicit UITest registration, application/reopen and isolated offline evidence harness additions are listed in `tasks.md`; durable storage remains in 1.6. Evidence statuses/deferrals preserve mandatory behaviour and release trust/install gates. Privacy follows self-hosted Aptabase under authoritative `07-release.md`, not historical TelemetryDeck copy; no protected requirement edit is made by this repair.
 
 ## Capabilities
 
@@ -39,7 +40,7 @@ Planning writes only this change directory and makes no commit. Approval of impl
 ### Modified Capabilities
 
 - `ui-shell`: replace obsolete desktop-only bottom-bar/480 px requirements (`REQ-UI-04`, `REQ-UI-07`); add model-owned workspace selection, keyboard/focus/modal rules, desktop recipes and macOS menu integration (`REQ-UI-10`–`REQ-UI-14`).
-- `ui-screens`: retain incumbent mobile/domain contracts while explicitly defining wide-desktop presentations for all four destinations, settings forms, dialogs and unsupported notification fallback (`REQ-SCR-01`–`REQ-SCR-04`, `REQ-SCR-08`).
+- `ui-screens`: retain incumbent mobile/domain contracts while explicitly defining wide-desktop presentations for all four destinations, settings forms, dialogs and unsupported notification fallback (`REQ-SCR-01`–`REQ-SCR-04`, `REQ-SCR-08`); narrowly gate unsupported desktop notification/geofence bootstrap work while retaining mobile ordering (`REQ-SCR-09`).
 
 ## Impact
 
