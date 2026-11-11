@@ -224,8 +224,27 @@ fn init_kit(cx: &mut App) {
     Theme::global_mut(cx).font_family = "Inter".into();
 }
 
-/// Desktop frame (task 2.3, REQ-UI-07): the app shell centred in a column of
-/// at most 480 logical px; no sidebar (human-approved decision).
+/// Desktop content width rule (desktop-ui-redesign task 1.2, REQ-UI-07).
+/// Below the model's 720 px desktop breakpoint the shell stays the centred
+/// phone column of at most 480 px; at and above it the shell takes the whole
+/// window, so the rail and the workspace fit and the old 480 px cap is gone.
+/// The breakpoint is the model's, never a second literal here.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub(crate) fn desktop_content_width(window_width: f32) -> f32 {
+    let host = snackpilot_model::desktop::HostKind::Desktop;
+    if snackpilot_model::desktop::layout_mode(host, window_width)
+        == snackpilot_model::desktop::LayoutMode::Phone
+    {
+        window_width.min(snackpilot_model::desktop::PHONE_CONTENT_MAX)
+    } else {
+        window_width
+    }
+}
+
+/// Desktop frame (REQ-UI-07): reports the live content width and the desktop
+/// host to the model, then lays the shell out at
+/// [`desktop_content_width`] — a centred phone column in a narrow window, the
+/// full width once the shell turns into the rail workspace.
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 struct DesktopFrame {
     root: Entity<app::AppShell>,
@@ -233,14 +252,58 @@ struct DesktopFrame {
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 impl Render for DesktopFrame {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().flex().justify_center().child(
-            div()
-                .h_full()
-                .w_full()
-                .max_w(px(480.))
-                .child(self.root.clone()),
-        )
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Report only changes: the model notifies on every write and the
+        // shell repaints on notifications, so an unconditional report would
+        // repaint forever.
+        let width = f32::from(window.viewport_size().width);
+        let content_width = desktop_content_width(width);
+        let model = self.root.read(cx).model.clone();
+        if let Some(model) = model {
+            if model.state().host_kind != snackpilot_model::desktop::HostKind::Desktop {
+                model.set_host_kind(snackpilot_model::desktop::HostKind::Desktop);
+            }
+            if model.state().content_width != content_width {
+                model.set_content_width(content_width);
+            }
+        }
+        div()
+            .size_full()
+            .flex()
+            .justify_center()
+            .child(div().h_full().w(px(content_width)).child(self.root.clone()))
+    }
+}
+
+#[cfg(all(test, not(any(target_os = "ios", target_os = "android"))))]
+mod tests {
+    use super::desktop_content_width;
+
+    /// The desktop frame drops the 480 px cap exactly at the model's 720 px
+    /// breakpoint and centres a phone column below it.
+    /// @req REQ-UI-07
+    #[test]
+    fn desktop_frame_width_follows_the_breakpoint() {
+        assert_eq!(
+            desktop_content_width(360.),
+            360.,
+            "narrow keeps the window width"
+        );
+        assert_eq!(
+            desktop_content_width(719.),
+            480.,
+            "below 720 stays a phone column"
+        );
+        assert_eq!(
+            desktop_content_width(720.),
+            720.,
+            "720 is the inclusive gate"
+        );
+        assert_eq!(
+            desktop_content_width(1280.),
+            1280.,
+            "no cap above the breakpoint"
+        );
     }
 }
 

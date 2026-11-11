@@ -22,6 +22,9 @@ pub type TabSelect = Rc<dyn Fn(Tab, &mut Window, &mut App)>;
 pub const IOS_PILL_HEIGHT: f32 = 56.;
 /// Height of the Android/desktop bottom bar (§2.2).
 pub const BAR_HEIGHT: f32 = 64.;
+/// Every desktop tab target meets the 44 px floor (brief `desktop.targetMin`);
+/// the phone metrics above stay as they are.
+pub const DESKTOP_TARGET: f32 = snackpilot_model::desktop::TARGET_MIN;
 
 /// Approximation of Android `elevation: N` (04 §7) as a black drop shadow,
 /// scaled like Material's key light (same shape as `theme::elevation_shadow`).
@@ -56,7 +59,7 @@ const HIT_SLOP: f32 = 8.;
 /// four — so the active state is conveyed by colour (primary vs tertiary)
 /// plus the 5×5 dot, matching §2.2's Android dialect. Documented limitation
 /// (see 4.2 evidence note).
-fn tab_icon(tab: Tab) -> IconName {
+pub(crate) fn tab_icon(tab: Tab) -> IconName {
     match tab {
         Tab::Menus => IconName::Utensils,
         Tab::Orders => IconName::Receipt,
@@ -113,6 +116,13 @@ fn tab_button(
         .items_center()
         .justify_center()
         .cursor_pointer()
+        // Desktop pointer focus hooks. `flat` covers the desktop host; a
+        // pointer hover never occurs on the touch-only phone hosts, and no
+        // resting dimension or colour changes.
+        .when(flat, |d| {
+            d.hover(|s| s.bg(theme.surface_variant))
+                .focus(crate::theme::desktop_focus(theme.desktop.focus))
+        })
         .on_click(move |_, window, cx| on_select(tab, window, cx))
         .child(icon);
 

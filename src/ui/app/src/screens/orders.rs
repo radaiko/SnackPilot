@@ -3,7 +3,7 @@
 //! Segment tabs, the unconfirmed banner with its plural text, the confirm
 //! banner action, `OrderItem` cards with the dish lookup and cancel flow, the
 //! multi-select batch cancel and the empty/error states. All state comes from
-//! `AppModel`; the only view-local value is the active segment.
+//! `AppModel`, including the active segment (`State::orders_past`).
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -53,13 +53,12 @@ pub fn orders_tab(
         Segment::Upcoming
     };
 
+    // The segment is model state (task 1.1): the binding sets it and the
+    // model's notification repaints the shell, so no view copy exists.
     let select_segment = {
-        let shell = cx.entity().clone();
-        Rc::new(move |segment: Segment, _w: &mut Window, cx: &mut App| {
-            shell.update(cx, |s, cx| {
-                s.orders_past = segment == Segment::Past;
-                cx.notify();
-            });
+        let model = Arc::clone(model);
+        Rc::new(move |segment: Segment, _w: &mut Window, _cx: &mut App| {
+            model.set_orders_segment(segment == Segment::Past);
         })
     };
 

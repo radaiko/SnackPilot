@@ -4,16 +4,25 @@
 //! the bundled Inter fonts. Opened by the debug hook in `mount` when
 //! `SNACKPILOT_GALLERY=1` (the desktop binary is task 4.2's file).
 
+use std::rc::Rc;
+
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::InputState;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{Icon, StyledExt};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, App, Context, Entity, SharedString, Window};
+use gpui_kit::{div, px, AnyElement, App, Context, Entity, SharedString, Window};
+use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
+use snackpilot_model::navigation::Tab;
 use snackpilot_model::AccentColor;
 
-use crate::components::{banner, button, card, chip, spinner, switch, text_field};
-use crate::theme::{use_flat_style, AppTheme};
+use crate::components::tab_bar::TabSelect;
+use crate::components::{
+    banner, button, card, chip, desktop_navigation, loading_overlay, record_table, spinner, switch,
+    text_field, toast, workspace,
+};
+use crate::navigation::ClickHandler;
+use crate::theme::{self, use_flat_style, AppTheme};
 
 /// Which half of the gallery to show. Both stacked is the default; the debug
 /// section knob (see `crate::gallery_requested`) picks one so a screenshot fits
@@ -34,6 +43,9 @@ pub struct GalleryRoot {
     page: usize,
     light_field: Entity<InputState>,
     dark_field: Entity<InputState>,
+    /// Five independent desktop field states per appearance, so the desktop
+    /// page can paint rest/hover/focus/disabled/selected in one frame.
+    control_fields: [Vec<Entity<InputState>>; 2],
 }
 
 impl GalleryRoot {
@@ -43,8 +55,15 @@ impl GalleryRoot {
         let dark = AppTheme::build(true, AccentColor::Orange, flat);
         let (light_field, _) = text_field::text_field("Suchen", None, &light, window, cx);
         let (dark_field, _) = text_field::text_field("Suchen", None, &dark, window, cx);
+        let mut fields = |theme: &AppTheme| -> Vec<Entity<InputState>> {
+            (0..5)
+                .map(|_| text_field::text_field("Suchen", None, theme, window, cx).0)
+                .collect()
+        };
+        let control_fields = [fields(&light), fields(&dark)];
         let page = match crate::gallery_page().as_deref() {
             Some("bottom") | Some("1") => 1,
+            Some("desktop") | Some("2") => 2,
             _ => 0,
         };
         Self {
@@ -53,6 +72,7 @@ impl GalleryRoot {
             page,
             light_field,
             dark_field,
+            control_fields,
         }
     }
 
@@ -139,9 +159,25 @@ impl GalleryRoot {
                                 });
                             }
                         },
+                    ))
+                    .child(button::button_action(
+                        format!("page2-{dark}"),
+                        "Desktop",
+                        button::ButtonKind::Secondary,
+                        &theme,
+                        cx,
+                        {
+                            let page_e = page_entity.clone();
+                            move |_, _window, cx| {
+                                page_e.update(cx, |this, cx| {
+                                    this.page = 2;
+                                    cx.notify();
+                                });
+                            }
+                        },
                     )),
             );
-        if self.page != 1 {
+        if self.page == 0 {
             sec = sec
                 // Filter chips with the §2 tab icons (Lucide substitutions).
                 .child(chip::chip_row(
@@ -298,16 +334,388 @@ impl GalleryRoot {
     }
 }
 
+/// The desktop gallery page: the shell at both desktop widths with the
+/// labelled rail, then every shared control forced through rest/hover/focus/
+/// disabled/selected. Light and dark are rendered by the caller exactly like
+/// the mobile pages, and every focus ring sits in its reserved 4 px room.
+fn desktop_section(
+    dark: bool,
+    fields: &Vec<Entity<InputState>>,
+    cx: &mut Context<GalleryRoot>,
+) -> AnyElement {
+    let theme = AppTheme::build(dark, AccentColor::Orange, use_flat_style());
+    let title: SharedString = if dark {
+        "Desktop · Dunkel".into()
+    } else {
+        "Desktop · Hell".into()
+    };
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(px(12.))
+        .p_4()
+        .bg(theme.background)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .text_size(px(20.))
+                        .font_semibold()
+                        .text_color(theme.text_primary)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .text_color(theme.text_secondary)
+                        .child("SnackPilot Desktop Ledger · Kompakt/Erweitert"),
+                ),
+        )
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .font_semibold()
+                .text_color(theme.text_secondary)
+                .child("Shell · Rail 176/192 px · Panel · Master/Detail"),
+        )
+        .child(desktop_shell_frame(
+            720.,
+            desktop_shell(720., &theme, cx, "Kompakt · 720"),
+        ))
+        .child(desktop_shell_frame(
+            1280.,
+            desktop_shell(1280., &theme, cx, "Erweitert · 1280"),
+        ))
+        .child(desktop_controls(&theme, dark, fields, cx))
+        .into_any_element()
+}
+
+/// A shell's own horizontal scroll viewport: the frame is exactly `width`
+/// wide, so a compact shell never stretches to an expanded shell's width and
+/// the gallery window can scroll each shell independently.
+fn desktop_shell_frame(width: f32, shell: AnyElement) -> AnyElement {
+    div()
+        .w_full()
+        .overflow_x_scrollbar()
+        .child(div().w(px(width)).flex_shrink_0().child(shell))
+        .into_any_element()
+}
+
+/// One shell at `width`: the model's geometry, the rail and a split workspace.
+fn desktop_shell(
+    width: f32,
+    theme: &AppTheme,
+    cx: &mut Context<GalleryRoot>,
+    caption: &'static str,
+) -> AnyElement {
+    let geometry = desktop_geometry(HostKind::Desktop, width);
+    let active = Tab::Orders;
+    let select: TabSelect = Rc::new(|_, _, _| {});
+    let refresh: ClickHandler = Rc::new(|_, _| {});
+    let detail_pad = if width >= 1024. { 24. } else { 16. };
+
+    let master = div()
+        .flex()
+        .flex_col()
+        .child(record_table::record_header(
+            vec!["Datum", "Bestellung", "Status"],
+            theme,
+        ))
+        .child(record_table::record_row(
+            "gallery-order-1",
+            vec![
+                record_table::record_cell("10.11.2026", theme),
+                record_table::record_cell("MENÜ I", theme),
+                record_table::record_cell("Bestätigt", theme),
+            ],
+            true,
+            None,
+            theme,
+        ))
+        .child(record_table::record_row(
+            "gallery-order-2",
+            vec![
+                record_table::record_cell("11.11.2026", theme),
+                record_table::record_cell("MENÜ II", theme),
+                record_table::record_cell("Ausstehend", theme),
+            ],
+            false,
+            None,
+            theme,
+        ));
+
+    let detail = div()
+        .p(px(detail_pad))
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(theme.text_secondary)
+                .child("Dienstag, 10. November 2026"),
+        )
+        .child(
+            div()
+                .text_size(px(20.))
+                .line_height(px(26.))
+                .font_semibold()
+                .text_color(theme.desktop.ink)
+                .child("MENÜ I"),
+        )
+        .child(
+            div()
+                .text_size(px(16.))
+                .line_height(px(24.))
+                .text_color(theme.desktop.ink)
+                .child("Rindsgulasch mit Serviettenknödel und Salat"),
+        )
+        .child(button::desktop_action(
+            format!("gallery-cancel-{width}"),
+            "Stornieren",
+            button::ButtonKind::Danger,
+            theme,
+            cx,
+            |_, _, _| {},
+        ));
+
+    let panel = theme::apply(
+        div()
+            .w(px(geometry.workspace_width))
+            .h(px(360.))
+            .flex()
+            .flex_col()
+            .overflow_hidden(),
+        &theme.workspace_panel(),
+    )
+    .child(workspace::workspace_header(
+        active.title(),
+        Some(refresh),
+        theme,
+    ))
+    .child(workspace::split_workspace(
+        master.into_any_element(),
+        detail.into_any_element(),
+        &geometry,
+        theme,
+    ));
+
+    div()
+        .w(px(width))
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(theme.text_secondary)
+                .child(caption),
+        )
+        .child(
+            div()
+                .w(px(width))
+                .flex()
+                .flex_row()
+                .h(px(360.))
+                .child(desktop_navigation::desktop_rail(
+                    active,
+                    geometry.rail_width,
+                    theme,
+                    select,
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .justify_center()
+                        .child(panel),
+                ),
+        )
+        .into_any_element()
+}
+
+/// Every shared control on the desktop recipe, forced through the five states
+/// so a screenshot shows rest, hover, focus, disabled and selected side by
+/// side. Each ring is painted inside a reserved 4 px frame, so none clips.
+fn desktop_controls(
+    theme: &AppTheme,
+    dark: bool,
+    fields: &Vec<Entity<InputState>>,
+    cx: &mut Context<GalleryRoot>,
+) -> AnyElement {
+    const STATES: [ControlState; 5] = [
+        ControlState::Rest,
+        ControlState::Hover,
+        ControlState::Focus,
+        ControlState::Disabled,
+        ControlState::Selected,
+    ];
+    let caption = |text: &'static str| {
+        div()
+            .text_size(px(12.))
+            .line_height(px(16.))
+            .font_semibold()
+            .text_color(theme.text_secondary)
+            .child(text)
+    };
+    let state_label = |state: ControlState| {
+        let text = match state {
+            ControlState::Rest => "Ruhe",
+            ControlState::Hover => "Hover",
+            ControlState::Focus => "Fokus",
+            ControlState::Disabled => "Deaktiviert",
+            ControlState::Selected => "Ausgewählt",
+        };
+        div()
+            .text_size(px(12.))
+            .line_height(px(16.))
+            .text_color(theme.text_secondary)
+            .child(text)
+    };
+    // One row per control: five forced states, each captioned underneath.
+    let state_row = |render: &dyn Fn(ControlState) -> AnyElement| -> AnyElement {
+        div()
+            .flex()
+            .flex_wrap()
+            .items_start()
+            .gap(px(8.))
+            .children(STATES.into_iter().map(|state| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(2.))
+                    .child(render(state))
+                    .child(state_label(state))
+                    .into_any_element()
+            }))
+            .into_any_element()
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(12.))
+        .child(caption("Aktion · 44 px, Radius 8, ohne Schatten"))
+        .child(state_row(&|state| {
+            button::desktop_action_state(
+                format!("gallery-action-{dark}-{state:?}"),
+                "Bestellen",
+                button::ButtonKind::Primary,
+                state,
+                theme,
+                cx,
+                |_, _, _| {},
+            )
+            .into_any_element()
+        }))
+        .child(caption(
+            "Filter · 44 px, 12 px Innenabstand, Haken bei Auswahl",
+        ))
+        .child(state_row(&|state| {
+            chip::desktop_chip(None, "Kantine", state, theme).into_any_element()
+        }))
+        .child(caption("Eingabe · 44 px, surface + border_input"))
+        .child(state_row(&|state| {
+            text_field::desktop_field_with_state(&fields[state_index(state)], state, theme)
+                .w(px(160.))
+                .into_any_element()
+        }))
+        .child(caption(
+            "Ledger-Karte · panelSurface, 1 px Rand, ohne Schatten",
+        ))
+        .child(state_row(&|state| {
+            card::desktop_card(
+                theme,
+                state,
+                [div()
+                    .text_size(px(14.))
+                    .line_height(px(20.))
+                    .font_semibold()
+                    .text_color(theme.desktop.ink)
+                    .child("Belege")
+                    .into_any_element()],
+            )
+            .into_any_element()
+        }))
+        .child(caption(
+            "Toast · 300/4000/300 ms, Panel-Rezept, 16 px Innenabstand",
+        ))
+        .child(
+            div()
+                .relative()
+                .h(px(96.))
+                .w_full()
+                .overflow_hidden()
+                .child(toast::desktop_toast(
+                    &toast::Toast {
+                        message: "Neue Menüs verfügbar!".into(),
+                        phase: toast::ToastPhase::Hold,
+                    },
+                    8.,
+                    theme,
+                )),
+        )
+        .child(caption(
+            "Lade-Overlay · overlay über der ganzen Shell, Panel-Karte",
+        ))
+        .child(
+            div()
+                .relative()
+                .h(px(160.))
+                .w_full()
+                .overflow_hidden()
+                .child(loading_overlay::desktop_loading_overlay(theme)),
+        )
+        .into_any_element()
+}
+
+/// Index of a forced state in the `STATES` order used by the gallery rows.
+fn state_index(state: ControlState) -> usize {
+    match state {
+        ControlState::Rest => 0,
+        ControlState::Hover => 1,
+        ControlState::Focus => 2,
+        ControlState::Disabled => 3,
+        ControlState::Selected => 4,
+    }
+}
+
 impl Render for GalleryRoot {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut col = div().size_full().flex().flex_col().overflow_y_scrollbar();
-        match self.which {
-            Section::Light => col = col.child(self.section(false, &self.light_field, cx)),
-            Section::Dark => col = col.child(self.section(true, &self.dark_field, cx)),
-            Section::Both => {
-                col = col
-                    .child(self.section(false, &self.light_field, cx))
-                    .child(self.section(true, &self.dark_field, cx))
+        if self.page == 2 {
+            match self.which {
+                Section::Light => {
+                    col = col.child(desktop_section(false, &self.control_fields[0], cx))
+                }
+                Section::Dark => {
+                    col = col.child(desktop_section(true, &self.control_fields[1], cx))
+                }
+                Section::Both => {
+                    col = col
+                        .child(desktop_section(false, &self.control_fields[0], cx))
+                        .child(desktop_section(true, &self.control_fields[1], cx))
+                }
+            }
+        } else {
+            match self.which {
+                Section::Light => col = col.child(self.section(false, &self.light_field, cx)),
+                Section::Dark => col = col.child(self.section(true, &self.dark_field, cx)),
+                Section::Both => {
+                    col = col
+                        .child(self.section(false, &self.light_field, cx))
+                        .child(self.section(true, &self.dark_field, cx))
+                }
             }
         }
         col

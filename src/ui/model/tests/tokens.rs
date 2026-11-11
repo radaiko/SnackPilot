@@ -270,3 +270,67 @@ fn blur_tokens_match_spec() {
     assert_eq!(BLUR_INTENSITY_STRONG, (80, 90));
     assert_eq!(BLUR_INTENSITY_SUBTLE, (25, 30));
 }
+
+/// Desktop extension (desktop-ui-redesign D4): every derived desktop fill is
+/// computed only from pinned tokens above — filled actions use
+/// `primaryDark`/`primary`, destructive uses `error`, panel uses `surface`,
+/// rail uses `background`, inks use `textPrimary` — and hover/press are the
+/// fixed mixes toward `textPrimary`. No new colour literals enter the desktop
+/// shell; the mobile tables above stay byte-identical.
+/// @req REQ-UI-13
+#[test]
+fn desktop_extension_derives_from_pinned_tokens() {
+    use snackpilot_model::desktop::{
+        action_fill, action_hover_fill, action_pressed_fill, danger_fill, focus_ink, mix_toward,
+        panel_fill, parse_color, rail_fill, text_ink, ACTION_HOVER_MIX, ACTION_PRESSED_MIX,
+    };
+    for dark in [false, true] {
+        let ink = parse_color(if dark {
+            TEXT_PRIMARY.dark
+        } else {
+            TEXT_PRIMARY.light
+        });
+        assert_eq!(text_ink(dark), ink, "text ink is the pinned textPrimary");
+        assert_eq!(focus_ink(dark), ink, "focus ring is the pinned textPrimary");
+        assert_eq!(
+            panel_fill(dark),
+            parse_color(if dark { SURFACE.dark } else { SURFACE.light }),
+            "panel is the pinned surface"
+        );
+        assert_eq!(
+            rail_fill(dark),
+            parse_color(if dark {
+                BACKGROUND.dark
+            } else {
+                BACKGROUND.light
+            }),
+            "rail is the pinned background"
+        );
+        assert_eq!(
+            danger_fill(dark),
+            parse_color(if dark { ERROR.dark } else { ERROR.light }),
+            "destructive fill is the pinned error"
+        );
+        for a in ACCENTS.iter() {
+            let fill = action_fill(if dark { &a.dark } else { &a.light }, dark);
+            let expected = parse_color(if dark {
+                a.dark.primary
+            } else {
+                a.light.primary_dark
+            });
+            assert_eq!(fill, expected, "{} filled action rest fill", a.id);
+            assert_eq!(
+                action_hover_fill(fill, ink),
+                mix_toward(fill, ink, ACTION_HOVER_MIX),
+                "{} hover is the 8 % mix",
+                a.id
+            );
+            assert_eq!(
+                action_pressed_fill(fill, ink),
+                mix_toward(fill, ink, ACTION_PRESSED_MIX),
+                "{} pressed is the 14 % mix",
+                a.id
+            );
+        }
+    }
+}

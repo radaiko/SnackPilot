@@ -1,9 +1,11 @@
 //! Chips (04 §4): filter chips and status tags, styled by the §7
 //! selected/unselected chip and badge recipes.
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::{tag::Tag, Icon};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, Div, SharedString};
+use snackpilot_model::desktop::{ControlState, TARGET_MIN};
 
 use crate::theme::{self, AppTheme};
 
@@ -47,6 +49,68 @@ fn chip_inner(
         chip = chip.child(icon.text_color(fg));
     }
     chip.child(div().text_size(px(13.)).text_color(fg).child(label.into()))
+}
+
+/// Desktop filter option (brief `desktop.filterOption`): a 44 px target, 12 px
+/// side padding, radius 8. The `state` hook paints rest/hover/focus/disabled
+/// and the selected tint with a check mark; the selected border is a control
+/// boundary on that tint, so it paints the resolved `accent_boundary` (3:1 on
+/// the selection fill for every accent). The reserved 4 px ring room keeps
+/// focus from clipping. The mobile chip above keeps its metrics.
+/// @req REQ-UI-07 @req REQ-UI-13
+pub fn desktop_chip(
+    icon: Option<Icon>,
+    label: impl Into<SharedString>,
+    state: ControlState,
+    theme: &AppTheme,
+) -> Div {
+    let selected = state == ControlState::Selected;
+    let fg = if selected {
+        theme.desktop.accent_on_selection
+    } else {
+        theme.control_ink(state)
+    };
+    let hover_fill = if selected {
+        theme.control_fill(ControlState::Selected)
+    } else {
+        theme.control_fill(ControlState::Hover)
+    };
+    let chip = div()
+        .flex()
+        .items_center()
+        .min_h(px(TARGET_MIN))
+        .gap(px(6.))
+        .px(px(12.))
+        .rounded(px(8.))
+        .bg(theme.control_fill(state))
+        .border(px(1.))
+        .border_color(if selected {
+            theme.desktop.accent_boundary
+        } else {
+            theme.control_border(state)
+        })
+        .hover(move |s| s.bg(hover_fill));
+    let chip = if selected {
+        chip.child(Icon::new(IconName::Check).text_color(fg))
+    } else {
+        chip
+    };
+    let chip = match icon {
+        Some(icon) => chip.child(icon.text_color(fg)),
+        None => chip,
+    };
+    theme::focus_frame(
+        chip.child(
+            div()
+                .text_size(px(14.))
+                .line_height(px(20.))
+                .text_color(fg)
+                .child(label.into()),
+        ),
+        state,
+        8.,
+        theme,
+    )
 }
 
 /// Row of chips (the filter strip).
