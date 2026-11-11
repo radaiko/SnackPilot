@@ -273,3 +273,111 @@ fn receipt_identities_are_stable_and_context_change_clears_only_them() {
         "a month change must clear the receipts preview"
     );
 }
+
+#[test]
+/// @req REQ-SCR-03
+fn billing_context_clears_hidden_preview() {
+    let model = demo_model("hidden-preview");
+    model.select_month(1);
+    model.set_billing_source(BillingSource::All);
+
+    // Preview an Automaten receipt, then filter it out of the visible list.
+    let ventopay_id = model
+        .merged_entries()
+        .iter()
+        .find(|e| e.id.starts_with("v-"))
+        .map(|e| e.id.clone())
+        .expect("demo month has an Automaten receipt");
+    model.open_preview(ListKind::Receipts, &ventopay_id);
+    model.set_cursor(ListKind::Receipts, Some(ventopay_id.clone()));
+
+    model.set_billing_source(BillingSource::Gourmet);
+
+    assert!(
+        model.merged_entries().iter().all(|e| e.id != ventopay_id),
+        "the Kantine filter must hide the Automaten receipt"
+    );
+    assert_eq!(
+        model.preview(ListKind::Receipts),
+        None,
+        "a preview of a now-hidden receipt must be cleared, not kept"
+    );
+    assert_eq!(
+        model.cursor(ListKind::Receipts).as_deref(),
+        Some(ventopay_id.as_str()),
+        "clearing the hidden preview keeps the cursor identity"
+    );
+}
+
+#[test]
+/// @req REQ-SCR-03
+fn same_date_amount_receipts_keep_distinct_ids() {
+    // Inject two Gourmet bills that share one day and one amount but carry
+    // different receipt numbers. A past month is served from the cache, so
+    // the demo fetch does not replace them.
+    let dir = temp_dir("same-date-amount");
+    let model = AppModel::new(dir.clone(), Arc::new(FakePlatform::new())).unwrap();
+    model.login(DEMO_USER, DEMO_PASS).unwrap();
+
+    let past = model
+        .state()
+        .month_options
+        .iter()
+        .find(|m| m.offset == 1)
+        .expect("a past month option")
+        .key
+        .clone();
+    let day = 1_790_000_000_000i64;
+    let bills = vec![
+        snackpilot_core::domain::Bill {
+            bill_nr: 7_001,
+            bill_date_epoch_ms: day,
+            location: "Kantine".into(),
+            items: Vec::new(),
+            billing: 4.20,
+        },
+        snackpilot_core::domain::Bill {
+            bill_nr: 7_002,
+            bill_date_epoch_ms: day,
+            location: "Kantine".into(),
+            items: Vec::new(),
+            billing: 4.20,
+        },
+    ];
+    std::fs::write(
+        dir.join(format!("billing_{past}.val")),
+        serde_json::to_string(&bills).unwrap(),
+    )
+    .unwrap();
+    model.core().load_cached_billing_months();
+    model.select_month(1);
+
+    let entries = model.merged_entries();
+    let injected: Vec<&snackpilot_model::BillingEntry> = entries
+        .iter()
+        .filter(|e| e.id == "g-7001" || e.id == "g-7002")
+        .collect();
+    assert_eq!(
+        injected.len(),
+        2,
+        "both same-day, same-amount receipts must survive the merge"
+    );
+    assert_eq!(
+        injected[0].epoch_ms, injected[1].epoch_ms,
+        "the receipts share one day"
+    );
+    assert_eq!(
+        injected[0].amount.to_bits(),
+        injected[1].amount.to_bits(),
+        "the receipts share one amount"
+    );
+    assert_ne!(
+        injected[0].id, injected[1].id,
+        "distinct receipt numbers keep distinct identities"
+    );
+    assert_eq!(
+        snackpilot_model::format_eur(injected[0].amount),
+        snackpilot_model::format_eur(injected[1].amount),
+        "the formatted amount is identical; only the receipt number identifies"
+    );
+}

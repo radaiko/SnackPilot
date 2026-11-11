@@ -641,3 +641,142 @@ fn past_segment_exits_batch_without_cancel() {
         "a segment switch must not cancel anything"
     );
 }
+
+#[test]
+/// @req REQ-SCR-02
+fn order_preview_does_not_cancel_or_check() {
+    let (model, fake) = demo_model("preview-inert");
+    order_one(&model, MenuCategory::Menu1);
+    order_one(&model, MenuCategory::Menu2);
+    let before: Vec<String> = upcoming(&model)
+        .iter()
+        .map(|o| o.position_id.clone())
+        .collect();
+    let id = before[0].clone();
+
+    model.open_preview(ListKind::Orders, &id);
+
+    assert_eq!(
+        model.preview(ListKind::Orders),
+        Some(id.clone()),
+        "the row must be previewed"
+    );
+    assert!(
+        !model.state().order_selection_mode,
+        "a preview must not enter batch selection"
+    );
+    assert!(
+        model.state().selected_order_ids.is_empty(),
+        "a preview must not check anything"
+    );
+    assert_eq!(
+        upcoming(&model)
+            .iter()
+            .map(|o| o.position_id.clone())
+            .collect::<Vec<_>>(),
+        before,
+        "previewing must not change the order list"
+    );
+    assert!(
+        cancelled_tracks(&fake).is_empty(),
+        "previewing must never cancel"
+    );
+    assert!(
+        model.state().cancelling_id.is_none() && !model.state().busy,
+        "previewing must not start a cancel flow"
+    );
+}
+
+#[test]
+/// @req REQ-SCR-02
+fn checkbox_toggles_once_without_preview_change() {
+    let (model, fake) = demo_model("preview-check");
+    order_one(&model, MenuCategory::Menu1);
+    order_one(&model, MenuCategory::Menu2);
+    let orders = upcoming(&model);
+    let previewed = orders[0].position_id.clone();
+    let checked = orders[1].position_id.clone();
+
+    model.open_preview(ListKind::Orders, &previewed);
+    model.begin_order_selection();
+    model.toggle_order_selection(&checked);
+
+    assert_eq!(
+        model.preview(ListKind::Orders),
+        Some(previewed.clone()),
+        "the checkbox must not move the preview"
+    );
+    assert_eq!(
+        model.state().selected_order_ids,
+        vec![checked.clone()],
+        "one checkbox activation checks exactly one id"
+    );
+
+    model.toggle_order_selection(&checked);
+
+    assert!(
+        model.state().selected_order_ids.is_empty(),
+        "the second activation clears the check"
+    );
+    assert_eq!(
+        model.preview(ListKind::Orders),
+        Some(previewed),
+        "checking and unchecking must leave the preview alone"
+    );
+    assert!(
+        cancelled_tracks(&fake).is_empty(),
+        "batch checks alone must never cancel"
+    );
+}
+
+#[test]
+/// @req REQ-SCR-02
+fn cancelled_preview_restores_nearest_cursor() {
+    let (model, fake) = demo_model("preview-cancel");
+    order_one(&model, MenuCategory::Menu1);
+    order_one(&model, MenuCategory::Menu2);
+    order_one(&model, MenuCategory::Menu3);
+    let previous: Vec<String> = upcoming(&model)
+        .iter()
+        .map(|o| o.position_id.clone())
+        .collect();
+    assert_eq!(previous.len(), 3, "three orders placed");
+    let cancelled = previous[1].clone();
+
+    model.open_preview(ListKind::Orders, &cancelled);
+    model.cancel_order(&cancelled);
+
+    let surviving: Vec<String> = upcoming(&model)
+        .iter()
+        .map(|o| o.position_id.clone())
+        .collect();
+    assert!(
+        !surviving.contains(&cancelled),
+        "the cancelled order must leave the list"
+    );
+    assert_eq!(
+        model.preview(ListKind::Orders),
+        Some(cancelled.clone()),
+        "cancel itself does not reconcile the preview; the shell must"
+    );
+
+    // What the desktop shell does right after the cancel returns.
+    let cleared = model.reconcile_list(ListKind::Orders, &previous, &surviving);
+
+    assert!(cleared, "the dead preview must be cleared");
+    assert_eq!(
+        model.preview(ListKind::Orders),
+        None,
+        "no preview may point at a removed row"
+    );
+    assert_eq!(
+        model.cursor(ListKind::Orders),
+        Some(previous[0].clone()),
+        "the cursor moves to the nearest surviving row (tie goes earlier)"
+    );
+    assert_eq!(
+        cancelled_tracks(&fake),
+        vec!["1".to_string()],
+        "exactly one cancel, nothing else"
+    );
+}
