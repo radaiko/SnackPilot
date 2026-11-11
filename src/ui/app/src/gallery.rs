@@ -12,16 +12,19 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{Icon, StyledExt};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, AnyElement, App, Context, Entity, SharedString, Window};
+use snackpilot_core::domain::{MenuCategory, MenuItem};
 use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
 use snackpilot_model::navigation::Tab;
 use snackpilot_model::AccentColor;
 
+use crate::components::menu_card::{desktop_menu_row, DesktopMenuRowState};
 use crate::components::tab_bar::TabSelect;
 use crate::components::{
     banner, button, card, chip, desktop_navigation, loading_overlay, record_table, spinner, switch,
     text_field, toast, workspace,
 };
 use crate::navigation::ClickHandler;
+use crate::screens::menus::{desktop_menu_detail, desktop_submit_action};
 use crate::theme::{self, use_flat_style, AppTheme};
 
 /// Which half of the gallery to show. Both stacked is the default; the debug
@@ -391,8 +394,208 @@ fn desktop_section(
             1280.,
             desktop_shell(1280., &theme, cx, "Erweitert · 1280"),
         ))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .font_semibold()
+                .text_color(theme.text_secondary)
+                .child("Menüs · Vorschau, ausdrückliche Aktion, alle Tage"),
+        )
+        .child(desktop_shell_frame(
+            720.,
+            desktop_menus_case(720., &theme, cx),
+        ))
+        .child(desktop_shell_frame(
+            1280.,
+            desktop_menus_case(1280., &theme, cx),
+        ))
         .child(desktop_controls(&theme, dark, fields, cx))
         .into_any_element()
+}
+
+/// The offline Menüs scenario (task 1.3): the real row and detail helpers over
+/// static items, so preview/pending/ordered/unavailable/cutoff are visible
+/// without a host, a request or a credential.
+fn desktop_menus_case(width: f32, theme: &AppTheme, cx: &mut Context<GalleryRoot>) -> AnyElement {
+    let geometry = desktop_geometry(HostKind::Desktop, width);
+    let noop: ClickHandler = Rc::new(|_, _| {});
+    let select: TabSelect = Rc::new(|_, _, _| {});
+    let rows = gallery_menu_rows();
+
+    let mut master = div().flex().flex_col().child(
+        div()
+            .px(px(16.))
+            .pt(px(16.))
+            .pb(px(8.))
+            .text_size(px(14.))
+            .line_height(px(20.))
+            .font_semibold()
+            .text_color(theme.desktop.ink)
+            .child("MENÜ I"),
+    );
+    for (item, state) in &rows {
+        master = master.child(desktop_menu_row(item, *state, noop.clone(), theme));
+    }
+
+    let (item, state) = &rows[0];
+    let detail = desktop_menu_detail(item, *state, false, noop.clone(), theme, width, cx);
+    let strip = workspace::action_strip(
+        vec![div()
+            .flex()
+            .w_full()
+            .justify_end()
+            .child(desktop_submit_action(
+                "Änderungen bestätigen (3)".to_string(),
+                theme,
+                noop.clone(),
+            ))
+            .into_any_element()],
+        theme,
+    );
+
+    let panel = theme::apply(
+        div()
+            .w(px(geometry.workspace_width))
+            .h(px(400.))
+            .flex()
+            .flex_col()
+            .overflow_hidden(),
+        &theme.workspace_panel(),
+    )
+    .child(workspace::workspace_header(
+        Tab::Menus.title(),
+        Some(noop.clone()),
+        theme,
+    ))
+    .child(
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(workspace::split_workspace(
+                master.into_any_element(),
+                detail,
+                &geometry,
+                theme,
+            ))
+            .child(strip),
+    );
+
+    div()
+        .w(px(width))
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(theme.text_secondary)
+                .child(format!("Menüs · {width} px")),
+        )
+        .child(
+            div()
+                .w(px(width))
+                .flex()
+                .flex_row()
+                .h(px(400.))
+                .child(desktop_navigation::desktop_rail(
+                    Tab::Menus,
+                    geometry.rail_width,
+                    theme,
+                    select,
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .justify_center()
+                        .child(panel),
+                ),
+        )
+        .into_any_element()
+}
+
+/// One static item per Menüs state; the first is the selected long dish that
+/// the detail renders with its allergens.
+fn gallery_menu_rows() -> Vec<(MenuItem, DesktopMenuRowState)> {
+    let item = |id: &str, title: &str, category: MenuCategory, subtitle: &str| MenuItem {
+        id: id.to_string(),
+        day: "2026-11-11".to_string(),
+        title: title.to_string(),
+        subtitle: subtitle.to_string(),
+        allergens: Vec::new(),
+        available: true,
+        ordered: false,
+        category,
+        price: "6,40 €".to_string(),
+    };
+    let long = "Rindsgulasch mit Serviettenknödel, Rahmsauce und Blattsalat mit \
+                Kürbiskernöl, dazu ein kleines Dessert";
+    vec![
+        (
+            MenuItem {
+                allergens: vec!["A".into(), "C".into(), "G".into()],
+                ..item("g1", "MENÜ I", MenuCategory::Menu1, long)
+            },
+            DesktopMenuRowState {
+                selected: true,
+                pending_order: true,
+                ..Default::default()
+            },
+        ),
+        (
+            item(
+                "g2",
+                "MENÜ II",
+                MenuCategory::Menu2,
+                "Pasta mit Tomatensugo und Parmesan",
+            ),
+            DesktopMenuRowState {
+                pending_cancel: true,
+                ordered: true,
+                ..Default::default()
+            },
+        ),
+        (
+            item(
+                "g3",
+                "MENÜ III",
+                MenuCategory::Menu3,
+                "Gemüsecurry mit Basmatireis",
+            ),
+            DesktopMenuRowState {
+                ordered: true,
+                ..Default::default()
+            },
+        ),
+        (
+            item(
+                "g4",
+                "MENÜ I",
+                MenuCategory::Menu1,
+                "Schnitzel mit Kartoffelsalat",
+            ),
+            DesktopMenuRowState::default(),
+        ),
+        (
+            item(
+                "g5",
+                "MENÜ II",
+                MenuCategory::Menu2,
+                "Kaiserschmarrn mit Apfelmus",
+            ),
+            DesktopMenuRowState {
+                available: true,
+                cutoff: true,
+                ..Default::default()
+            },
+        ),
+    ]
 }
 
 /// A shell's own horizontal scroll viewport: the frame is exactly `width`

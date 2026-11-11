@@ -36,7 +36,7 @@ use crate::navigation::ClickHandler;
 use crate::screens::appearance::appearance_screen;
 use crate::screens::billing::billing_tab;
 use crate::screens::login::{login_screen, LoginKind};
-use crate::screens::menus::menus_tab;
+use crate::screens::menus::{desktop_menus_tab, menus_tab};
 use crate::screens::notifications::notifications_screen;
 use crate::screens::orders::orders_tab;
 use crate::screens::settings::{placeholder_detail, settings_tab};
@@ -146,6 +146,70 @@ fn refresh_runs_off_thread(layout: LayoutMode) -> bool {
     layout != LayoutMode::Phone
 }
 
+/// How one Menüs row activation behaves per host (task 1.3): the phone shell
+/// keeps the incumbent card/FAB toggle, while the desktop shell only previews,
+/// so selecting a row can never add or remove a pending change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MenuRowAction {
+    Toggle,
+    Preview,
+}
+
+/// The Menüs workspace the shell renders: the desktop split (preview only) on
+/// every desktop layout, the incumbent mobile tab on the phone shell.
+fn menu_row_action(layout: LayoutMode) -> MenuRowAction {
+    if layout == LayoutMode::Phone {
+        MenuRowAction::Toggle
+    } else {
+        MenuRowAction::Preview
+    }
+}
+
+/// Whether a desktop mutation entry point must no-op: a submit or another
+/// blocking operation is already dispatched, so a double activation cannot
+/// toggle again or order twice (task 1.3 acceptance).
+pub(crate) fn desktop_mutation_blocked(busy: bool, order_progress: bool) -> bool {
+    busy || order_progress
+}
+
+/// The shell's in-flight claim for a dispatched menu mutation (task 1.3):
+/// the model marks `busy` only after `submit_orders` is spawned, so the shell
+/// claims synchronously before the spawn. The claim lives on the shell so the
+/// blocked visual state covers the whole workspace, and it is released by the
+/// ticket when the dispatch ends.
+#[derive(Clone, Default)]
+pub(crate) struct MutationGate(Arc<AtomicBool>);
+
+impl MutationGate {
+    /// Whether a dispatched mutation still holds the gate.
+    pub(crate) fn is_claimed(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+
+    /// Claim the gate for one dispatch. `None` while a blocking operation
+    /// runs or another dispatch still holds the claim, so a double activation
+    /// cannot reach the core twice.
+    pub(crate) fn claim(&self, busy: bool, order_progress: bool) -> Option<MutationTicket> {
+        if desktop_mutation_blocked(busy, order_progress) {
+            return None;
+        }
+        self.0
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| MutationTicket(Arc::clone(&self.0)))
+    }
+}
+
+/// Releases its [`MutationGate`] when the dispatched mutation ends, including
+/// on an unwind (the model's `ClearClaim` has the same shape).
+pub(crate) struct MutationTicket(Arc<AtomicBool>);
+
+impl Drop for MutationTicket {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 /// Dispatch a refresh at the shared intent boundary (task 1.2 acceptance):
 /// on every desktop layout the blocking model call moves to the background
 /// executor, so the cached content keeps painting while the existing flow
@@ -200,6 +264,10 @@ pub struct AppShell {
     dialog: Option<Dialog>,
     toast: Option<Toast>,
     pub(crate) model: Option<Arc<AppModel>>,
+    /// In-flight claim for a dispatched menu mutation (task 1.3): taken
+    /// synchronously before the spawn, so a double activation is inert even
+    /// before the model reports `busy`.
+    pub(crate) mutation_gate: MutationGate,
     /// Transient swipe-between-days gesture state (§3.1): pointer origin and
     /// the current (damped) horizontal offset.
     pub(crate) swipe_start: Option<f32>,
@@ -257,6 +325,7 @@ impl AppShell {
             dialog: None,
             toast: None,
             model,
+            mutation_gate: MutationGate::default(),
             swipe_start: None,
             swipe_start_y: None,
             swipe_claimed: false,
@@ -556,6 +625,7 @@ impl AppShell {
         nav: &Navigation,
         state: &State,
         theme: &AppTheme,
+        layout: LayoutMode,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         if nav.top() == Screen::SettingsDetail {
@@ -624,7 +694,18 @@ impl AppShell {
         }
         column
             .child(match nav.top() {
-                Screen::Menus => menus_tab(state, self.model.as_ref(), theme, self.swipe_dx, cx),
+                Screen::Menus => match menu_row_action(layout) {
+                    MenuRowAction::Preview => desktop_menus_tab(
+                        state,
+                        self.model.as_ref(),
+                        self.mutation_gate.is_claimed(),
+                        theme,
+                        cx,
+                    ),
+                    MenuRowAction::Toggle => {
+                        menus_tab(state, self.model.as_ref(), theme, self.swipe_dx, cx)
+                    }
+                },
                 Screen::Orders => {
                     orders_tab(state, self.model.as_ref(), state.orders_past, theme, cx)
                 }
@@ -707,7 +788,7 @@ impl Render for AppShell {
             });
             banner = Some(broadcast_banner(message, dismiss, &theme));
         }
-        let screen_content = self.screen(&nav, &state, &theme, cx);
+        let screen_content = self.screen(&nav, &state, &theme, layout, cx);
         let mut content = div()
             .flex_1()
             .flex()
@@ -820,11 +901,24 @@ impl Render for AppShell {
 #[cfg(test)]
 mod tests {
     use super::{
-        detail_from_model, keyboard_action, model_settings_detail, refresh_intent,
-        refresh_runs_off_thread, Detail, RefreshIntent,
+        desktop_mutation_blocked, detail_from_model, keyboard_action, menu_row_action,
+        model_settings_detail, refresh_intent, refresh_runs_off_thread, Detail, MenuRowAction,
+        MutationGate, RefreshIntent,
     };
     use snackpilot_model::desktop::LayoutMode;
     use snackpilot_model::navigation::{SettingsDetail, Tab};
+    use snackpilot_model::{AppModel, FakePlatform};
+    use std::sync::Arc;
+
+    /// A signed-in demo model over a fake platform: no network, no live host.
+    fn claim_demo_model(tag: &str) -> (Arc<AppModel>, Arc<FakePlatform>) {
+        let dir = std::env::temp_dir().join(format!("snackpilot-app-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let platform = Arc::new(FakePlatform::new());
+        let model = AppModel::new(dir, platform.clone()).unwrap();
+        model.login("demo", "demo1234!").unwrap();
+        (Arc::new(model), platform)
+    }
 
     /// The soft keyboard follows focus changes and stays put otherwise
     /// (§3.6 typing proof; the iOS side is proven by the XCUITest run).
@@ -856,6 +950,93 @@ mod tests {
         assert!(!refresh_runs_off_thread(LayoutMode::Phone));
         assert!(refresh_runs_off_thread(LayoutMode::DesktopCompact));
         assert!(refresh_runs_off_thread(LayoutMode::DesktopExpanded));
+    }
+
+    /// Selecting a Menüs row previews on every desktop layout and keeps the
+    /// incumbent mobile toggle on the phone shell: row activation alone never
+    /// changes a pending selection (task 1.3).
+    /// @req REQ-SCR-01
+    #[test]
+    fn menus_rows_preview_on_desktop_and_toggle_on_phone() {
+        assert_eq!(menu_row_action(LayoutMode::Phone), MenuRowAction::Toggle);
+        for layout in [LayoutMode::DesktopCompact, LayoutMode::DesktopExpanded] {
+            assert_eq!(
+                menu_row_action(layout),
+                MenuRowAction::Preview,
+                "{layout:?} must preview instead of toggling"
+            );
+        }
+    }
+
+    /// Every desktop mutation entry point is inert while a submit or another
+    /// blocking operation runs, so a duplicate activation cannot dispatch.
+    /// @req REQ-UI-12
+    #[test]
+    fn desktop_mutations_block_while_dispatched() {
+        assert!(!desktop_mutation_blocked(false, false));
+        assert!(desktop_mutation_blocked(true, false));
+        assert!(desktop_mutation_blocked(false, true));
+        assert!(desktop_mutation_blocked(true, true));
+    }
+
+    /// The submit's shell claim is taken synchronously before the spawn and
+    /// held until the dispatch ends: a second activation is rejected, and the
+    /// one dispatch runs the core submit exactly once (`order.submitted` is
+    /// the core's analytics event for one submit pipeline).
+    /// @req REQ-UI-12
+    #[test]
+    fn desktop_submit_claims_once_and_dispatches_one_submit() {
+        let (model, platform) = claim_demo_model("submit-once");
+        let item = model
+            .state()
+            .menu_snapshot
+            .expect("demo menus load at login")
+            .items
+            .into_iter()
+            .find(|item| {
+                item.available
+                    && !item.ordered
+                    && !model.core().is_ordering_cutoff(item.day.clone())
+            })
+            .expect("demo menus have an orderable item past the cutoff");
+        model.toggle(&item);
+        assert!(model.has_pending_changes(), "the submit has work to send");
+
+        let gate = MutationGate::default();
+        assert!(
+            gate.claim(true, false).is_none(),
+            "a running blocking operation rejects a claim"
+        );
+        let ticket = gate
+            .claim(false, false)
+            .expect("the first activation claims the gate");
+        assert!(gate.is_claimed(), "the dispatch holds the claim");
+        assert!(
+            gate.claim(false, false).is_none(),
+            "a double activation cannot claim the gate again"
+        );
+
+        let worker = Arc::clone(&model);
+        std::thread::spawn(move || {
+            let _ticket = ticket;
+            worker.submit_orders();
+        })
+        .join()
+        .unwrap();
+
+        assert!(
+            !gate.is_claimed(),
+            "the claim is released when the dispatch ends"
+        );
+        let submits = platform
+            .tracks()
+            .into_iter()
+            .filter(|(event, _)| event == "order.submitted")
+            .count();
+        assert_eq!(
+            submits, 1,
+            "one dispatched submit runs the core pipeline once"
+        );
     }
 
     /// The settings detail shown is derived from the model-owned kind, so

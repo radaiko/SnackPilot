@@ -11,15 +11,22 @@ use std::sync::Arc;
 
 use gpui::*;
 
-use crate::app::AppShell;
+use crate::app::{desktop_mutation_blocked, AppShell};
+use crate::components::button::desktop_action_state;
 use crate::components::fab::fab;
-use crate::components::menu_card::{menu_card, MenuCardState};
+use crate::components::menu_card::{
+    desktop_menu_action, desktop_menu_row, desktop_menu_status, menu_card, DesktopMenuRowState,
+    MenuCardState,
+};
 use crate::components::spinner::spinner;
 use crate::components::swipe::{swipe_days, SwipeHandlers, CLAIM_PX, EDGE_DAMPING, SWITCH_PX};
+use crate::components::workspace::{action_strip, detail_prompt, split_workspace};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::{MenuCategory, MenuItem};
-use snackpilot_model::{category_heading, AppModel, State};
+use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind, TARGET_MIN};
+use snackpilot_model::navigation::ListKind;
+use snackpilot_model::{category_heading, format_day_short, menu_key, AppModel, State};
 
 /// The Menus tab content below the DayNavigator.
 pub fn menus_tab(
@@ -402,4 +409,445 @@ fn swipe_handlers(can_back: bool, can_forward: bool, cx: &mut Context<AppShell>)
     });
 
     SwipeHandlers { down, moved, up }
+}
+
+/// The wide-desktop Menüs workspace (task 1.3): the shell's DayNavigator sits
+/// above; this owns banners, the grouped preview list, the complete dish
+/// detail and the all-days pending strip. Row activation only previews, and
+/// the detail's explicit action is the incumbent model toggle.
+/// @req REQ-SCR-01 @req REQ-UI-08 @req REQ-UI-12
+pub fn desktop_menus_tab(
+    state: &State,
+    model: Option<&Arc<AppModel>>,
+    mutation_claimed: bool,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) -> AnyElement {
+    if !state.gourmet_authenticated {
+        return auth_gate(theme);
+    }
+    let geometry = model
+        .map(|model| model.desktop_geometry())
+        .unwrap_or_else(|| desktop_geometry(HostKind::Desktop, 0.));
+
+    let mut column = div().flex_1().min_h_0().flex().flex_col();
+    if state.order_progress.is_none() {
+        if let Some(snapshot) = &state.menu_snapshot {
+            if snapshot.refreshing {
+                column = column.child(refresh_banner(theme));
+            }
+        }
+    }
+    if let Some(progress) = &state.order_progress {
+        column = column.child(progress_banner(progress, theme));
+    }
+    if let Some(error) = &state.error_text {
+        column = column.child(error_banner(&error.message, retry_handler(cx), theme));
+    }
+
+    let blocked =
+        mutation_claimed || desktop_mutation_blocked(state.busy, state.order_progress.is_some());
+    column = column.child(split_workspace(
+        desktop_menu_master(state, model, theme, cx),
+        desktop_menu_detail_pane(state, model, blocked, theme, cx),
+        &geometry,
+        theme,
+    ));
+    if !blocked {
+        if let Some(strip) = desktop_submit_strip(state, model, theme, cx) {
+            column = column.child(strip);
+        }
+    }
+    column.into_any_element()
+}
+
+/// Grouped master list with the incumbent group order and SUPPE & SALAT
+/// heading suppression. Selection is a preview; it never toggles.
+fn desktop_menu_master(
+    state: &State,
+    model: Option<&Arc<AppModel>>,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) -> AnyElement {
+    let Some(model) = model else {
+        return desktop_empty_master(theme);
+    };
+    let Some(day) = state.selected_day.as_deref() else {
+        return desktop_empty_master(theme);
+    };
+    let groups = model.categories_for_day(day);
+    if groups.is_empty() {
+        let loading = state
+            .menu_snapshot
+            .as_ref()
+            .map_or(true, |snapshot| snapshot.items.is_empty())
+            && (state.busy || state.menu_snapshot.as_ref().is_some_and(|s| s.loading));
+        return if loading {
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(spinner(theme.primary, 36.))
+                .into_any_element()
+        } else {
+            desktop_empty_master(theme)
+        };
+    }
+
+    let (pending_orders, pending_cancellations) = state
+        .menu_snapshot
+        .as_ref()
+        .map(|s| (s.pending_orders.clone(), s.pending_cancellations.clone()))
+        .unwrap_or_default();
+    let preview = state.preview.clone();
+
+    let mut list = div().flex().flex_col();
+    for (category, items) in groups {
+        if let Some(heading) = category_heading(category) {
+            list = list.child(
+                div()
+                    .px(px(16.))
+                    .pt(px(16.))
+                    .pb(px(8.))
+                    .text_size(px(14.))
+                    .line_height(px(20.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.desktop.ink)
+                    .child(heading),
+            );
+        }
+        for item in items {
+            let key = menu_key(&item);
+            let selected = preview.as_deref() == Some(key.as_str());
+            let row = desktop_row_state(
+                &item,
+                model,
+                &pending_orders,
+                &pending_cancellations,
+                selected,
+            );
+            list = list.child(desktop_menu_row(
+                &item,
+                row,
+                desktop_preview_handler(cx, key),
+                theme,
+            ));
+        }
+    }
+    list.into_any_element()
+}
+
+fn desktop_empty_master(theme: &AppTheme) -> AnyElement {
+    div()
+        .size_full()
+        .p(px(16.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .text_size(px(14.))
+                .line_height(px(20.))
+                .text_color(theme.text_secondary)
+                .text_center()
+                .child("Keine Menüs verfügbar"),
+        )
+        .into_any_element()
+}
+
+/// The detail pane: the selected row's complete dish, or the prompt.
+fn desktop_menu_detail_pane(
+    state: &State,
+    model: Option<&Arc<AppModel>>,
+    blocked: bool,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) -> AnyElement {
+    let (Some(model), Some(preview)) = (model, state.preview.as_deref()) else {
+        return detail_prompt("Menü auswählen", theme);
+    };
+    let Some(snapshot) = &state.menu_snapshot else {
+        return detail_prompt("Menü auswählen", theme);
+    };
+    let Some(item) = snapshot.items.iter().find(|item| menu_key(item) == preview) else {
+        return detail_prompt("Menü auswählen", theme);
+    };
+
+    let (pending_orders, pending_cancellations) = (
+        snapshot.pending_orders.clone(),
+        snapshot.pending_cancellations.clone(),
+    );
+    let row = desktop_row_state(item, model, &pending_orders, &pending_cancellations, true);
+    desktop_menu_detail(
+        item,
+        row,
+        blocked,
+        desktop_toggle_handler(cx, item.clone()),
+        theme,
+        state.content_width,
+        cx,
+    )
+}
+
+/// One complete dish (task 1.3 brief): formatted day, title, full dish,
+/// allergens only when present, original price string, status and the
+/// explicit toggle. `blocked` only swaps the control ink; the handler is
+/// guarded too, so a duplicate activation cannot dispatch.
+/// @req REQ-SCR-01 @req REQ-UI-12 @req REQ-UI-13
+pub(crate) fn desktop_menu_detail(
+    item: &MenuItem,
+    state: DesktopMenuRowState,
+    blocked: bool,
+    on_action: ClickHandler,
+    theme: &AppTheme,
+    content_width: f32,
+    cx: &App,
+) -> AnyElement {
+    let pad = if content_width >= 1024. { 24. } else { 16. };
+    let dish = if item.subtitle.trim().is_empty() {
+        item.title.clone()
+    } else {
+        item.subtitle.clone()
+    };
+    let mut detail = div()
+        .p(px(pad))
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(theme.text_secondary)
+                .child(format_day_short(&item.day)),
+        )
+        .child(
+            div()
+                .text_size(px(20.))
+                .line_height(px(26.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.desktop.ink)
+                .child(item.title.clone()),
+        )
+        .child(
+            div()
+                .text_size(px(16.))
+                .line_height(px(24.))
+                .text_color(theme.desktop.ink)
+                .child(dish),
+        );
+
+    let allergens = item
+        .allergens
+        .iter()
+        .filter(|allergen| !allergen.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if !allergens.is_empty() {
+        detail = detail.child(
+            div()
+                .text_size(px(14.))
+                .line_height(px(20.))
+                .text_color(theme.text_secondary)
+                .child(format!("Allergene: {allergens}")),
+        );
+    }
+
+    detail = detail.child(
+        div()
+            .text_size(px(16.))
+            .line_height(px(24.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(theme.desktop.ink)
+            .child(item.price.clone()),
+    );
+    if let Some((label, ink, fill)) = desktop_menu_status(&state, theme) {
+        detail = detail.child(desktop_status_pill(label, ink, fill));
+    }
+    if let Some((label, kind)) = desktop_menu_action(&state) {
+        let control = if blocked {
+            ControlState::Disabled
+        } else {
+            ControlState::Rest
+        };
+        detail = detail.child(desktop_action_state(
+            format!("desktop-menu-action-{}", menu_key(item)),
+            label,
+            kind,
+            control,
+            theme,
+            cx,
+            move |_, window, cx| on_action(window, cx),
+        ));
+    }
+    detail.into_any_element()
+}
+
+fn desktop_status_pill(label: &'static str, ink: Hsla, fill: Hsla) -> AnyElement {
+    div()
+        .flex()
+        .child(
+            div()
+                .px(px(8.))
+                .py(px(2.))
+                .rounded(px(4.))
+                .bg(fill)
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(ink)
+                .child(label),
+        )
+        .into_any_element()
+}
+
+/// The all-days pending strip: one trailing primary action with the exact
+/// incumbent count label. It exists only while pending changes wait and no
+/// operation runs, so the progress banner takes its place during submission.
+fn desktop_submit_strip(
+    state: &State,
+    model: Option<&Arc<AppModel>>,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) -> Option<AnyElement> {
+    let (model, snapshot) = (model?, state.menu_snapshot.as_ref()?);
+    let pending = snapshot.pending_orders.len() + snapshot.pending_cancellations.len();
+    if pending == 0 || state.order_progress.is_some() || state.busy {
+        return None;
+    }
+    Some(action_strip(
+        vec![div()
+            .flex()
+            .min_w_0()
+            .max_w(relative(1.))
+            .ml_auto()
+            .child(desktop_submit_action(
+                model.fab_label(),
+                theme,
+                desktop_submit_handler(cx),
+            ))
+            .into_any_element()],
+        theme,
+    ))
+}
+
+/// The batch submit action, wrapped in a growing div so the mixed label
+/// (`Änderungen bestätigen (n)`) wraps at 720 instead of clipping. The kit
+/// button is not used here because it never wraps.
+pub(crate) fn desktop_submit_action(
+    label: String,
+    theme: &AppTheme,
+    on_click: ClickHandler,
+) -> AnyElement {
+    let action = theme.desktop.action;
+    let button = div()
+        .min_h(px(TARGET_MIN))
+        .min_w_0()
+        .px(px(16.))
+        .py(px(8.))
+        .rounded(px(8.))
+        .bg(action.fill)
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .hover(move |s| s.bg(action.hover))
+        .child(
+            div()
+                .text_size(px(14.))
+                .line_height(px(20.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(action.ink)
+                .text_center()
+                .child(label),
+        );
+    theme::focus_frame(button, ControlState::Rest, 8., theme)
+        .id("desktop-menus-submit")
+        .tab_index(0)
+        .on_click(move |_, window, cx| on_click(window, cx))
+        .into_any_element()
+}
+
+fn desktop_row_state(
+    item: &MenuItem,
+    model: &Arc<AppModel>,
+    pending_orders: &[String],
+    pending_cancellations: &[String],
+    selected: bool,
+) -> DesktopMenuRowState {
+    let key = menu_key(item);
+    DesktopMenuRowState {
+        selected,
+        pending_order: pending_orders.contains(&key),
+        pending_cancel: pending_cancellations.contains(&key),
+        ordered: model.is_ordered(item),
+        available: item.available,
+        cutoff: model.is_cutoff(&item.day),
+    }
+}
+
+/// Row activation: preview plus cursor, never toggle, submit or refresh.
+fn desktop_preview_handler(cx: &mut Context<AppShell>, key: String) -> ClickHandler {
+    let shell = cx.entity().clone();
+    Rc::new(move |_: &mut Window, cx: &mut App| {
+        shell.update(cx, |s, cx| {
+            if let Some(model) = &s.model {
+                model.open_preview(ListKind::Menus, &key);
+                model.set_cursor(ListKind::Menus, Some(key.clone()));
+                cx.notify();
+            }
+        });
+    })
+}
+
+/// The explicit detail action: the incumbent model toggle, guarded so a
+/// pending submit or another running operation cannot be interleaved.
+fn desktop_toggle_handler(cx: &mut Context<AppShell>, item: MenuItem) -> ClickHandler {
+    let shell = cx.entity().clone();
+    Rc::new(move |_: &mut Window, cx: &mut App| {
+        shell.update(cx, |s, cx| {
+            let Some(model) = &s.model else {
+                return;
+            };
+            let state = model.state();
+            if s.mutation_gate.is_claimed()
+                || desktop_mutation_blocked(state.busy, state.order_progress.is_some())
+            {
+                return;
+            }
+            model.toggle(&item);
+            cx.notify();
+        });
+    })
+}
+
+/// Batch submission runs off the render thread (the model blocks on its own
+/// runtime) so the progress banner can paint. The shell claims the gate
+/// synchronously before the spawn: the model's `busy` only arrives after the
+/// spawn, so without the claim a double activation could submit twice.
+fn desktop_submit_handler(cx: &mut Context<AppShell>) -> ClickHandler {
+    let shell = cx.entity().clone();
+    Rc::new(move |_: &mut Window, cx: &mut App| {
+        shell.update(cx, |s, cx| {
+            let Some(model) = s.model.clone() else {
+                return;
+            };
+            let state = model.state();
+            let Some(ticket) = s
+                .mutation_gate
+                .claim(state.busy, state.order_progress.is_some())
+            else {
+                return;
+            };
+            cx.background_executor()
+                .spawn(async move {
+                    let _ticket = ticket;
+                    model.submit_orders()
+                })
+                .detach();
+            cx.notify();
+        });
+    })
 }

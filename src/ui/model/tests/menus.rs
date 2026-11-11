@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use snackpilot_core::domain::{MenuCategory, MenuItem, MenuSnapshot, OrderProgress};
+use snackpilot_model::desktop::{HostKind, LayoutMode};
 use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{
     category_heading, category_rank, menu_key, nearest_day, progress_label, AppModel, FakePlatform,
@@ -400,4 +401,160 @@ fn preview_and_pending_are_separate_sets() {
         "toggling again must remove it from pending"
     );
     assert_eq!(model.preview(ListKind::Menus), None);
+}
+
+#[test]
+/// @req REQ-SCR-01 @req REQ-UI-10
+fn desktop_menu_preview_is_read_only() {
+    let (model, fake) = demo_model();
+    let day = snapshot(&model).available_dates.last().unwrap().clone();
+    let item = item_in(&model, &day, MenuCategory::Menu1);
+    let key = menu_key(&item);
+
+    let before_calls = fake.calls().len();
+    let before = model.state();
+    model.open_preview(ListKind::Menus, &key);
+    model.set_cursor(ListKind::Menus, Some(key.clone()));
+
+    assert_eq!(
+        model.preview(ListKind::Menus).as_deref(),
+        Some(key.as_str()),
+        "row selection opens the preview"
+    );
+    assert_eq!(
+        model.cursor(ListKind::Menus).as_deref(),
+        Some(key.as_str()),
+        "the desktop cursor tracks the row without acting"
+    );
+    assert!(
+        !model.has_pending_changes(),
+        "previewing never queues a pending order"
+    );
+    assert!(
+        model
+            .state()
+            .menu_snapshot
+            .unwrap()
+            .pending_orders
+            .is_empty()
+            && model
+                .state()
+                .menu_snapshot
+                .unwrap()
+                .pending_cancellations
+                .is_empty(),
+        "both pending queues stay empty"
+    );
+    assert_eq!(
+        model.state().orders_split,
+        before.orders_split,
+        "previewing never submits or fetches orders"
+    );
+    assert_eq!(
+        fake.calls().len(),
+        before_calls,
+        "previewing makes no platform/core call"
+    );
+    let after = model.state();
+    assert_eq!(after.menu_snapshot, before.menu_snapshot);
+    assert_eq!(after.selected_day, before.selected_day);
+
+    // Selecting an unavailable row is allowed (reading is not ordering). The
+    // demo day carries no unavailable item, so assert it on a constructed one
+    // instead of silently skipping the check (review finding).
+    let mut unavailable = item.clone();
+    unavailable.id = format!("{}-unavailable", item.id);
+    unavailable.available = false;
+    let unavailable_key = menu_key(&unavailable);
+    assert_ne!(unavailable_key, key);
+    model.open_preview(ListKind::Menus, &unavailable_key);
+    assert_eq!(
+        model.preview(ListKind::Menus),
+        Some(unavailable_key),
+        "an unavailable row still previews"
+    );
+    assert!(!model.has_pending_changes());
+}
+
+#[test]
+/// @req REQ-SCR-01 @req REQ-UI-10
+fn desktop_menu_explicit_toggle_matches_mobile() {
+    let (desktop, _fake) = demo_model();
+    let (mobile, _fake) = demo_model();
+    desktop.set_host_kind(HostKind::Desktop);
+    desktop.set_content_width(720.);
+    mobile.set_host_kind(HostKind::Phone);
+    mobile.set_content_width(390.);
+    assert_eq!(desktop.layout_mode(), LayoutMode::DesktopCompact);
+    assert_eq!(mobile.layout_mode(), LayoutMode::Phone);
+
+    let day = snapshot(&desktop).available_dates.last().unwrap().clone();
+    let item = item_in(&desktop, &day, MenuCategory::Menu1);
+
+    // Preview first, then the explicit action: the domain result is the
+    // incumbent mobile toggle, not a desktop-specific cart.
+    let key = menu_key(&item);
+    desktop.open_preview(ListKind::Menus, &key);
+    desktop.toggle(&item);
+    mobile.toggle(&item);
+    assert_eq!(
+        desktop.state().menu_snapshot.unwrap().pending_orders,
+        mobile.state().menu_snapshot.unwrap().pending_orders,
+        "pending orders match the mobile toggle"
+    );
+    assert_eq!(
+        desktop.preview(ListKind::Menus).as_deref(),
+        Some(key.as_str()),
+        "the preview survives its own explicit toggle"
+    );
+
+    desktop.submit_orders();
+    mobile.submit_orders();
+    assert!(desktop.is_ordered(&item));
+    assert!(mobile.is_ordered(&item));
+
+    // Toggling an ordered item queues the same cancellation on both layouts.
+    desktop.toggle(&item);
+    mobile.toggle(&item);
+    assert_eq!(
+        desktop.state().menu_snapshot.unwrap().pending_cancellations,
+        mobile.state().menu_snapshot.unwrap().pending_cancellations,
+        "pending cancellations match the mobile toggle"
+    );
+    assert_eq!(desktop.fab_label(), mobile.fab_label());
+}
+
+#[test]
+/// @req REQ-SCR-01
+fn desktop_submit_includes_pending_other_days() {
+    let (model, _fake) = demo_model();
+    let dates = snapshot(&model).available_dates;
+    let first = dates[dates.len() - 2].clone();
+    let second = dates[dates.len() - 1].clone();
+    assert_ne!(first, second);
+
+    let a = item_in(&model, &first, MenuCategory::Menu1);
+    let b = item_in(&model, &second, MenuCategory::Menu1);
+    model.toggle(&a);
+    model.toggle(&b);
+    let pending = snapshot(&model).pending_orders;
+    assert_eq!(pending.len(), 2, "both days are queued");
+    assert!(pending.iter().any(|k| k.starts_with(&format!("{}|", a.id))));
+    assert!(pending.iter().any(|k| k.starts_with(&format!("{}|", b.id))));
+
+    // The detail shows only the selected day; submission still spans the batch.
+    model.select_day(&second);
+    assert_eq!(model.preview(ListKind::Menus), None);
+    model.submit_orders();
+
+    let split = model.state().orders_split.expect("orders loaded");
+    let dishes: Vec<String> = split
+        .upcoming
+        .iter()
+        .filter_map(|o| model.dish(o))
+        .collect();
+    assert!(
+        dishes.contains(&a.subtitle) && dishes.contains(&b.subtitle),
+        "submission includes the pending item of every day: {dishes:?}"
+    );
 }
