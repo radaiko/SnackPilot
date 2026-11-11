@@ -12,7 +12,7 @@ use std::time::Duration;
 use gpui::*;
 
 use crate::app::{
-    desktop_mutation_blocked, order_cancel_state, order_row_effect, AppShell, OrderRowEffect,
+    desktop_check_effect, desktop_mutation_blocked, order_cancel_state, AppShell, OrderRowEffect,
 };
 use crate::components::button::{desktop_action_state, ButtonKind};
 use crate::components::order_item::{
@@ -233,6 +233,53 @@ fn confirm_banner(
     .into_any_element()
 }
 
+/// The desktop Bestätigen banner: same warning banner and copy as mobile,
+/// but its action is the shared desktop primary (44 px target, pointer hover
+/// and focus) instead of the phone button recipe.
+/// @req REQ-SCR-02 @req REQ-UI-07 @req REQ-UI-13
+fn desktop_confirm_banner(
+    text: &str,
+    busy: bool,
+    on_confirm: ClickHandler,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) -> AnyElement {
+    let r = theme.tinted_banner(theme.glass_warning);
+    let state = if busy {
+        ControlState::Disabled
+    } else {
+        ControlState::Rest
+    };
+    theme::apply(
+        div()
+            .mx(px(16.))
+            .mt(px(8.))
+            .p(px(12.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(8.))
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.warning_text)
+                    .child(text.to_string()),
+            )
+            .child(desktop_action_state(
+                "desktop-orders-confirm",
+                if busy { "…" } else { "Bestätigen" },
+                ButtonKind::Primary,
+                state,
+                theme,
+                cx,
+                move |_, window, cx| on_confirm(window, cx),
+            )),
+        &r,
+    )
+    .into_any_element()
+}
+
 fn error_banner(message: &str, theme: &AppTheme) -> AnyElement {
     let r = theme.tinted_banner(theme.glass_error);
     theme::apply(
@@ -306,6 +353,40 @@ fn confirm_handler(cx: &mut Context<AppShell>) -> ClickHandler {
             }
         });
     })
+}
+
+/// Desktop confirmation: the model call blocks on its runtime, so it runs on
+/// the background executor under the shell's gate instead of freezing the
+/// window. Cached rows stay readable while it runs.
+/// @req REQ-SCR-02 @req REQ-UI-12
+fn desktop_confirm_handler(cx: &mut Context<AppShell>) -> ClickHandler {
+    let shell = cx.entity().clone();
+    Rc::new(move |_: &mut Window, cx: &mut App| {
+        shell.update(cx, |s, cx| {
+            let Some(model) = s.model.clone() else {
+                return;
+            };
+            let state = model.state();
+            let Some(ticket) = s
+                .mutation_gate
+                .claim(state.busy, state.order_progress.is_some())
+            else {
+                return;
+            };
+            cx.background_executor()
+                .spawn(async move {
+                    let _ticket = ticket;
+                    desktop_confirm_dispatch(&model);
+                })
+                .detach();
+            cx.notify();
+        });
+    })
+}
+
+/// The confirmation body the handler spawns, shared with its test.
+pub(crate) fn desktop_confirm_dispatch(model: &Arc<AppModel>) {
+    model.confirm_orders();
 }
 
 fn cancel_handler(cx: &mut Context<AppShell>, order: OrderedMenu) -> ClickHandler {
@@ -450,11 +531,12 @@ pub fn desktop_orders_tab(
         .child(div().w_full().child(toolbar));
     if state.order_progress.is_none() && !state.orders_past {
         if let Some(banner) = model.unconfirmed_banner_text() {
-            column = column.child(confirm_banner(
+            column = column.child(desktop_confirm_banner(
                 &banner,
                 state.busy,
-                confirm_handler(cx),
+                desktop_confirm_handler(cx),
                 theme,
+                cx,
             ));
         }
     }
@@ -658,7 +740,7 @@ fn desktop_check_handler(cx: &mut Context<AppShell>, id: String) -> ClickHandler
                 return;
             };
             let state = model.state();
-            if order_row_effect(true, state.order_selection_mode) == OrderRowEffect::ToggleCheck {
+            if desktop_check_effect(state.order_selection_mode) == OrderRowEffect::ToggleCheck {
                 model.toggle_order_selection(&id);
                 cx.notify();
             }
@@ -705,7 +787,6 @@ fn desktop_cancel_handler(cx: &mut Context<AppShell>, order: OrderedMenu) -> Cli
             {
                 return;
             }
-            let previous_ids = desktop_segment_ids(&state);
             let on_confirm: ClickHandler = {
                 let shell = cx.entity().clone();
                 let model = Arc::clone(&model);
@@ -714,7 +795,6 @@ fn desktop_cancel_handler(cx: &mut Context<AppShell>, order: OrderedMenu) -> Cli
                     let shell = shell.clone();
                     let model = Arc::clone(&model);
                     let id = id.clone();
-                    let previous_ids = previous_ids.clone();
                     let _ = shell.update(cx, |s, cx| {
                         let state = model.state();
                         let Some(ticket) = s
@@ -727,14 +807,7 @@ fn desktop_cancel_handler(cx: &mut Context<AppShell>, order: OrderedMenu) -> Cli
                         cx.background_executor()
                             .spawn(async move {
                                 let _ticket = ticket;
-                                dispatched.cancel_order(&id);
-                                let state = dispatched.state();
-                                let surviving_ids = desktop_segment_ids(&state);
-                                dispatched.reconcile_list(
-                                    ListKind::Orders,
-                                    &previous_ids,
-                                    &surviving_ids,
-                                );
+                                desktop_cancel_dispatch(&dispatched, &id);
                             })
                             .detach();
                         cx.notify();
@@ -776,20 +849,42 @@ fn desktop_cancel_selected_handler(cx: &mut Context<AppShell>) -> ClickHandler {
             else {
                 return;
             };
-            let previous_ids = desktop_segment_ids(&state);
             let dispatched = Arc::clone(&model);
             cx.background_executor()
                 .spawn(async move {
                     let _ticket = ticket;
-                    dispatched.cancel_selected_orders();
-                    let state = dispatched.state();
-                    let surviving_ids = desktop_segment_ids(&state);
-                    dispatched.reconcile_list(ListKind::Orders, &previous_ids, &surviving_ids);
+                    desktop_cancel_selected_dispatch(&dispatched);
                 })
                 .detach();
             cx.notify();
         });
     })
+}
+
+/// The reconciliation basis read at dispatch time — after the dialog has
+/// been confirmed, so a refresh that changed rows while it was open cannot
+/// leave a stale cursor basis.
+pub(crate) fn desktop_cancel_basis(model: &AppModel) -> Vec<String> {
+    desktop_segment_ids(&model.state())
+}
+
+/// The single-cancel body the dialog confirm spawns: one core cancel, then
+/// reconcile the list from the basis captured at this call (confirm time).
+pub(crate) fn desktop_cancel_dispatch(model: &Arc<AppModel>, id: &str) {
+    let previous_ids = desktop_cancel_basis(model);
+    model.cancel_order(id);
+    let surviving_ids = desktop_segment_ids(&model.state());
+    model.reconcile_list(ListKind::Orders, &previous_ids, &surviving_ids);
+}
+
+/// The batch-cancel body the handler spawns: one core batch, then the same
+/// reconciliation. Shared with its test so the covered flow is the one the
+/// click handler runs.
+pub(crate) fn desktop_cancel_selected_dispatch(model: &Arc<AppModel>) {
+    let previous_ids = desktop_cancel_basis(model);
+    model.cancel_selected_orders();
+    let surviving_ids = desktop_segment_ids(&model.state());
+    model.reconcile_list(ListKind::Orders, &previous_ids, &surviving_ids);
 }
 
 /// The active segment's identities, in display order: the reconciliation
@@ -818,21 +913,21 @@ mod desktop_tests {
     /// @req REQ-SCR-02
     #[test]
     fn cutoff_repaint_runs_only_on_desktop_cadence() {
+        assert!(
+            !cutoff_repaint_due(LayoutMode::DesktopExpanded, Duration::from_millis(29_999)),
+            "just under the 30 s cadence must not repaint"
+        );
+        assert!(
+            cutoff_repaint_due(LayoutMode::DesktopExpanded, Duration::from_secs(30)),
+            "the cadence boundary repaints"
+        );
         assert!(cutoff_repaint_due(
             LayoutMode::DesktopCompact,
-            Duration::from_secs(30)
-        ));
-        assert!(cutoff_repaint_due(
-            LayoutMode::DesktopExpanded,
-            Duration::from_secs(31)
-        ));
-        assert!(!cutoff_repaint_due(
-            LayoutMode::DesktopExpanded,
-            Duration::from_secs(29)
+            Duration::from_millis(30_001)
         ));
         assert!(!cutoff_repaint_due(
             LayoutMode::Phone,
-            Duration::from_secs(30)
+            Duration::from_secs(31)
         ));
     }
 }

@@ -1,10 +1,10 @@
 # Not captured: task 1.4 Bestellungen and Abrechnung GUI evidence
 
 Blocker: the Android emulator on this host is broken (segfaults and a wedged
-KVM device that needs a host reboot), and this Linux VM cannot link the app
-crate at all (the dispatcher and the macOS host do that build). No real GUI
-frame could be produced, so nothing below exists and no image was copied from
-another task or fabricated.
+KVM device) and this Linux VM cannot link the app crate at all (the dispatcher
+and the macOS host do that build). **host reboot required.** No real GUI frame
+could be produced, so nothing below exists and no image was copied from another
+task or fabricated.
 
 Covered instead:
 

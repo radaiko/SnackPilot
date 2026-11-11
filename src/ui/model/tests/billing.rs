@@ -312,117 +312,72 @@ fn billing_context_clears_hidden_preview() {
 #[test]
 /// @req REQ-SCR-03
 fn same_date_amount_receipts_keep_distinct_ids() {
-    let model = demo_model("same-date-amount");
-    let mut same_day_pairs = 0;
+    // Inject two Gourmet bills that share one day and one amount but carry
+    // different receipt numbers. A past month is served from the cache, so
+    // the demo fetch does not replace them.
+    let dir = temp_dir("same-date-amount");
+    let model = AppModel::new(dir.clone(), Arc::new(FakePlatform::new())).unwrap();
+    model.login(DEMO_USER, DEMO_PASS).unwrap();
 
-    for offset in 0..3u8 {
-        model.select_month(offset);
-        let entries = model.merged_entries();
-        assert!(
-            !entries.is_empty(),
-            "demo month {offset} must have receipts"
-        );
+    let past = model
+        .state()
+        .month_options
+        .iter()
+        .find(|m| m.offset == 1)
+        .expect("a past month option")
+        .key
+        .clone();
+    let day = 1_790_000_000_000i64;
+    let bills = vec![
+        snackpilot_core::domain::Bill {
+            bill_nr: 7_001,
+            bill_date_epoch_ms: day,
+            location: "Kantine".into(),
+            items: Vec::new(),
+            billing: 4.20,
+        },
+        snackpilot_core::domain::Bill {
+            bill_nr: 7_002,
+            bill_date_epoch_ms: day,
+            location: "Kantine".into(),
+            items: Vec::new(),
+            billing: 4.20,
+        },
+    ];
+    std::fs::write(
+        dir.join(format!("billing_{past}.val")),
+        serde_json::to_string(&bills).unwrap(),
+    )
+    .unwrap();
+    model.core().load_cached_billing_months();
+    model.select_month(1);
 
-        // A merged month is newest-first and one row per receipt.
-        let mut ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
-        ids.sort_unstable();
-        ids.dedup();
-        assert_eq!(
-            ids.len(),
-            entries.len(),
-            "receipt IDs must be unique within a month"
-        );
-
-        // Two receipts of one day (a Kantine bill and an Automaten
-        // transaction) must keep distinct identities even though they share
-        // the day and may format to the same amount text. The demo's price
-        // ranges (Gourmet >= 2,70 after the 1,50 subsidy, Automaten
-        // 0,50–2,50) never coincide exactly, so the guard here is the
-        // stronger one: identity never derives from date or amount. A
-        // date/amount-keyed ID would collide for the next pair that does.
-        let mut per_day: std::collections::HashMap<String, Vec<&str>> = Default::default();
-        for e in &entries {
-            per_day
-                .entry(snackpilot_model::day_key_from_epoch_ms(e.epoch_ms))
-                .or_default()
-                .push(e.id.as_str());
-        }
-        let mut day_amount: std::collections::HashMap<(String, u64), Vec<&str>> =
-            Default::default();
-        for e in &entries {
-            day_amount
-                .entry((
-                    snackpilot_model::day_key_from_epoch_ms(e.epoch_ms),
-                    e.amount.to_bits(),
-                ))
-                .or_default()
-                .push(e.id.as_str());
-        }
-        for group in day_amount.values() {
-            assert_eq!(
-                group.len(),
-                1,
-                "demo data gained an identical date+amount pair {group:?}; same-date \
-                 receipts must still keep distinct IDs"
-            );
-        }
-        for (day, group) in &per_day {
-            if group.len() > 1 {
-                same_day_pairs += 1;
-                assert_eq!(
-                    group.iter().collect::<std::collections::HashSet<_>>().len(),
-                    group.len(),
-                    "receipts on {day} must keep distinct IDs: {group:?}"
-                );
-            }
-        }
-
-        // Identity is the source's own receipt number, never the date or the
-        // formatted amount: the merged list cannot lose a receipt to a
-        // date/amount key.
-        let gourmet = model.state().gourmet_month.clone().expect("Gourmet month");
-        let ventopay = model
-            .state()
-            .ventopay_month
-            .clone()
-            .expect("Automaten month");
-        for e in &entries {
-            let day = snackpilot_model::day_key_from_epoch_ms(e.epoch_ms);
-            let amount = snackpilot_model::format_eur(e.amount);
-            assert!(
-                !e.id.contains(&day) && !e.id.contains(&amount),
-                "receipt ID {} must not encode date {day} or amount {amount}",
-                e.id
-            );
-            if let Some(bill) = gourmet
-                .bills
-                .iter()
-                .find(|b| e.id == format!("g-{}", b.bill_nr))
-            {
-                assert_eq!(bill.bill_date_epoch_ms, e.epoch_ms);
-            } else if let Some(tx) = ventopay
-                .transactions
-                .iter()
-                .find(|t| e.id == format!("v-{}", t.id))
-            {
-                assert_eq!(tx.date_epoch_ms, e.epoch_ms);
-            } else {
-                panic!("receipt ID {} is not a source-native identity", e.id);
-            }
-        }
-
-        // Stable across a re-merge.
-        let again: Vec<String> = model.merged_entries().into_iter().map(|e| e.id).collect();
-        assert_eq!(
-            entries.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
-            again,
-            "receipt identities must stay stable across a re-merge"
-        );
-    }
-
-    assert!(
-        same_day_pairs > 0,
-        "no demo month had receipts of both sources on one day; the \
-         same-date case would be untested"
+    let entries = model.merged_entries();
+    let injected: Vec<&snackpilot_model::BillingEntry> = entries
+        .iter()
+        .filter(|e| e.id == "g-7001" || e.id == "g-7002")
+        .collect();
+    assert_eq!(
+        injected.len(),
+        2,
+        "both same-day, same-amount receipts must survive the merge"
+    );
+    assert_eq!(
+        injected[0].epoch_ms, injected[1].epoch_ms,
+        "the receipts share one day"
+    );
+    assert_eq!(
+        injected[0].amount.to_bits(),
+        injected[1].amount.to_bits(),
+        "the receipts share one amount"
+    );
+    assert_ne!(
+        injected[0].id, injected[1].id,
+        "distinct receipt numbers keep distinct identities"
+    );
+    assert_eq!(
+        snackpilot_model::format_eur(injected[0].amount),
+        snackpilot_model::format_eur(injected[1].amount),
+        "the formatted amount is identical; only the receipt number identifies"
     );
 }

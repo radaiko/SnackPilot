@@ -10,16 +10,17 @@ use std::sync::Arc;
 
 use gpui::*;
 
-use crate::app::AppShell;
+use crate::app::{dispatch_off_thread, AppShell};
 use crate::components::bill_card::{
     bill_card, desktop_bill_detail, desktop_bill_header, desktop_bill_row,
 };
+use crate::components::chip::desktop_chip;
 use crate::components::pull_refresh::pull_refresh;
 use crate::components::spinner::spinner;
 use crate::components::workspace::{detail_prompt, split_workspace};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
-use snackpilot_model::desktop::LayoutMode;
+use snackpilot_model::desktop::{ControlState, LayoutMode};
 use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{format_eur, AppModel, BillingEntry, BillingSource, BillingTotals, State};
 
@@ -41,7 +42,7 @@ pub fn billing_tab(
     let totals = model.billing_totals();
 
     let mut column = div().size_full().flex().flex_col();
-    column = column.child(month_row(state, model, theme, cx));
+    column = column.child(month_row(state, model, theme, false, cx));
 
     let mut content = div().flex_1().flex().flex_col();
 
@@ -115,6 +116,7 @@ fn month_row(
     state: &State,
     model: &Arc<AppModel>,
     theme: &AppTheme,
+    off_thread: bool,
     cx: &mut Context<AppShell>,
 ) -> Div {
     let border = if theme.flat {
@@ -139,7 +141,10 @@ fn month_row(
         let shell = cx.entity().clone();
         let model = Arc::clone(model);
         let action: ClickHandler = Rc::new(move |_: &mut Window, cx: &mut App| {
-            model.select_month(offset);
+            dispatch_billing_action(off_thread, cx, {
+                let model = Arc::clone(&model);
+                move || model.select_month(offset)
+            });
             let _ = shell.update(cx, |_, cx| cx.notify());
         });
         row = row.child(
@@ -239,6 +244,68 @@ fn chips_row(
         );
     }
     row
+}
+
+/// Desktop source filters (brief `desktop.filterOption`): the shared 44 px
+/// chip with its pointer hover and focus ring, while the model call stays the
+/// incumbent `set_billing_source`. On desktop the selection also dispatches
+/// off the render thread, like every other blocking desktop action.
+/// @req REQ-SCR-03 @req REQ-UI-08 @req REQ-UI-13
+fn desktop_chips_row(
+    state: &State,
+    model: &Arc<AppModel>,
+    theme: &AppTheme,
+    off_thread: bool,
+    cx: &mut Context<AppShell>,
+) -> Div {
+    let mut row = div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .px(px(16.))
+        .py(px(8.));
+    for (source, label) in [
+        (BillingSource::All, "Alle"),
+        (BillingSource::Gourmet, "Kantine"),
+        (BillingSource::Ventopay, "Automaten"),
+    ] {
+        let selected = state.billing_source == source;
+        let shell = cx.entity().clone();
+        let model = Arc::clone(model);
+        let action: ClickHandler = Rc::new(move |_: &mut Window, cx: &mut App| {
+            dispatch_billing_action(off_thread, cx, {
+                let model = Arc::clone(&model);
+                move || model.set_billing_source(source)
+            });
+            let _ = shell.update(cx, |_, cx| cx.notify());
+        });
+        let chip_state = if selected {
+            ControlState::Selected
+        } else {
+            ControlState::Rest
+        };
+        row = row.child(
+            desktop_chip(None, label, chip_state, theme)
+                .id(SharedString::from(format!("billing-chip-{label}")))
+                .cursor_pointer()
+                .tab_index(0)
+                .on_click(move |_, window, cx| action(window, cx)),
+        );
+    }
+    row
+}
+
+/// Run one billing model action on the host's thread: every desktop layout
+/// dispatches off the render thread so the cached rows keep painting, while
+/// the phone shell keeps its synchronous path.
+fn dispatch_billing_action(off_thread: bool, cx: &mut App, action: impl FnOnce() + Send + 'static) {
+    if off_thread {
+        cx.background_executor()
+            .spawn(async move { action() })
+            .detach();
+    } else {
+        action();
+    }
 }
 
 fn summary(
@@ -345,14 +412,15 @@ pub fn desktop_billing_tab(
     let totals = model.billing_totals();
     let geometry = model.desktop_geometry();
     let compact = layout == LayoutMode::DesktopCompact;
+    let off_thread = dispatch_off_thread(layout);
 
     let mut column = div()
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
-        .child(month_row(state, model, theme, cx))
-        .child(chips_row(state, model, theme, cx));
+        .child(month_row(state, model, theme, off_thread, cx))
+        .child(desktop_chips_row(state, model, theme, off_thread, cx));
     if !entries.is_empty() {
         column = column.child(desktop_summary_line(
             &entries,

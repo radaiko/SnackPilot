@@ -10,7 +10,7 @@
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::*;
 use gpui_kit::component::input::InputState;
@@ -142,7 +142,7 @@ fn run_refresh(model: &AppModel, intent: RefreshIntent) {
 /// thread (task 1.2 acceptance). Compact desktop counts: its rail and header
 /// refresh exist too, so only the phone shell keeps the incumbent synchronous
 /// path.
-fn refresh_runs_off_thread(layout: LayoutMode) -> bool {
+pub(crate) fn dispatch_off_thread(layout: LayoutMode) -> bool {
     layout != LayoutMode::Phone
 }
 
@@ -180,6 +180,13 @@ pub(crate) fn order_row_effect(on_checkbox: bool, selection_mode: bool) -> Order
     } else {
         OrderRowEffect::Preview
     }
+}
+
+/// The batch-check column's handler decision, extracted so the click wiring
+/// and its test share one rule: a check toggles its one ID only while the
+/// selection mode is active; everywhere else it previews.
+pub(crate) fn desktop_check_effect(selection_mode: bool) -> OrderRowEffect {
+    order_row_effect(true, selection_mode)
 }
 
 /// The desktop detail's explicit cancel action (task 1.4): past orders offer
@@ -271,7 +278,7 @@ fn dispatch_refresh(
     layout: LayoutMode,
     cx: &mut App,
 ) {
-    if refresh_runs_off_thread(layout) {
+    if dispatch_off_thread(layout) {
         let model = Arc::clone(model);
         cx.background_executor()
             .spawn(async move { run_refresh(&model, intent) })
@@ -369,11 +376,14 @@ impl AppShell {
             // Cutoff cadence (task 1.4): the desktop workspace re-evaluates
             // order eligibility every 30 s, so a disabled `Stornieren` flips
             // without waiting for pointer movement. Phone never repaints.
-            cx.spawn(
-                async move |this: WeakEntity<AppShell>, cx: &mut AsyncApp| loop {
+            cx.spawn(async move |this: WeakEntity<AppShell>, cx: &mut AsyncApp| {
+                let mut last_check = Instant::now();
+                loop {
                     cx.background_executor()
                         .timer(Duration::from_secs(30))
                         .await;
+                    let elapsed = last_check.elapsed();
+                    last_check = Instant::now();
                     if this
                         .update(cx, |shell, cx| {
                             let layout = shell
@@ -381,7 +391,7 @@ impl AppShell {
                                 .as_ref()
                                 .map(|model| model.layout_mode())
                                 .unwrap_or(LayoutMode::Phone);
-                            if cutoff_repaint_due(layout, Duration::from_secs(30)) {
+                            if cutoff_repaint_due(layout, elapsed) {
                                 cx.notify();
                             }
                         })
@@ -389,8 +399,8 @@ impl AppShell {
                     {
                         break;
                     }
-                },
-            )
+                }
+            })
             .detach();
         }
         // `mut` is only used by the debug-only evidence knobs below.
@@ -993,15 +1003,20 @@ impl Render for AppShell {
 #[cfg(test)]
 mod tests {
     use super::{
-        desktop_mutation_blocked, detail_from_model, keyboard_action, menu_row_action,
-        model_settings_detail, order_cancel_state, order_row_effect, refresh_intent,
-        refresh_runs_off_thread, Detail, MenuRowAction, MutationGate, OrderCancelState,
+        desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
+        keyboard_action, menu_row_action, model_settings_detail, order_cancel_state,
+        order_row_effect, refresh_intent, Detail, MenuRowAction, MutationGate, OrderCancelState,
         OrderRowEffect, RefreshIntent,
     };
     use snackpilot_model::desktop::LayoutMode;
     use snackpilot_model::navigation::{SettingsDetail, Tab};
     use snackpilot_model::{AppModel, FakePlatform};
     use std::sync::Arc;
+
+    use crate::screens::orders::{
+        desktop_cancel_basis, desktop_cancel_dispatch, desktop_cancel_selected_dispatch,
+        desktop_confirm_dispatch,
+    };
 
     /// A signed-in demo model over a fake platform: no network, no live host.
     fn claim_demo_model(tag: &str) -> (Arc<AppModel>, Arc<FakePlatform>) {
@@ -1011,6 +1026,36 @@ mod tests {
         let model = AppModel::new(dir, platform.clone()).unwrap();
         model.login("demo", "demo1234!").unwrap();
         (Arc::new(model), platform)
+    }
+
+    /// Place two demo orders in one submit so the batch paths have a real
+    /// two-row selection.
+    fn place_two_orders(model: &AppModel) -> Vec<snackpilot_core::domain::OrderedMenu> {
+        let items: Vec<_> = model
+            .state()
+            .menu_snapshot
+            .expect("demo menus load at login")
+            .items
+            .into_iter()
+            .filter(|item| {
+                item.available
+                    && !item.ordered
+                    && !model.core().is_ordering_cutoff(item.day.clone())
+            })
+            .take(2)
+            .collect();
+        assert_eq!(items.len(), 2, "demo menus offer two orderable items");
+        for item in &items {
+            model.toggle(item);
+        }
+        model.submit_orders();
+        let orders = model
+            .state()
+            .orders_split
+            .expect("orders loaded after submit")
+            .upcoming;
+        assert_eq!(orders.len(), 2, "the submit placed two orders");
+        orders
     }
 
     /// The soft keyboard follows focus changes and stays put otherwise
@@ -1035,14 +1080,14 @@ mod tests {
         assert_eq!(refresh_intent(Tab::Settings), None);
     }
 
-    /// Every desktop layout, compact included, dispatches refresh off the
-    /// render thread; only the phone shell keeps the synchronous path.
+    /// Every desktop layout, compact included, dispatches blocking work off
+    /// the render thread; only the phone shell keeps the synchronous path.
     /// @req REQ-UI-07
     #[test]
-    fn refresh_runs_off_thread_on_every_desktop_layout() {
-        assert!(!refresh_runs_off_thread(LayoutMode::Phone));
-        assert!(refresh_runs_off_thread(LayoutMode::DesktopCompact));
-        assert!(refresh_runs_off_thread(LayoutMode::DesktopExpanded));
+    fn blocking_actions_run_off_thread_on_every_desktop_layout() {
+        assert!(!dispatch_off_thread(LayoutMode::Phone));
+        assert!(dispatch_off_thread(LayoutMode::DesktopCompact));
+        assert!(dispatch_off_thread(LayoutMode::DesktopExpanded));
     }
 
     /// Selecting a Menüs row previews on every desktop layout and keeps the
@@ -1082,6 +1127,16 @@ mod tests {
         assert_eq!(order_row_effect(false, true), OrderRowEffect::Preview);
         assert_eq!(order_row_effect(true, false), OrderRowEffect::Preview);
         assert_eq!(order_row_effect(true, true), OrderRowEffect::ToggleCheck);
+        assert_eq!(
+            desktop_check_effect(false),
+            OrderRowEffect::Preview,
+            "a check outside the selection mode never toggles"
+        );
+        assert_eq!(
+            desktop_check_effect(true),
+            OrderRowEffect::ToggleCheck,
+            "the check column toggles exactly while selecting"
+        );
     }
 
     /// The desktop cancel action keeps the brief's precedence (task 1.4):
@@ -1165,7 +1220,7 @@ mod tests {
         let position_id = order.position_id.clone();
         std::thread::spawn(move || {
             let _ticket = ticket;
-            worker.cancel_order(&position_id);
+            desktop_cancel_dispatch(&worker, &position_id);
         })
         .join()
         .unwrap();
@@ -1249,6 +1304,124 @@ mod tests {
         assert_eq!(
             submits, 1,
             "one dispatched submit runs the core pipeline once"
+        );
+    }
+
+    /// The extracted batch dispatch the click handler runs: the shell claims
+    /// the gate synchronously, a second activation cannot claim, and the one
+    /// dispatch reaches the core as a single batch (`order.cancelled` count=2).
+    /// @req REQ-SCR-02 @req REQ-UI-12
+    #[test]
+    fn desktop_batch_cancel_claims_once_and_dispatches_one_batch() {
+        let (model, platform) = claim_demo_model("batch-once");
+        let orders = place_two_orders(&model);
+        model.begin_order_selection();
+        for order in &orders {
+            model.toggle_order_selection(&order.position_id);
+        }
+
+        let gate = MutationGate::default();
+        let ticket = gate
+            .claim(false, false)
+            .expect("the first activation claims the gate");
+        assert!(
+            gate.claim(false, false).is_none(),
+            "a double activation cannot claim the gate again"
+        );
+
+        let worker = Arc::clone(&model);
+        std::thread::spawn(move || {
+            let _ticket = ticket;
+            desktop_cancel_selected_dispatch(&worker);
+        })
+        .join()
+        .unwrap();
+
+        assert!(!gate.is_claimed(), "the claim is released when it ends");
+        let batches: Vec<String> = platform
+            .tracks()
+            .into_iter()
+            .filter(|(event, _)| event == "order.cancelled")
+            .map(|(_, props)| props.get("count").cloned().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            batches,
+            vec!["2".to_string()],
+            "one dispatched batch cancels both selected orders in one core call"
+        );
+        assert!(
+            model
+                .state()
+                .orders_split
+                .expect("orders still loaded")
+                .upcoming
+                .is_empty(),
+            "the batch removed both orders"
+        );
+    }
+
+    /// The confirmation body the desktop banner spawns runs the real model
+    /// flow under the same gate, so one activation can reach `confirm_orders`
+    /// only once and always leaves the busy flag clear.
+    /// @req REQ-SCR-02 @req REQ-UI-12
+    #[test]
+    fn desktop_confirm_dispatch_claims_once_and_clears_busy() {
+        let (model, _platform) = claim_demo_model("confirm-once");
+        place_two_orders(&model);
+        let busy_log = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = Arc::clone(&busy_log);
+        model.subscribe(Box::new(move |s: &snackpilot_model::State| {
+            log.lock().unwrap().push(s.busy);
+        }));
+
+        let gate = MutationGate::default();
+        let ticket = gate
+            .claim(false, false)
+            .expect("the first activation claims the gate");
+        assert!(
+            gate.claim(false, false).is_none(),
+            "a double activation cannot claim the gate again"
+        );
+
+        let worker = Arc::clone(&model);
+        std::thread::spawn(move || {
+            let _ticket = ticket;
+            desktop_confirm_dispatch(&worker);
+        })
+        .join()
+        .unwrap();
+
+        assert!(!gate.is_claimed(), "the claim is released when it ends");
+        let log = busy_log.lock().unwrap();
+        assert!(
+            log.contains(&true),
+            "the confirm flow ran and published its busy state"
+        );
+        assert_eq!(
+            log.last().copied(),
+            Some(false),
+            "the confirm flow ended and cleared busy"
+        );
+    }
+
+    /// The reconciliation basis is read when the dispatch runs (dialog
+    /// confirm), not when the dialog opened: a refresh that changed rows in
+    /// between is reflected instead of leaving a stale cursor basis.
+    /// @req REQ-SCR-02
+    #[test]
+    fn cancel_basis_is_read_at_dispatch_time() {
+        let (model, _platform) = claim_demo_model("cancel-basis");
+        let upcoming = place_two_orders(&model);
+        let at_open = desktop_cancel_basis(&model);
+        assert_eq!(at_open.len(), upcoming.len(), "the upcoming basis");
+
+        // A refresh/switching segment while the dialog is open changes the
+        // live rows; the basis read now must not be the one from open time.
+        model.set_orders_segment(true);
+        let at_confirm = desktop_cancel_basis(&model);
+        assert_ne!(
+            at_open, at_confirm,
+            "the confirm-time basis follows the current segment, not the dialog opening"
         );
     }
 
