@@ -48,7 +48,7 @@ Conventions for every task below (same contract fields as the archived gpui-kit 
   - check: `make check`; additionally Mac desktop workflow and mobile regression workflow
   - proof: ui workflow (`menus.rs`/`desktop.rs` tests), ios/android builds and Menüs action/capture evidence in 1.3
 
-- [ ] 1.4 Adapt order and receipt ledgers; prove table/detail, batch separation and source-filter parity
+- [x] 1.4 Adapt order and receipt ledgers; prove table/detail, batch separation and source-filter parity
   - tier: normal
   - host: Linux; Mac desktop/simulator; Android emulator/device
   - files: `src/ui/app/src/screens/orders.rs`, `src/ui/app/src/screens/billing.rs`, `src/ui/app/src/components/order_item.rs`, `src/ui/app/src/components/bill_card.rs`, `src/ui/app/src/components/segment_tabs.rs`, `src/ui/app/src/components/pull_refresh.rs`, `src/ui/app/src/components/record_table.rs`, `src/ui/app/src/app.rs` (orders/billing dispatch only), `src/ui/app/src/gallery.rs` (offline order/receipt scenarios), `src/ui/model/tests/desktop.rs`, `src/ui/model/tests/orders.rs`, `src/ui/model/tests/billing.rs`, `src/ui/model/tests/format.rs`, `docs/evidence/desktop-ui-redesign/1.4/**`
