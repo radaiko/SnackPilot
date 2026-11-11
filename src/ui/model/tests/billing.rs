@@ -273,3 +273,156 @@ fn receipt_identities_are_stable_and_context_change_clears_only_them() {
         "a month change must clear the receipts preview"
     );
 }
+
+#[test]
+/// @req REQ-SCR-03
+fn billing_context_clears_hidden_preview() {
+    let model = demo_model("hidden-preview");
+    model.select_month(1);
+    model.set_billing_source(BillingSource::All);
+
+    // Preview an Automaten receipt, then filter it out of the visible list.
+    let ventopay_id = model
+        .merged_entries()
+        .iter()
+        .find(|e| e.id.starts_with("v-"))
+        .map(|e| e.id.clone())
+        .expect("demo month has an Automaten receipt");
+    model.open_preview(ListKind::Receipts, &ventopay_id);
+    model.set_cursor(ListKind::Receipts, Some(ventopay_id.clone()));
+
+    model.set_billing_source(BillingSource::Gourmet);
+
+    assert!(
+        model.merged_entries().iter().all(|e| e.id != ventopay_id),
+        "the Kantine filter must hide the Automaten receipt"
+    );
+    assert_eq!(
+        model.preview(ListKind::Receipts),
+        None,
+        "a preview of a now-hidden receipt must be cleared, not kept"
+    );
+    assert_eq!(
+        model.cursor(ListKind::Receipts).as_deref(),
+        Some(ventopay_id.as_str()),
+        "clearing the hidden preview keeps the cursor identity"
+    );
+}
+
+#[test]
+/// @req REQ-SCR-03
+fn same_date_amount_receipts_keep_distinct_ids() {
+    let model = demo_model("same-date-amount");
+    let mut same_day_pairs = 0;
+
+    for offset in 0..3u8 {
+        model.select_month(offset);
+        let entries = model.merged_entries();
+        assert!(
+            !entries.is_empty(),
+            "demo month {offset} must have receipts"
+        );
+
+        // A merged month is newest-first and one row per receipt.
+        let mut ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(
+            ids.len(),
+            entries.len(),
+            "receipt IDs must be unique within a month"
+        );
+
+        // Two receipts of one day (a Kantine bill and an Automaten
+        // transaction) must keep distinct identities even though they share
+        // the day and may format to the same amount text. The demo's price
+        // ranges (Gourmet >= 2,70 after the 1,50 subsidy, Automaten
+        // 0,50–2,50) never coincide exactly, so the guard here is the
+        // stronger one: identity never derives from date or amount. A
+        // date/amount-keyed ID would collide for the next pair that does.
+        let mut per_day: std::collections::HashMap<String, Vec<&str>> = Default::default();
+        for e in &entries {
+            per_day
+                .entry(snackpilot_model::day_key_from_epoch_ms(e.epoch_ms))
+                .or_default()
+                .push(e.id.as_str());
+        }
+        let mut day_amount: std::collections::HashMap<(String, u64), Vec<&str>> =
+            Default::default();
+        for e in &entries {
+            day_amount
+                .entry((
+                    snackpilot_model::day_key_from_epoch_ms(e.epoch_ms),
+                    e.amount.to_bits(),
+                ))
+                .or_default()
+                .push(e.id.as_str());
+        }
+        for group in day_amount.values() {
+            assert_eq!(
+                group.len(),
+                1,
+                "demo data gained an identical date+amount pair {group:?}; same-date \
+                 receipts must still keep distinct IDs"
+            );
+        }
+        for (day, group) in &per_day {
+            if group.len() > 1 {
+                same_day_pairs += 1;
+                assert_eq!(
+                    group.iter().collect::<std::collections::HashSet<_>>().len(),
+                    group.len(),
+                    "receipts on {day} must keep distinct IDs: {group:?}"
+                );
+            }
+        }
+
+        // Identity is the source's own receipt number, never the date or the
+        // formatted amount: the merged list cannot lose a receipt to a
+        // date/amount key.
+        let gourmet = model.state().gourmet_month.clone().expect("Gourmet month");
+        let ventopay = model
+            .state()
+            .ventopay_month
+            .clone()
+            .expect("Automaten month");
+        for e in &entries {
+            let day = snackpilot_model::day_key_from_epoch_ms(e.epoch_ms);
+            let amount = snackpilot_model::format_eur(e.amount);
+            assert!(
+                !e.id.contains(&day) && !e.id.contains(&amount),
+                "receipt ID {} must not encode date {day} or amount {amount}",
+                e.id
+            );
+            if let Some(bill) = gourmet
+                .bills
+                .iter()
+                .find(|b| e.id == format!("g-{}", b.bill_nr))
+            {
+                assert_eq!(bill.bill_date_epoch_ms, e.epoch_ms);
+            } else if let Some(tx) = ventopay
+                .transactions
+                .iter()
+                .find(|t| e.id == format!("v-{}", t.id))
+            {
+                assert_eq!(tx.date_epoch_ms, e.epoch_ms);
+            } else {
+                panic!("receipt ID {} is not a source-native identity", e.id);
+            }
+        }
+
+        // Stable across a re-merge.
+        let again: Vec<String> = model.merged_entries().into_iter().map(|e| e.id).collect();
+        assert_eq!(
+            entries.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
+            again,
+            "receipt identities must stay stable across a re-merge"
+        );
+    }
+
+    assert!(
+        same_day_pairs > 0,
+        "no demo month had receipts of both sources on one day; the \
+         same-date case would be untested"
+    );
+}

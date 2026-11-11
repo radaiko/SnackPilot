@@ -12,18 +12,26 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{Icon, StyledExt};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, AnyElement, App, Context, Entity, SharedString, Window};
-use snackpilot_core::domain::{MenuCategory, MenuItem};
+use snackpilot_core::domain::{MenuCategory, MenuItem, OrderedMenu};
 use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
 use snackpilot_model::navigation::Tab;
-use snackpilot_model::AccentColor;
+use snackpilot_model::{
+    AccentColor, BillingEntry, BillingLine, BillingSource, BillingTotals, EntrySource,
+};
 
+use crate::app::OrderCancelState;
+use crate::components::bill_card::{desktop_bill_detail, desktop_bill_header, desktop_bill_row};
 use crate::components::menu_card::{desktop_menu_row, DesktopMenuRowState};
+use crate::components::order_item::{
+    desktop_order_detail, desktop_order_header, desktop_order_row, DesktopOrderRowState,
+};
 use crate::components::tab_bar::TabSelect;
 use crate::components::{
     banner, button, card, chip, desktop_navigation, loading_overlay, record_table, spinner, switch,
     text_field, toast, workspace,
 };
 use crate::navigation::ClickHandler;
+use crate::screens::billing::desktop_summary_line;
 use crate::screens::menus::{desktop_menu_detail, desktop_submit_action};
 use crate::theme::{self, use_flat_style, AppTheme};
 
@@ -410,6 +418,38 @@ fn desktop_section(
             1280.,
             desktop_menus_case(1280., &theme, cx),
         ))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .font_semibold()
+                .text_color(theme.text_secondary)
+                .child("Bestellungen · Tabelle, Detail, Mehrfachauswahl"),
+        )
+        .child(desktop_shell_frame(
+            720.,
+            desktop_orders_case(720., &theme, cx),
+        ))
+        .child(desktop_shell_frame(
+            1280.,
+            desktop_orders_case(1280., &theme, cx),
+        ))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .font_semibold()
+                .text_color(theme.text_secondary)
+                .child("Abrechnung · Belegtabelle, Detail, Quellen"),
+        )
+        .child(desktop_shell_frame(
+            720.,
+            desktop_billing_case(720., &theme),
+        ))
+        .child(desktop_shell_frame(
+            1280.,
+            desktop_billing_case(1280., &theme),
+        ))
         .child(desktop_controls(&theme, dark, fields, cx))
         .into_any_element()
 }
@@ -595,6 +635,317 @@ fn gallery_menu_rows() -> Vec<(MenuItem, DesktopMenuRowState)> {
                 ..Default::default()
             },
         ),
+    ]
+}
+
+/// The offline Bestellungen scenario (task 1.4): the real header, row and
+/// detail helpers over static orders, so the preview cursor and the batch
+/// check are visibly separate without a host or a request.
+fn desktop_orders_case(width: f32, theme: &AppTheme, cx: &mut Context<GalleryRoot>) -> AnyElement {
+    let geometry = desktop_geometry(HostKind::Desktop, width);
+    let compact = width < 1024.;
+    let noop: ClickHandler = Rc::new(|_, _| {});
+    let orders = gallery_orders();
+
+    let mut master = div()
+        .flex()
+        .flex_col()
+        .child(desktop_order_header(compact, true, theme));
+    for (order, description, row) in &orders {
+        master = master.child(desktop_order_row(
+            order,
+            description,
+            *row,
+            compact,
+            noop.clone(),
+            Some(noop.clone()),
+            theme,
+        ));
+    }
+
+    let (order, description, _) = &orders[0];
+    let detail = desktop_order_detail(
+        order,
+        description,
+        OrderCancelState::Ready,
+        noop.clone(),
+        theme,
+        cx,
+    );
+    let strip = workspace::action_strip(
+        vec![div()
+            .flex()
+            .w_full()
+            .flex_wrap()
+            .justify_end()
+            .gap(px(8.))
+            .child(button::desktop_action_state(
+                "gallery-orders-cancel-selected",
+                "Stornieren (2)",
+                button::ButtonKind::Danger,
+                ControlState::Rest,
+                theme,
+                cx,
+                |_, _, _| {},
+            ))
+            .child(button::desktop_action_state(
+                "gallery-orders-done",
+                "Fertig",
+                button::ButtonKind::Secondary,
+                ControlState::Rest,
+                theme,
+                cx,
+                |_, _, _| {},
+            ))
+            .into_any_element()],
+        theme,
+    );
+
+    let panel = theme::apply(
+        div()
+            .w(px(geometry.workspace_width))
+            .h(px(400.))
+            .flex()
+            .flex_col()
+            .overflow_hidden(),
+        &theme.workspace_panel(),
+    )
+    .child(workspace::workspace_header(
+        Tab::Orders.title(),
+        Some(noop.clone()),
+        theme,
+    ))
+    .child(
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(workspace::split_workspace(
+                master.into_any_element(),
+                detail,
+                &geometry,
+                theme,
+            ))
+            .child(strip),
+    );
+
+    let select: TabSelect = Rc::new(|_, _, _| {});
+    div()
+        .w(px(width))
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(theme.text_secondary)
+                .child(format!("Bestellungen · {width} px")),
+        )
+        .child(
+            div()
+                .w(px(width))
+                .flex()
+                .flex_row()
+                .h(px(400.))
+                .child(desktop_navigation::desktop_rail(
+                    Tab::Orders,
+                    geometry.rail_width,
+                    theme,
+                    select,
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .justify_center()
+                        .child(panel),
+                ),
+        )
+        .into_any_element()
+}
+
+fn gallery_orders() -> Vec<(OrderedMenu, String, DesktopOrderRowState)> {
+    let order = |id: &str, title: &str, subtitle: &str, approved: bool| OrderedMenu {
+        position_id: id.to_string(),
+        eating_cycle_id: "cycle-2026-11-11".to_string(),
+        date_epoch_ms: 1_794_308_400_000,
+        title: title.to_string(),
+        subtitle: subtitle.to_string(),
+        approved,
+    };
+    vec![
+        (
+            order("o1", "MENÜ I", "Rindsgulasch", true),
+            "Rindsgulasch mit Serviettenknödel, Rahmsauce und Blattsalat".to_string(),
+            DesktopOrderRowState {
+                selected: true,
+                checked: true,
+                cancelling: false,
+            },
+        ),
+        (
+            order("o2", "MENÜ II", "Pasta", false),
+            "Pasta mit Tomatensugo und Parmesan".to_string(),
+            DesktopOrderRowState {
+                selected: false,
+                checked: true,
+                cancelling: false,
+            },
+        ),
+        (
+            order("o3", "MENÜ III", "Gemüsecurry", true),
+            "Gemüsecurry mit Basmatireis".to_string(),
+            DesktopOrderRowState {
+                selected: false,
+                checked: false,
+                cancelling: true,
+            },
+        ),
+    ]
+}
+
+/// The offline Abrechnung scenario (task 1.4): the real header, row, summary
+/// and detail helpers over static receipts from both sources.
+fn desktop_billing_case(width: f32, theme: &AppTheme) -> AnyElement {
+    let geometry = desktop_geometry(HostKind::Desktop, width);
+    let compact = width < 1024.;
+    let noop: ClickHandler = Rc::new(|_, _| {});
+    let entries = gallery_receipts();
+    let totals = BillingTotals {
+        gesamt: entries.iter().map(|entry| entry.amount).sum(),
+        belege: entries.len(),
+        zuschuss: 0.,
+    };
+
+    let mut master = div()
+        .flex()
+        .flex_col()
+        .child(desktop_bill_header(compact, theme));
+    for entry in &entries {
+        master = master.child(desktop_bill_row(
+            entry,
+            entry.id == "g-1001",
+            compact,
+            noop.clone(),
+            theme,
+        ));
+    }
+    let detail = desktop_bill_detail(&entries[0], width < 1024., theme);
+    let summary = desktop_summary_line(&entries, &totals, BillingSource::All, theme);
+
+    let panel = theme::apply(
+        div()
+            .w(px(geometry.workspace_width))
+            .h(px(400.))
+            .flex()
+            .flex_col()
+            .overflow_hidden(),
+        &theme.workspace_panel(),
+    )
+    .child(workspace::workspace_header(
+        Tab::Billing.title(),
+        Some(noop.clone()),
+        theme,
+    ))
+    .child(summary)
+    .child(
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(workspace::split_workspace(
+                master.into_any_element(),
+                detail,
+                &geometry,
+                theme,
+            )),
+    );
+
+    let select: TabSelect = Rc::new(|_, _, _| {});
+    div()
+        .w(px(width))
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(theme.text_secondary)
+                .child(format!("Abrechnung · {width} px")),
+        )
+        .child(
+            div()
+                .w(px(width))
+                .flex()
+                .flex_row()
+                .h(px(400.))
+                .child(desktop_navigation::desktop_rail(
+                    Tab::Billing,
+                    geometry.rail_width,
+                    theme,
+                    select,
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .justify_center()
+                        .child(panel),
+                ),
+        )
+        .into_any_element()
+}
+
+fn gallery_receipts() -> Vec<BillingEntry> {
+    vec![
+        BillingEntry {
+            id: "g-1001".to_string(),
+            epoch_ms: 1_794_308_400_000,
+            source: EntrySource::Gourmet,
+            description: String::new(),
+            amount: -6.4,
+            items: vec![
+                BillingLine {
+                    count: 2,
+                    description: "Rindsgulasch mit Serviettenknödel, Rahmsauce und Blattsalat"
+                        .to_string(),
+                    total: 6.4,
+                },
+                BillingLine {
+                    count: 1,
+                    description: "Kürbiskernöl".to_string(),
+                    total: 0.5,
+                },
+            ],
+        },
+        BillingEntry {
+            id: "v-77".to_string(),
+            epoch_ms: 1_794_222_000_000,
+            source: EntrySource::Ventopay,
+            description: "Kaffeeautomat Foyer".to_string(),
+            amount: -1.2,
+            items: Vec::new(),
+        },
+        BillingEntry {
+            id: "g-1002".to_string(),
+            epoch_ms: 1_794_135_600_000,
+            source: EntrySource::Gourmet,
+            description: String::new(),
+            amount: 6.4,
+            items: vec![BillingLine {
+                count: 1,
+                description: "Schnitzel mit Kartoffelsalat".to_string(),
+                total: 6.4,
+            }],
+        },
     ]
 }
 
