@@ -37,7 +37,7 @@ Conventions for every task below (same contract fields as the archived gpui-kit 
   - check: `make check`; additionally Mac desktop workflow and mobile regression workflow above, including app-crate tests
   - proof: ui workflow for geometry/contrast/token tests, ios/android build workflows plus actual desktop/gallery and mobile screenshots in 1.2 evidence
 
-- [ ] 1.3 Adapt Menüs to preview/detail with explicit pending actions; prove selection never orders
+- [x] 1.3 Adapt Menüs to preview/detail with explicit pending actions; prove selection never orders
   - tier: normal
   - host: Linux; Mac desktop/simulator; Android emulator/device
   - files: `src/ui/app/src/screens/menus.rs`, `src/ui/app/src/components/menu_card.rs`, `src/ui/app/src/components/day_navigator.rs`, `src/ui/app/src/components/fab.rs`, `src/ui/app/src/components/swipe.rs`, `src/ui/app/src/components/banner.rs`, `src/ui/app/src/app.rs` (menu dispatch/presentation only), `src/ui/app/src/gallery.rs` (offline menu scenarios), `src/ui/model/tests/desktop.rs`, `src/ui/model/tests/menus.rs`, `docs/evidence/desktop-ui-redesign/1.3/**`
