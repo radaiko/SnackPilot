@@ -26,7 +26,7 @@ Conventions for every task below (same contract fields as the archived gpui-kit 
   - check: `make check`
   - proof: ui workflow (`make ui-check`) runs model tests; unchanged core workflow/wire audit proves no request-shape edit
 
-- [ ] 1.2 Add Desktop Ledger tokens and responsive shared shell; prove geometry, contrast and unchanged mobile appearance
+- [x] 1.2 Add Desktop Ledger tokens and responsive shared shell; prove geometry, contrast and unchanged mobile appearance
   - tier: normal
   - host: Linux; Mac desktop/simulator; Android emulator/device
   - files: `src/ui/model/src/desktop.rs`, `src/ui/model/tests/desktop.rs`, `src/ui/model/tests/tokens.rs`, `src/ui/app/src/lib.rs`, `src/ui/app/src/app.rs`, `src/ui/app/src/navigation.rs`, `src/ui/app/src/theme.rs`, `src/ui/app/src/gallery.rs`, `src/ui/app/src/screens/orders.rs` (model-owned segment binding only), `src/ui/app/src/components/mod.rs`, `src/ui/app/src/components/desktop_navigation.rs` (new), `src/ui/app/src/components/workspace.rs` (new), `src/ui/app/src/components/record_table.rs` (new), `src/ui/app/src/components/button.rs`, `src/ui/app/src/components/text_field.rs`, `src/ui/app/src/components/chip.rs`, `src/ui/app/src/components/card.rs`, `src/ui/app/src/components/tab_bar.rs`, `src/ui/app/src/components/toast.rs`, `src/ui/app/src/components/loading_overlay.rs`, `docs/design/DESIGN.md` (new inventory), `docs/evidence/desktop-ui-redesign/1.2/**`
