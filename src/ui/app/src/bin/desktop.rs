@@ -22,16 +22,20 @@ fn main() {
         caps.notifications, caps.geofence
     );
 
-    gpui_kit::application()
+    // Dock activation after the window was closed reopens it through the
+    // installed model, so there is one session and one window (REQ-UI-07).
+    snackpilot_app::desktop::application_hook(gpui_kit::application())
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
-            // The shell renders from this AppModel (task 4.2).
-            match snackpilot_model::AppModel::new(
+            // The shell renders from this AppModel (task 4.2). In a debug
+            // evidence run the harness supplies isolated data and dummy
+            // credentials, and switches the model to offline before bootstrap.
+            let storage = snackpilot_app::evidence::storage_dir(
                 std::env::temp_dir().join("snackpilot-desktop"),
-                Arc::clone(&platform),
-            ) {
+            );
+            match snackpilot_app::evidence::model(storage, Arc::clone(&platform)) {
                 Ok(model) => {
-                    snackpilot_app::install_shell_model(Arc::new(model));
+                    snackpilot_app::install_shell_model(model);
                     if let Some(model) = snackpilot_app::shell_model() {
                         model.bootstrap();
                     }

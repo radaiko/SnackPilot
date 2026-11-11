@@ -20,8 +20,9 @@ pub enum HostKind {
     Desktop,
 }
 
-/// Which workspace the shell renders. `DesktopCompact` counts as narrow for
-/// the settings projection (the detail is a pushed screen, not containment).
+/// Which workspace the shell renders. Compact and expanded desktop both
+/// contain the settings detail; only `Phone` (a phone host, or a desktop
+/// narrower than 720) projects it as a pushed screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutMode {
     Phone,
@@ -173,14 +174,26 @@ pub enum DesktopCommand {
 }
 
 /// Whether `cmd` acts in `scope` on the workspace tab `tab` (REQ-UI-11).
-/// Cmd+1–4 and the other workspace commands work in the Workspace scope on
-/// every tab; Cmd+R and its Retry twin reload only the tab that owns a
-/// reload — Menüs, Bestellungen, Abrechnung — and are disabled on
-/// Einstellungen and in the TextInput and Modal scopes, where the host must
-/// not capture the key at all.
+///
+/// The navigation chords are app chords, not typing keys: Cmd+1–4 and Cmd+, are
+/// allowed while a text field has focus, and only a modal takes them away
+/// (brief "App, no modal"). Native editing keys keep their priority because
+/// the app binds no editing chord for them. Every other command stays inert
+/// outside the Workspace scope, so a focused input never loses a key. Cmd+R
+/// and its Retry twin reload only the tab that owns a reload — Menüs,
+/// Bestellungen, Abrechnung — and are disabled on Einstellungen.
 pub fn command_allowed(cmd: DesktopCommand, scope: KeyScope, tab: Tab) -> bool {
-    if !matches!(scope, KeyScope::Workspace) {
+    if matches!(scope, KeyScope::Modal) {
         return false;
+    }
+    if matches!(scope, KeyScope::TextInput) {
+        return matches!(
+            cmd,
+            DesktopCommand::OpenMenus
+                | DesktopCommand::OpenOrders
+                | DesktopCommand::OpenBilling
+                | DesktopCommand::OpenSettings
+        );
     }
     match cmd {
         DesktopCommand::Refresh | DesktopCommand::Retry => {
@@ -203,6 +216,21 @@ fn command_name(cmd: DesktopCommand) -> &'static str {
         DesktopCommand::OpenSettings => "nav.settings",
         DesktopCommand::OpenOrdersPast => "orders.segment.past",
         DesktopCommand::DismissAlert => "alerts.dismiss",
+    }
+}
+
+/// A flow command's claim, held while its body runs. Dropping it releases the
+/// claim on every exit path, including a worker panic, so a flow that moved to
+/// the host's thread cannot strand the workspace.
+pub struct CommandClaim {
+    hub: std::sync::Arc<crate::state::StateHub>,
+    name: &'static str,
+}
+
+impl Drop for CommandClaim {
+    fn drop(&mut self) {
+        self.hub
+            .update("command_release", |s| clear_claim(s, self.name));
     }
 }
 
@@ -488,9 +516,18 @@ impl AppModel {
         desktop_geometry(s.host_kind, s.content_width)
     }
 
-    /// True on the expanded desktop workspace (containment, not push).
-    pub fn is_wide(&self) -> bool {
+    /// True on the expanded desktop workspace (detail padding 24, 56/44 split).
+    pub fn is_expanded(&self) -> bool {
         self.layout_mode() == LayoutMode::DesktopExpanded
+    }
+
+    /// Whether the settings detail is contained beside the master instead of
+    /// being a pushed screen. Containment starts at the 720 px compact
+    /// breakpoint, so compact and expanded desktop both contain; only the
+    /// phone projection (a phone host, or a desktop narrower than 720) pushes
+    /// exactly one detail screen (REQ-SCR-04/REQ-UI-10).
+    pub fn settings_contained(&self) -> bool {
+        self.layout_mode() != LayoutMode::Phone
     }
 
     /// Which scope keyboard shortcuts act on, from the current focus flags.
@@ -607,13 +644,14 @@ impl AppModel {
         });
     }
 
-    /// Open a settings section: containment on the wide workspace, a pushed
-    /// detail screen on the narrow one (design D1).
+    /// Open a settings section: containment from the 720 px compact desktop
+    /// breakpoint on, a single pushed detail screen on the phone projection
+    /// (design D1, REQ-SCR-04).
     pub fn open_settings_detail(&self, detail: SettingsDetail) {
         self.hub().update("settings_detail", move |s| {
             s.settings_detail = Some(detail);
-            let wide = layout_mode(s.host_kind, s.content_width) == LayoutMode::DesktopExpanded;
-            if !wide && s.navigation.top() != Screen::SettingsDetail {
+            let contained = layout_mode(s.host_kind, s.content_width) != LayoutMode::Phone;
+            if !contained && s.navigation.top() != Screen::SettingsDetail {
                 s.navigation.push(Screen::SettingsDetail);
             }
         });
@@ -664,14 +702,27 @@ impl AppModel {
         self.state().navigation.active_tab()
     }
 
-    /// Run a keyboard command. Duplicate-safe: a command is rejected while
+    /// Run a keyboard command. Duplicate-safe: a flow command is rejected while
     /// `busy` or while any command is still claimed, so a double tap cannot
-    /// start the same operation twice. Flows release their claim on every
-    /// exit path; synchronous commands release before returning.
+    /// start the same operation twice. Flows release their claim on every exit
+    /// path; synchronous commands release before returning. The four
+    /// navigation chords run no flow at all, so they stay available while one
+    /// is running (brief "App, no modal") and take no claim.
     /// Returns whether the command was accepted and dispatched.
     pub fn handle_command(&self, cmd: DesktopCommand) -> bool {
         if !command_allowed(cmd, self.key_scope(), self.active_tab()) {
             return false;
+        }
+        let tab = match cmd {
+            DesktopCommand::OpenMenus => Some(Tab::Menus),
+            DesktopCommand::OpenOrders => Some(Tab::Orders),
+            DesktopCommand::OpenBilling => Some(Tab::Billing),
+            DesktopCommand::OpenSettings => Some(Tab::Settings),
+            _ => None,
+        };
+        if let Some(tab) = tab {
+            self.select_tab(tab);
+            return true;
         }
         let name = command_name(cmd);
         let claimed = self.hub().try_update(
@@ -711,18 +762,11 @@ impl AppModel {
                     false
                 }
             }
-            DesktopCommand::OpenMenus => self.dispatch_sync(name, || {
-                self.select_tab(Tab::Menus);
-            }),
-            DesktopCommand::OpenOrders => self.dispatch_sync(name, || {
-                self.select_tab(Tab::Orders);
-            }),
-            DesktopCommand::OpenBilling => self.dispatch_sync(name, || {
-                self.select_tab(Tab::Billing);
-            }),
-            DesktopCommand::OpenSettings => self.dispatch_sync(name, || {
-                self.select_tab(Tab::Settings);
-            }),
+            // Navigation returns above, before any claim is taken.
+            DesktopCommand::OpenMenus
+            | DesktopCommand::OpenOrders
+            | DesktopCommand::OpenBilling
+            | DesktopCommand::OpenSettings => unreachable!("navigation ran above"),
             DesktopCommand::OpenOrdersPast => {
                 self.dispatch_sync(name, || self.set_orders_segment(true))
             }
@@ -740,6 +784,36 @@ impl AppModel {
         self.state().claimed_command
     }
 
+    /// Take a flow command's claim without running its body, so a shell that
+    /// moves blocking flow bodies to another thread keeps the model's scope
+    /// eligibility, busy check and duplicate rejection here. `None` for a
+    /// rejected command, a navigation chord (it runs no flow) or while another
+    /// command holds the claim. Drop the claim when the body finishes.
+    pub fn begin_command(&self, cmd: DesktopCommand) -> Option<CommandClaim> {
+        if !command_allowed(cmd, self.key_scope(), self.active_tab()) {
+            return None;
+        }
+        if matches!(
+            cmd,
+            DesktopCommand::OpenMenus
+                | DesktopCommand::OpenOrders
+                | DesktopCommand::OpenBilling
+                | DesktopCommand::OpenSettings
+        ) {
+            return None;
+        }
+        let name = command_name(cmd);
+        let claimed = self.hub().try_update(
+            "command",
+            |s| !s.busy && s.claimed_command.is_none(),
+            |s| s.claimed_command = Some(name.to_string()),
+        );
+        claimed.then(|| CommandClaim {
+            hub: std::sync::Arc::clone(self.hub()),
+            name,
+        })
+    }
+
     /// Run a synchronous command body, then release the claim. Always accepted.
     fn dispatch_sync(&self, name: &'static str, run: impl FnOnce()) -> bool {
         run();
@@ -753,15 +827,18 @@ impl AppModel {
     }
 
     /// Re-project the settings detail after a host-kind or width change:
-    /// narrow + open detail pushes the screen, wide pops it back into
-    /// containment. The detail identity itself is preserved across resizes.
+    /// the phone projection (below 720 on desktop, or a phone host) pushes the
+    /// screen, containment from 720 on pops it back. The detail identity
+    /// itself is preserved across resizes.
     fn reproject_settings(&self) {
         self.hub().update("settings_projection", |s| {
-            let wide = layout_mode(s.host_kind, s.content_width) == LayoutMode::DesktopExpanded;
-            if !wide && s.settings_detail.is_some() && s.navigation.top() != Screen::SettingsDetail
+            let contained = layout_mode(s.host_kind, s.content_width) != LayoutMode::Phone;
+            if !contained
+                && s.settings_detail.is_some()
+                && s.navigation.top() != Screen::SettingsDetail
             {
                 s.navigation.push(Screen::SettingsDetail);
-            } else if wide && s.navigation.top() == Screen::SettingsDetail {
+            } else if contained && s.navigation.top() == Screen::SettingsDetail {
                 s.navigation.pop();
             }
         });

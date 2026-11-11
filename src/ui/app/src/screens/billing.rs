@@ -16,8 +16,9 @@ use crate::components::bill_card::{
 };
 use crate::components::chip::desktop_chip;
 use crate::components::pull_refresh::pull_refresh;
+use crate::components::record_table::{detail_entry, RecordListFocus};
 use crate::components::spinner::spinner;
-use crate::components::workspace::{detail_prompt, split_workspace};
+use crate::components::workspace::{detail_prompt, split_workspace_scrolled};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_model::desktop::{ControlState, LayoutMode};
@@ -42,7 +43,11 @@ pub fn billing_tab(
     let totals = model.billing_totals();
 
     let mut column = div().size_full().flex().flex_col();
-    column = column.child(month_row(state, model, theme, false, cx));
+    // Host-gated dispatch (task 1.5): a narrow desktop window projects as the
+    // phone shell but still runs its blocking billing work off the render
+    // thread; only a phone/tablet host stays synchronous.
+    let off_thread = dispatch_off_thread(state.host_kind);
+    column = column.child(month_row(state, model, theme, off_thread, cx));
 
     let mut content = div().flex_1().flex().flex_col();
 
@@ -60,7 +65,7 @@ pub fn billing_tab(
                 .child(spinner(theme.primary, 36.)),
         );
     } else {
-        content = content.child(chips_row(state, model, theme, cx));
+        content = content.child(chips_row(state, model, theme, off_thread, cx));
         if !entries.is_empty() {
             content = content.child(summary(&entries, &totals, state.billing_source, theme));
         }
@@ -92,7 +97,7 @@ pub fn billing_tab(
     column = column.child(pull_refresh(
         "billing-pull",
         content.into_any_element(),
-        reload_handler(cx),
+        reload_handler(off_thread, cx),
     ));
     column.into_any_element()
 }
@@ -183,6 +188,7 @@ fn chips_row(
     state: &State,
     model: &Arc<AppModel>,
     theme: &AppTheme,
+    off_thread: bool,
     cx: &mut Context<AppShell>,
 ) -> Div {
     let mut row = div()
@@ -200,7 +206,10 @@ fn chips_row(
         let shell = cx.entity().clone();
         let model = Arc::clone(model);
         let action: ClickHandler = Rc::new(move |_: &mut Window, cx: &mut App| {
-            model.set_billing_source(source);
+            dispatch_billing_action(off_thread, cx, {
+                let model = Arc::clone(&model);
+                move || model.set_billing_source(source)
+            });
             let _ = shell.update(cx, |_, cx| cx.notify());
         });
         row = row.child(
@@ -295,9 +304,10 @@ fn desktop_chips_row(
     row
 }
 
-/// Run one billing model action on the host's thread: every desktop layout
-/// dispatches off the render thread so the cached rows keep painting, while
-/// the phone shell keeps its synchronous path.
+/// Run one billing model action on the host's thread: every desktop host
+/// dispatches off the render thread so the cached rows keep painting, the
+/// narrow window included (the rail is irrelevant), while a phone or tablet
+/// host keeps the incumbent synchronous path.
 fn dispatch_billing_action(off_thread: bool, cx: &mut App, action: impl FnOnce() + Send + 'static) {
     if off_thread {
         cx.background_executor()
@@ -378,14 +388,15 @@ fn error_banner(message: &str, theme: &AppTheme) -> AnyElement {
     .into_any_element()
 }
 
-fn reload_handler(cx: &mut Context<AppShell>) -> ClickHandler {
+fn reload_handler(off_thread: bool, cx: &mut Context<AppShell>) -> ClickHandler {
     let shell = cx.entity().clone();
     Rc::new(move |_: &mut Window, cx: &mut App| {
         shell.update(cx, |s, cx| {
-            if let Some(model) = &s.model {
-                model.reload_billing();
-                cx.notify();
-            }
+            let Some(model) = s.model.clone() else {
+                return;
+            };
+            dispatch_billing_action(off_thread, cx, move || model.reload_billing());
+            cx.notify();
         });
     })
 }
@@ -399,6 +410,7 @@ pub fn desktop_billing_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     layout: LayoutMode,
+    list_focus: &RecordListFocus,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -412,7 +424,7 @@ pub fn desktop_billing_tab(
     let totals = model.billing_totals();
     let geometry = model.desktop_geometry();
     let compact = layout == LayoutMode::DesktopCompact;
-    let off_thread = dispatch_off_thread(layout);
+    let off_thread = dispatch_off_thread(state.host_kind);
 
     let mut column = div()
         .flex_1()
@@ -445,11 +457,13 @@ pub fn desktop_billing_tab(
             .into_any_element();
     }
     column
-        .child(split_workspace(
-            desktop_receipt_master(state, &entries, compact, theme, cx),
+        .child(split_workspace_scrolled(
+            desktop_receipt_master(state, model, &entries, compact, list_focus, theme, cx),
             desktop_receipt_detail_pane(state, &entries, theme),
             &geometry,
             theme,
+            &list_focus.scroll(),
+            list_focus.detail(),
         ))
         .into_any_element()
 }
@@ -514,14 +528,46 @@ pub(crate) fn desktop_summary_line(
 
 fn desktop_receipt_master(
     state: &State,
+    model: &Arc<AppModel>,
     entries: &[BillingEntry],
     compact: bool,
+    list_focus: &RecordListFocus,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
+    // One tab stop for the receipt table: the row cursor previews the stable
+    // receipt ID in the incumbent newest-first order and reveals the row.
+    // A receipt is read-only, so Enter hands focus to the detail's scroll
+    // region itself (record_table::detail_entry).
+    let ids: Vec<String> = entries.iter().map(|entry| entry.id.clone()).collect();
+    // Only this render's receipts keep a handle: a month or source change
+    // drops the old rows from the restore set (REQ-UI-11/14).
+    list_focus.retain(&ids);
+    let on_key = {
+        let focus = list_focus.clone();
+        let model = Arc::clone(model);
+        move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+            if event.keystroke.key.as_str() == "enter" {
+                focus.enter(detail_entry(false), window, cx);
+                cx.stop_propagation();
+                return;
+            }
+            let Some(id) = focus.step(&ids, event.keystroke.key.as_str(), window, cx) else {
+                return;
+            };
+            model.open_preview(ListKind::Receipts, &id);
+            model.set_cursor(ListKind::Receipts, Some(id));
+            cx.stop_propagation();
+        }
+    };
     let mut list = div()
+        .id("desktop-billing-list")
         .flex()
         .flex_col()
+        .tab_index(0)
+        .track_focus(list_focus.container())
+        .focus(theme::desktop_focus(theme.desktop.focus))
+        .on_key_down(on_key)
         .child(desktop_bill_header(compact, theme));
     if entries.is_empty() {
         list = list.child(
@@ -545,7 +591,15 @@ fn desktop_receipt_master(
     for entry in entries {
         let selected = state.receipt_preview.as_deref() == Some(entry.id.as_str());
         let preview = desktop_receipt_preview_handler(cx, entry.id.clone());
-        list = list.child(desktop_bill_row(entry, selected, compact, preview, theme));
+        let handle = list_focus.row(&entry.id, cx);
+        list = list.child(desktop_bill_row(
+            entry,
+            selected,
+            compact,
+            preview,
+            Some(&handle),
+            theme,
+        ));
     }
     list.into_any_element()
 }

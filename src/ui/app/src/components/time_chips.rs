@@ -64,6 +64,8 @@ pub fn time_chips(
                 } else {
                     hsla(0., 0., 0., 0.)
                 })
+                .tab_index(0)
+                .focus(crate::theme::desktop_focus(theme.desktop.focus))
                 .cursor_pointer()
                 .on_click(move |_, window, cx| handler(hour, minute, window, cx))
                 .child(

@@ -386,6 +386,7 @@ fn desktop_section(
                         .child("SnackPilot Desktop Ledger · Kompakt/Erweitert"),
                 ),
         )
+        .child(desktop_settings_dialog_demo(&theme, cx))
         .child(
             div()
                 .text_size(px(12.))
@@ -475,7 +476,7 @@ fn desktop_menus_case(width: f32, theme: &AppTheme, cx: &mut Context<GalleryRoot
             .child("MENÜ I"),
     );
     for (item, state) in &rows {
-        master = master.child(desktop_menu_row(item, *state, noop.clone(), theme));
+        master = master.child(desktop_menu_row(item, *state, noop.clone(), None, theme));
     }
 
     let (item, state) = &rows[0];
@@ -545,6 +546,7 @@ fn desktop_menus_case(width: f32, theme: &AppTheme, cx: &mut Context<GalleryRoot
                 .child(desktop_navigation::desktop_rail(
                     Tab::Menus,
                     geometry.rail_width,
+                    None,
                     theme,
                     select,
                 ))
@@ -556,6 +558,198 @@ fn desktop_menus_case(width: f32, theme: &AppTheme, cx: &mut Context<GalleryRoot
                         .justify_center()
                         .child(panel),
                 ),
+        )
+        .into_any_element()
+}
+
+/// Offline proof for task 1.5 that needs no host: the 720 px settings
+/// containment (master + credential form, no back row), its disabled/focused
+/// action states, and the desktop confirm dialog over the whole shell.
+/// @req REQ-SCR-04 @req REQ-UI-14
+fn desktop_settings_dialog_demo(
+    theme: &crate::theme::AppTheme,
+    cx: &mut Context<GalleryRoot>,
+) -> AnyElement {
+    use crate::components::dialog::{dialog_overlay, Dialog, DialogActivate};
+    use crate::components::settings_row::settings_row_desktop;
+    use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
+
+    let noop: crate::navigation::ClickHandler = Rc::new(|_, _| {});
+    let geometry = desktop_geometry(HostKind::Desktop, 720.);
+    let master = {
+        let mut list = div().w_full().flex().flex_col().p(px(8.)).gap(px(4.));
+        for (index, (id, title, hint, selected)) in [
+            (
+                "gallery-settings-gourmet",
+                "Kantine-Zugangsdaten",
+                "Angemeldet als demo",
+                true,
+            ),
+            (
+                "gallery-settings-ventopay",
+                "Automaten-Zugangsdaten",
+                "Nicht angemeldet",
+                false,
+            ),
+            (
+                "gallery-settings-appearance",
+                "Darstellung",
+                "System",
+                false,
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let focus = cx.focus_handle();
+            list = list.child(settings_row_desktop(
+                id,
+                title,
+                Some(hint.to_string()),
+                selected,
+                &focus,
+                noop.clone(),
+                theme,
+            ));
+            let _ = index;
+        }
+        list.child(
+            div()
+                .id("gallery-settings-privacy")
+                .min_h(px(44.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .tab_index(0)
+                .cursor_pointer()
+                .focus(crate::theme::desktop_focus(theme.desktop.focus))
+                .on_click({
+                    let noop = noop.clone();
+                    move |_, window, cx| noop(window, cx)
+                })
+                .child(
+                    div()
+                        .text_size(px(14.))
+                        .line_height(px(20.))
+                        .text_color(theme.text_secondary)
+                        .child("Datenschutz"),
+                ),
+        )
+        .into_any_element()
+    };
+    let field = |label: &'static str, focus: bool| {
+        div()
+            .w_full()
+            .min_h(px(44.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .rounded(px(8.))
+            .bg(theme.surface)
+            .border(px(1.))
+            .border_color(if focus {
+                theme.desktop.focus
+            } else {
+                theme.border
+            })
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .text_color(if focus {
+                        theme.desktop.ink
+                    } else {
+                        theme.text_secondary
+                    })
+                    .child(label),
+            )
+    };
+    let form = div()
+        .w_full()
+        .max_w(px(440.))
+        .flex()
+        .flex_col()
+        .p(px(16.))
+        .gap(px(16.))
+        .child(
+            div()
+                .text_size(px(20.))
+                .line_height(px(26.))
+                .font_semibold()
+                .text_color(theme.desktop.ink)
+                .child("Kantine-Zugangsdaten"),
+        )
+        .child(field("Benutzername", true))
+        .child(field("Passwort", false))
+        .child(button::desktop_action_state(
+            "gallery-settings-save",
+            "Speichern",
+            button::ButtonKind::Primary,
+            ControlState::Rest,
+            theme,
+            cx,
+            {
+                let noop = noop.clone();
+                move |_, window, cx| noop(window, cx)
+            },
+        ))
+        .child(button::desktop_action_state(
+            "gallery-settings-save-busy",
+            "Speichern...",
+            button::ButtonKind::Primary,
+            ControlState::Disabled,
+            theme,
+            cx,
+            {
+                let noop = noop.clone();
+                move |_, window, cx| noop(window, cx)
+            },
+        ))
+        .into_any_element();
+    let split = div()
+        .w(px(geometry.workspace_width))
+        .h(px(320.))
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .child(workspace::workspace_header("Einstellungen", None, theme))
+        .child(workspace::split_workspace(
+            master,
+            div().p(px(16.)).child(form).into_any_element(),
+            &geometry,
+            theme,
+        ))
+        .into_any_element();
+
+    let f0 = cx.focus_handle();
+    let f1 = cx.focus_handle();
+    let dialog = Dialog::Confirm {
+        title: "Bestellung stornieren".into(),
+        message: "\"MENÜ I\" stornieren?".into(),
+        confirm_label: Some("Stornieren"),
+        cancel_label: Some("Behalten"),
+        on_confirm: noop.clone(),
+    };
+    let activate: DialogActivate = Rc::new(|_, _, _| {});
+    let overlay = dialog_overlay(&dialog, theme, 1, &[f0, f1], activate);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(theme.text_secondary)
+                .child("Einstellungen 720 · containment, form, focus/disabled, desktop dialog"),
+        )
+        .child(
+            div()
+                .relative()
+                .w(px(geometry.workspace_width))
+                .flex()
+                .child(split)
+                .child(overlay),
         )
         .into_any_element()
 }
@@ -659,6 +853,7 @@ fn desktop_orders_case(width: f32, theme: &AppTheme, cx: &mut Context<GalleryRoo
             compact,
             noop.clone(),
             Some(noop.clone()),
+            None,
             theme,
         ));
     }
@@ -753,6 +948,7 @@ fn desktop_orders_case(width: f32, theme: &AppTheme, cx: &mut Context<GalleryRoo
                 .child(desktop_navigation::desktop_rail(
                     Tab::Orders,
                     geometry.rail_width,
+                    None,
                     theme,
                     select,
                 ))
@@ -831,6 +1027,7 @@ fn desktop_billing_case(width: f32, theme: &AppTheme) -> AnyElement {
             entry.id == "g-1001",
             compact,
             noop.clone(),
+            None,
             theme,
         ));
     }
@@ -889,6 +1086,7 @@ fn desktop_billing_case(width: f32, theme: &AppTheme) -> AnyElement {
                 .child(desktop_navigation::desktop_rail(
                     Tab::Billing,
                     geometry.rail_width,
+                    None,
                     theme,
                     select,
                 ))
@@ -1082,6 +1280,7 @@ fn desktop_shell(
                 .child(desktop_navigation::desktop_rail(
                     active,
                     geometry.rail_width,
+                    None,
                     theme,
                     select,
                 ))

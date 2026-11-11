@@ -121,6 +121,7 @@ targets:
       - path: UITests/NotificationPermissionTests.swift
       - path: UITests/DialogOcclusionTests.swift
       - path: UITests/LoginTypingTests.swift
+      - path: UITests/DesktopRegressionTests.swift
     dependencies:
       - target: SnackPilot
     settings:

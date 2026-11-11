@@ -12,20 +12,22 @@ use std::time::Duration;
 use gpui::*;
 
 use crate::app::{
-    desktop_check_effect, desktop_mutation_blocked, order_cancel_state, AppShell, OrderRowEffect,
+    desktop_check_effect, desktop_mutation_blocked, order_cancel_state, run_blocking, AppShell,
+    OrderCancelState, OrderRowEffect,
 };
 use crate::components::button::{desktop_action_state, ButtonKind};
 use crate::components::order_item::{
     desktop_order_detail, desktop_order_header, desktop_order_row, order_description, order_item,
     DesktopOrderRowState,
 };
+use crate::components::record_table::{detail_entry, RecordListFocus};
 use crate::components::segment_tabs::{desktop_segment_toolbar, segment_tabs, Segment};
 use crate::components::spinner::spinner;
-use crate::components::workspace::{action_strip, detail_prompt, split_workspace};
+use crate::components::workspace::{action_strip, detail_prompt, split_workspace_scrolled};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::OrderedMenu;
-use snackpilot_model::desktop::{ControlState, LayoutMode};
+use snackpilot_model::desktop::{ControlState, HostKind, LayoutMode};
 use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{AppModel, State};
 
@@ -72,6 +74,7 @@ pub fn orders_tab(
         })
     };
 
+    let host = state.host_kind;
     let mut column = div().size_full().flex().flex_col();
     column = column.child(segment_tabs(
         active,
@@ -87,7 +90,7 @@ pub fn orders_tab(
                 column = column.child(confirm_banner(
                     &banner,
                     state.busy,
-                    confirm_handler(cx),
+                    confirm_handler(host, cx),
                     theme,
                 ));
             }
@@ -127,7 +130,7 @@ pub fn orders_tab(
             let can_cancel = !past && state.cancelling_id.is_none();
             let cutoff = model.is_cancellation_cutoff(order);
             let dish = model.dish(order);
-            let handler = cancel_handler(cx, order.clone());
+            let handler = cancel_handler(host, cx, order.clone());
             let select_mode = state.order_selection_mode;
             let selected = state.selected_order_ids.contains(&order.position_id);
             let on_select =
@@ -151,7 +154,7 @@ pub fn orders_tab(
 
     // Batch-cancel bar while multi-select mode is active.
     if state.order_selection_mode {
-        column = column.child(selection_bar(state, cx, theme));
+        column = column.child(selection_bar(state, host, cx, theme));
     } else if !past {
         let handler = begin_selection_handler(cx);
         column = column.child(
@@ -294,8 +297,13 @@ fn error_banner(message: &str, theme: &AppTheme) -> AnyElement {
     .into_any_element()
 }
 
-fn selection_bar(state: &State, cx: &mut Context<AppShell>, theme: &AppTheme) -> AnyElement {
-    let cancel = cancel_selected_handler(cx);
+fn selection_bar(
+    state: &State,
+    host: HostKind,
+    cx: &mut Context<AppShell>,
+    theme: &AppTheme,
+) -> AnyElement {
+    let cancel = cancel_selected_handler(host, cx);
     let done = end_selection_handler(cx);
     let count = state.selected_order_ids.len();
     div()
@@ -343,14 +351,27 @@ fn selection_bar(state: &State, cx: &mut Context<AppShell>, theme: &AppTheme) ->
         .into_any_element()
 }
 
-fn confirm_handler(cx: &mut Context<AppShell>) -> ClickHandler {
+/// The narrow Bestätigen action. Off-thread on every desktop host, the narrow
+/// window included, under the shell's gate; a phone host stays synchronous.
+fn confirm_handler(host: HostKind, cx: &mut Context<AppShell>) -> ClickHandler {
     let shell = cx.entity().clone();
     Rc::new(move |_: &mut Window, cx: &mut App| {
         shell.update(cx, |s, cx| {
-            if let Some(model) = &s.model {
-                model.confirm_orders();
-                cx.notify();
-            }
+            let Some(model) = s.model.clone() else {
+                return;
+            };
+            let state = model.state();
+            let Some(ticket) = s
+                .mutation_gate
+                .claim(state.busy, state.order_progress.is_some())
+            else {
+                return;
+            };
+            run_blocking(host, cx, move || {
+                let _ticket = ticket;
+                model.confirm_orders()
+            });
+            cx.notify();
         });
     })
 }
@@ -389,7 +410,7 @@ pub(crate) fn desktop_confirm_dispatch(model: &Arc<AppModel>) {
     model.confirm_orders();
 }
 
-fn cancel_handler(cx: &mut Context<AppShell>, order: OrderedMenu) -> ClickHandler {
+fn cancel_handler(host: HostKind, cx: &mut Context<AppShell>, order: OrderedMenu) -> ClickHandler {
     let shell = cx.entity().clone();
     Rc::new(move |_: &mut Window, cx: &mut App| {
         let order = order.clone();
@@ -398,10 +419,12 @@ fn cancel_handler(cx: &mut Context<AppShell>, order: OrderedMenu) -> ClickHandle
             let on_confirm = {
                 let model = model.clone();
                 let id = order.position_id.clone();
-                Rc::new(move |_: &mut Window, _: &mut App| {
-                    if let Some(model) = &model {
-                        model.cancel_order(&id);
-                    }
+                Rc::new(move |_: &mut Window, cx: &mut App| {
+                    let Some(model) = model.clone() else {
+                        return;
+                    };
+                    let id = id.clone();
+                    run_blocking(host, cx, move || model.cancel_order(&id));
                 })
             };
             let message = format!("\"{}\" stornieren?", order.title);
@@ -455,14 +478,27 @@ fn end_selection_handler(cx: &mut Context<AppShell>) -> ClickHandler {
     })
 }
 
-fn cancel_selected_handler(cx: &mut Context<AppShell>) -> ClickHandler {
+/// The narrow batch cancellation. Off-thread on every desktop host under the
+/// shell's gate; the phone host keeps the incumbent synchronous call.
+fn cancel_selected_handler(host: HostKind, cx: &mut Context<AppShell>) -> ClickHandler {
     let shell = cx.entity().clone();
     Rc::new(move |_: &mut Window, cx: &mut App| {
         shell.update(cx, |s, cx| {
-            if let Some(model) = &s.model {
+            let Some(model) = s.model.clone() else {
+                return;
+            };
+            let state = model.state();
+            let Some(ticket) = s
+                .mutation_gate
+                .claim(state.busy, state.order_progress.is_some())
+            else {
+                return;
+            };
+            run_blocking(host, cx, move || {
+                let _ticket = ticket;
                 model.cancel_selected_orders();
-                cx.notify();
-            }
+            });
+            cx.notify();
         });
     })
 }
@@ -472,11 +508,14 @@ fn cancel_selected_handler(cx: &mut Context<AppShell>) -> ClickHandler {
 /// order detail. A row body only previews; the 44 px check column is the only
 /// way into the batch set, so no activation can cancel or approve an order.
 /// @req REQ-SCR-02 @req REQ-UI-08 @req REQ-UI-12
+#[allow(clippy::too_many_arguments)]
 pub fn desktop_orders_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     layout: LayoutMode,
     mutation_claimed: bool,
+    list_focus: &RecordListFocus,
+    segment_group: &FocusHandle,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -520,6 +559,7 @@ pub fn desktop_orders_tab(
         split.past.len(),
         select_segment,
         select_mode,
+        Some(segment_group),
         theme,
     );
 
@@ -544,11 +584,16 @@ pub fn desktop_orders_tab(
         column = column.child(error_banner(&error.message, theme));
     }
 
-    column = column.child(split_workspace(
-        desktop_order_master(state, model, compact, theme, cx),
+    let blocked = mutation_claimed
+        || desktop_mutation_blocked(state.busy, state.order_progress.is_some())
+        || state.cancelling_id.is_some();
+    column = column.child(split_workspace_scrolled(
+        desktop_order_master(state, model, compact, blocked, list_focus, theme, cx),
         desktop_order_detail_pane(state, model, mutation_claimed, theme, cx),
         &geometry,
         theme,
+        &list_focus.scroll(),
+        list_focus.detail(),
     ));
     if state.order_selection_mode {
         column = column.child(desktop_selection_strip(state, mutation_claimed, theme, cx));
@@ -569,10 +614,13 @@ fn desktop_order_master(
     state: &State,
     model: &Arc<AppModel>,
     compact: bool,
+    blocked: bool,
+    list_focus: &RecordListFocus,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     let Some(split) = &state.orders_split else {
+        list_focus.retain(&[]);
         return desktop_empty_master(state.orders_past, theme);
     };
     let orders: &[OrderedMenu] = if state.orders_past {
@@ -580,11 +628,58 @@ fn desktop_order_master(
     } else {
         &split.upcoming
     };
-    let mut list = div().flex().flex_col().child(desktop_order_header(
-        compact,
-        state.order_selection_mode,
-        theme,
-    ));
+    // One tab stop for the whole table: the row cursor follows the visible
+    // segment order, previews without approving or cancelling, and reveals
+    // the focused row. Space stays the batch check (record_table); Enter takes
+    // the detail's enabled Stornieren control, else the read-only region.
+    let ids: Vec<String> = orders.iter().map(|o| o.position_id.clone()).collect();
+    // A segment change or refresh re-renders a different set: the previous
+    // rows' handles must not survive it (REQ-UI-11/14).
+    list_focus.retain(&ids);
+    let detail_control = !blocked
+        && state.order_preview.as_deref().is_some_and(|id| {
+            orders
+                .iter()
+                .find(|order| order.position_id == id)
+                .is_some_and(|order| {
+                    order_cancel_state(
+                        state.orders_past,
+                        state.cancelling_id.as_deref() == Some(order.position_id.as_str()),
+                        model.is_cancellation_cutoff(order),
+                        false,
+                    ) == OrderCancelState::Ready
+                })
+        });
+    let on_key = {
+        let focus = list_focus.clone();
+        let model = Arc::clone(model);
+        move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+            if event.keystroke.key.as_str() == "enter" {
+                focus.enter(detail_entry(detail_control), window, cx);
+                cx.stop_propagation();
+                return;
+            }
+            let Some(id) = focus.step(&ids, event.keystroke.key.as_str(), window, cx) else {
+                return;
+            };
+            model.open_preview(ListKind::Orders, &id);
+            model.set_cursor(ListKind::Orders, Some(id));
+            cx.stop_propagation();
+        }
+    };
+    let mut list = div()
+        .id("desktop-orders-list")
+        .flex()
+        .flex_col()
+        .tab_index(0)
+        .track_focus(list_focus.container())
+        .focus(theme::desktop_focus(theme.desktop.focus))
+        .on_key_down(on_key)
+        .child(desktop_order_header(
+            compact,
+            state.order_selection_mode,
+            theme,
+        ));
     if orders.is_empty() {
         return list
             .child(desktop_empty_master(state.orders_past, theme))
@@ -602,6 +697,7 @@ fn desktop_order_master(
         let check = state
             .order_selection_mode
             .then(|| desktop_check_handler(cx, order.position_id.clone()));
+        let handle = list_focus.row(&order.position_id, cx);
         list = list.child(desktop_order_row(
             order,
             &description,
@@ -609,6 +705,7 @@ fn desktop_order_master(
             compact,
             preview,
             check,
+            Some(&handle),
             theme,
         ));
     }

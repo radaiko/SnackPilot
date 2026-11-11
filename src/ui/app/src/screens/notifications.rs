@@ -89,6 +89,7 @@ pub fn notifications_screen(
     state: &State,
     model: Option<&Arc<AppModel>>,
     theme: &AppTheme,
+    containment: Option<f32>,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     let back = {
@@ -97,6 +98,47 @@ pub fn notifications_screen(
             let _ = entity.update(cx, |this, cx| this.pop_detail(cx));
         })
     };
+
+    // Desktop has no notification/geofence service in this change: the row is
+    // hidden from the settings master at every width, and a stale/debug route
+    // only shows this truthful unavailable state — never functioning-looking
+    // toggles or chips (REQ-SCR-08).
+    if cfg!(not(any(target_os = "ios", target_os = "android"))) {
+        let mut page = div()
+            .id("notifications-unavailable")
+            .size_full()
+            .flex()
+            .flex_col()
+            .gap(px(8.));
+        page = match containment {
+            Some(pad) => page.p(px(pad)).w_full().max_w(px(440.)),
+            None => page.p(px(20.)).pb(px(100.)),
+        };
+        if containment.is_none() {
+            page = page.child(crate::navigation::back_affordance(
+                "Einstellungen",
+                theme,
+                back,
+            ));
+        }
+        return page
+            .child(
+                div()
+                    .text_size(px(if containment.is_some() { 20. } else { 28. }))
+                    .line_height(px(26.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.text_primary)
+                    .child("Benachrichtigungen"),
+            )
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .line_height(px(20.))
+                    .text_color(theme.text_secondary)
+                    .child("Benachrichtigungen sind auf diesem Gerät nicht verfügbar."),
+            )
+            .into_any_element();
+    }
 
     let model = model.cloned();
 

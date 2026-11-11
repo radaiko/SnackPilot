@@ -12,7 +12,7 @@ use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 
 /// Which segment is shown.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Segment {
     Upcoming,
     Past,
@@ -84,6 +84,20 @@ pub fn segment_tabs(
         .child(tab(Segment::Past, format!("Vergangene ({past})")))
 }
 
+/// Left/Right on the focused segment group: move to the neighbouring segment
+/// and select it immediately, never wrap, and do nothing while focus is
+/// elsewhere (the `Auswählen` button keeps its own arrows).
+pub fn segment_arrow(key: &str, active: Segment, focused: bool) -> Option<Segment> {
+    if !focused {
+        return None;
+    }
+    match (key, active) {
+        ("right", Segment::Upcoming) => Some(Segment::Past),
+        ("left", Segment::Past) => Some(Segment::Upcoming),
+        _ => None,
+    }
+}
+
 /// The wide Bestellungen toolbar (task 1.4): the same two segment options and
 /// counts plus, for upcoming only, the `Auswählen` batch-mode entry. Targets
 /// stay at 44 px and the row wraps instead of overlapping.
@@ -94,6 +108,7 @@ pub fn desktop_segment_toolbar(
     past: usize,
     on_select: SegmentHandler,
     on_select_mode: Option<ClickHandler>,
+    group_focus: Option<&FocusHandle>,
     theme: &AppTheme,
 ) -> AnyElement {
     let tab = |segment: Segment, label: String| {
@@ -104,7 +119,6 @@ pub fn desktop_segment_toolbar(
                 Segment::Upcoming => "desktop-orders-tab-upcoming",
                 Segment::Past => "desktop-orders-tab-past",
             }))
-            .tab_index(0)
             .min_h(px(44.))
             .px(px(12.))
             .py(px(8.))
@@ -117,7 +131,6 @@ pub fn desktop_segment_toolbar(
             } else {
                 hsla(0., 0., 0., 0.)
             })
-            .focus(theme::desktop_focus(theme.desktop.focus))
             .on_click(move |_, window, cx| action(segment, window, cx))
             .child(
                 div()
@@ -142,6 +155,31 @@ pub fn desktop_segment_toolbar(
         .py(px(8.))
         .child(tab(Segment::Upcoming, format!("Kommende ({upcoming})")))
         .child(tab(Segment::Past, format!("Vergangene ({past})")));
+    // The two segments are one option group with one tab stop: Left/Right move
+    // to the neighbouring option and select it immediately, without wrapping
+    // (brief keyboard map). Only the group's own focus acts, so a focused
+    // `Auswählen` button keeps its arrow keys.
+    if let Some(group_focus) = group_focus {
+        let select = on_select.clone();
+        row = row
+            .tab_index(0)
+            .track_focus(group_focus)
+            .focus(theme::desktop_focus(theme.desktop.focus))
+            .on_key_down({
+                let focus = group_focus.clone();
+                move |event: &KeyDownEvent, window, cx| {
+                    let Some(next) = segment_arrow(
+                        event.keystroke.key.as_str(),
+                        active,
+                        focus.is_focused(window),
+                    ) else {
+                        return;
+                    };
+                    select(next, window, cx);
+                    cx.stop_propagation();
+                }
+            });
+    }
     if let Some(on_select_mode) = on_select_mode {
         row = row.child(
             div()
@@ -168,4 +206,43 @@ pub fn desktop_segment_toolbar(
         );
     }
     row.into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{segment_arrow, Segment};
+
+    /// The focused segment group moves one segment on Left/Right without
+    /// wrapping, and a group without focus (e.g. the `Auswählen` button) leaves
+    /// the arrow keys alone (brief keyboard map).
+    /// @req REQ-UI-11
+    #[test]
+    fn segment_arrows_move_one_step_without_wrapping() {
+        assert_eq!(
+            segment_arrow("right", Segment::Upcoming, true),
+            Some(Segment::Past)
+        );
+        assert_eq!(
+            segment_arrow("left", Segment::Past, true),
+            Some(Segment::Upcoming)
+        );
+        assert_eq!(
+            segment_arrow("left", Segment::Upcoming, true),
+            None,
+            "no wrap at the first segment"
+        );
+        assert_eq!(
+            segment_arrow("right", Segment::Past, true),
+            None,
+            "no wrap at the last segment"
+        );
+        for key in ["up", "down", "home", "end", "enter", "space"] {
+            assert_eq!(segment_arrow(key, Segment::Upcoming, true), None, "{key}");
+        }
+        assert_eq!(
+            segment_arrow("right", Segment::Upcoming, false),
+            None,
+            "focus elsewhere keeps its arrow keys"
+        );
+    }
 }

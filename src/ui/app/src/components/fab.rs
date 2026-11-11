@@ -26,6 +26,8 @@ pub fn fab(label: String, on_click: ClickHandler, theme: &AppTheme) -> AnyElemen
         &r,
     )
     .id("menus-fab")
+    .tab_index(0)
+    .focus(crate::theme::desktop_focus(theme.desktop.focus))
     .cursor_pointer()
     .on_click(move |_, window, cx| on_click(window, cx))
     .child(
