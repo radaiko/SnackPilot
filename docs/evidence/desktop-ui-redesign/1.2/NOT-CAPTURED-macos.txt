@@ -1,0 +1,36 @@
+Not captured: shots that need the macOS desktop host
+====================================================
+
+Human decision: macOS screen capture is out of scope for this task run, so no
+image below exists and none was fabricated. The Android emulator gallery in
+this directory renders the same Rust UI at logical 390/720/768/1280 with forced
+control states (`shell-720-*`, `shell-768-*`, `shell-1280-*`, `shell-390-light`,
+`controls-all-states-*`); it is not a native desktop-host capture.
+
+Outstanding:
+
+- desktop-720-shell-macos.png
+  The 720 px desktop shell from the real snackpilot-desktop binary: compact
+  rail 176 px, 248 px master, split detail, native window chrome. Needs the
+  Mac host window and its Retina display scale.
+
+- desktop-1280-shell-macos.png
+  The 1280 px expanded shell from the same binary: rail 192 px, 64 px outer
+  gutters, 56/44 master/detail split. Same missing host.
+
+- master-detail-compact-macos.png
+  Compact master/detail at 720 px with a real selected record and detail pane,
+  driven through the desktop window rather than the gallery fixtures.
+
+- master-detail-expanded-macos.png
+  Expanded master/detail at 1280 px with a real selected record and detail
+  pane, same requirement.
+
+- controls-hover-desktop-macos.png
+  A real pointer hover over the shared rail and controls on the desktop
+  binary. The gallery forces the hover recipe, but it cannot show OS pointer
+  hover on a desktop window.
+
+- controls-focus-desktop-macos.png
+  A real keyboard focus traversal and focus ring on the desktop binary. The
+  gallery forces the focus recipe, but it cannot exercise OS keyboard focus.

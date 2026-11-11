@@ -6,9 +6,89 @@
 //! `Dunkel` preference against the OS appearance, and exposes the §7 recipes
 //! with the iOS-glass versus flat-Android split (v1 `useFlatStyle`).
 
-use gpui_kit::{point, px, BoxShadow, Div, Hsla, Pixels, Rgba, Styled};
+use gpui::{hsla, InteractiveElement};
+use gpui_kit::{point, px, BoxShadow, Div, Hsla, Pixels, Rgba, StyleRefinement, Styled};
+use snackpilot_model::desktop::{self, ControlState, Rgb, FOCUS_GAP, FOCUS_WIDTH};
 use snackpilot_model::tokens;
 use snackpilot_model::{AccentColor, ThemePreference};
+
+/// Convert a model-side `Rgb` (from the desktop token helpers) into a gpui
+/// colour. Desktop fills are derived in the gpui-free model so the contrast
+/// tests can check them; this is the only place they become paint.
+pub fn from_rgb(c: Rgb) -> Hsla {
+    Rgba {
+        r: c.r as f32 / 255.0,
+        g: c.g as f32 / 255.0,
+        b: c.b as f32 / 255.0,
+        a: 1.0,
+    }
+    .into()
+}
+
+/// Focus recipe hook shared by the desktop compositions: a 2 px ring in the
+/// resolved focus ink on the target's own shape. Applied with
+/// `.focus(theme::desktop_focus(ink))`, so the rest style — and every legacy
+/// mobile value — stays untouched.
+pub fn desktop_focus(ink: Hsla) -> impl FnOnce(StyleRefinement) -> StyleRefinement {
+    move |s| s.border(px(FOCUS_WIDTH)).border_color(ink)
+}
+
+/// Reserve the brief's 4 px focus room (`desktop.focusGap` 2 px + the 2 px
+/// ring) around a desktop control. The frame is identical in every state —
+/// only the ring colour changes — so focusing never shifts layout and the
+/// ring is never clipped by a neighbouring edge.
+pub fn focus_frame(div: Div, state: ControlState, radius: f32, theme: &AppTheme) -> Div {
+    let ring = if state.ring_visible() {
+        theme.desktop.focus
+    } else {
+        hsla(0., 0., 0., 0.)
+    };
+    div.p(px(FOCUS_GAP))
+        .rounded(px(radius + FOCUS_GAP + FOCUS_WIDTH))
+        .border(px(FOCUS_WIDTH))
+        .border_color(ring)
+        .focus(desktop_focus(theme.desktop.focus))
+}
+
+/// One filled desktop action and its states (brief "Action states"): rest,
+/// hover (8 % ink mix), pressed (14 % ink mix) and the ink on top, chosen
+/// per fill for the better contrast (REQ-UI-13).
+#[derive(Debug, Clone, Copy)]
+pub struct DesktopAction {
+    pub fill: Hsla,
+    pub hover: Hsla,
+    pub pressed: Hsla,
+    pub ink: Hsla,
+}
+
+/// The desktop extension palette (desktop-ui-redesign D4): derived purely
+/// from the pinned §8 tokens via `snackpilot_model::desktop`, so the mobile
+/// recipes above keep their exact values and the desktop shell adds no new
+/// colour literals.
+#[derive(Debug, Clone)]
+pub struct DesktopPalette {
+    pub action: DesktopAction,
+    pub danger: DesktopAction,
+    /// Workspace panel fill (`surface`).
+    pub panel: Hsla,
+    /// Navigation rail fill (`background`).
+    pub rail: Hsla,
+    /// Focus ring ink (`text_primary`, >=3:1 on panel and rail).
+    pub focus: Hsla,
+    /// Primary text ink (`text_primary`).
+    pub ink: Hsla,
+    /// Accent used as text, resolved against the panel fill: the accent itself
+    /// only when it clears 4.5:1, otherwise `text_primary` (REQ-UI-13).
+    pub accent_on_panel: Hsla,
+    /// Accent used as text, resolved against the rail fill (REQ-UI-13).
+    pub accent_on_rail: Hsla,
+    /// Accent used as text on the selection fill (the selected desktop chip):
+    /// it sits on `primary_surface`, not the panel, so it resolves there.
+    pub accent_on_selection: Hsla,
+    /// Accent used as a selected-card edge, resolved against the selection
+    /// fill: the accent only when it clears 3:1 there, else `text_primary`.
+    pub accent_boundary: Hsla,
+}
 
 /// Parse a §8 token value (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` or
 /// `rgba(r,g,b,a)`) into a gpui colour. Unparsable input is a token-table
@@ -193,6 +273,9 @@ pub struct AppTheme {
     pub glass_success: Hsla,
     pub glass_warning: Hsla,
     pub glass_error: Hsla,
+    /// Desktop extension palette, derived from the pinned tokens above; the
+    /// mobile screens never read it (desktop-ui-redesign D4, REQ-UI-13).
+    pub desktop: DesktopPalette,
 }
 
 /// `useFlatStyle` for the platform this binary was built for: Android and
@@ -300,6 +383,7 @@ impl AppTheme {
             } else {
                 pick(tokens::GLASS_ERROR)
             },
+            desktop: build_desktop_palette(dark, accents),
         }
     }
 
@@ -445,6 +529,69 @@ impl AppTheme {
             self.glass_highlight
         }
     }
+
+    /// Fill of a passive desktop control in `state` (REQ-UI-13). The model
+    /// owns the choice; mobile recipe defaults never read it.
+    pub fn control_fill(&self, state: ControlState) -> Hsla {
+        from_rgb(desktop::control_fill(state, self.dark))
+    }
+
+    /// Ink of a passive desktop control in `state` (REQ-UI-13): disabled is
+    /// `text_tertiary`, everything else `text_primary`.
+    pub fn control_ink(&self, state: ControlState) -> Hsla {
+        from_rgb(desktop::control_ink(state, self.dark))
+    }
+
+    /// Boundary of a passive desktop control: `border_input` normally and
+    /// `focusInk` while focused, so the outline itself also reads at 3:1.
+    pub fn control_border(&self, state: ControlState) -> Hsla {
+        if state.ring_visible() {
+            self.desktop.focus
+        } else {
+            self.border_input
+        }
+    }
+
+    /// The one desktop workspace panel: `surface` fill, 12 px radius, 1 px
+    /// `border`, no shadow (brief "Surfaces"; shadows are a mobile dialect
+    /// here). One panel per workspace, one divider between the panes.
+    pub fn workspace_panel(&self) -> Recipe {
+        Recipe {
+            bg: self.desktop.panel,
+            radius: px(12.),
+            border: Some((px(1.), self.border)),
+            shadow: None,
+        }
+    }
+}
+
+/// Derive the desktop palette from the pinned tokens only (REQ-UI-13): the
+/// model helpers own the maths so the model tests can check the contrast
+/// floors without gpui.
+fn build_desktop_palette(dark: bool, accents: &tokens::AccentColors) -> DesktopPalette {
+    let ink = desktop::text_ink(dark);
+    let panel = desktop::panel_fill(dark);
+    let rail = desktop::rail_fill(dark);
+    let accent = desktop::parse_color(accents.primary);
+    let selected = desktop::control_fill(desktop::ControlState::Selected, dark);
+    let states = |fill: Rgb| DesktopAction {
+        fill: from_rgb(fill),
+        hover: from_rgb(desktop::action_hover_fill(fill, ink)),
+        pressed: from_rgb(desktop::action_pressed_fill(fill, ink)),
+        ink: from_rgb(desktop::on_fill(fill)),
+    };
+    DesktopPalette {
+        action: states(desktop::action_fill(accents, dark)),
+        danger: states(desktop::danger_fill(dark)),
+        panel: from_rgb(panel),
+        rail: from_rgb(rail),
+        focus: from_rgb(desktop::focus_ink(dark)),
+        ink: from_rgb(ink),
+        accent_on_panel: from_rgb(desktop::readable_ink(panel, accent)),
+        accent_on_rail: from_rgb(desktop::readable_ink(rail, accent)),
+        accent_on_selection: from_rgb(desktop::readable_ink(selected, accent)),
+        accent_boundary: from_rgb(desktop::boundary_ink(selected, accent)),
+    }
 }
 
 /// Style a `Div` with a recipe: background, radius, border and shadow.
@@ -526,5 +673,163 @@ mod tests {
         let a = AppTheme::build(false, AccentColor::Orange, true);
         assert_eq!(a.button_secondary().border.map(|(w, _)| w), Some(px(1.)));
         assert_eq!(a.card_surface().border.map(|(w, _)| w), Some(px(1.)));
+    }
+
+    /// The desktop control states paint exactly the model's token choice:
+    /// rest/hover/selected fills, focus on the rest fill, disabled ink only.
+    /// Mobile recipes never call these, so no legacy value moves.
+    /// @req REQ-UI-13
+    #[test]
+    fn desktop_control_states_paint_model_colours() {
+        for dark in [false, true] {
+            let t = AppTheme::build(dark, AccentColor::Orange, true);
+            for state in [
+                ControlState::Rest,
+                ControlState::Hover,
+                ControlState::Focus,
+                ControlState::Disabled,
+                ControlState::Selected,
+            ] {
+                assert_eq!(
+                    t.control_fill(state),
+                    from_rgb(desktop::control_fill(state, dark)),
+                    "fill for {state:?}"
+                );
+                assert_eq!(
+                    t.control_ink(state),
+                    from_rgb(desktop::control_ink(state, dark)),
+                    "ink for {state:?}"
+                );
+                assert_eq!(
+                    t.control_border(state),
+                    if state.ring_visible() {
+                        t.desktop.focus
+                    } else {
+                        t.border_input
+                    }
+                );
+            }
+            // Disabled changes only the ink; the fill stays the rest fill.
+            assert_eq!(
+                t.control_fill(ControlState::Disabled),
+                t.control_fill(ControlState::Rest)
+            );
+            assert_ne!(
+                t.control_ink(ControlState::Disabled),
+                t.control_ink(ControlState::Rest)
+            );
+            // Selected is a real tint, not the rest fill.
+            assert_ne!(
+                t.control_fill(ControlState::Selected),
+                t.control_fill(ControlState::Rest)
+            );
+        }
+    }
+
+    /// The desktop extension consumes the pinned tokens only: filled actions
+    /// are `primaryDark` (light) / `primary` (dark), destructive is `error`,
+    /// panel is `surface`, rail is `background`, focus/ink are `textPrimary`,
+    /// hover/press are the fixed ink mixes, and the workspace panel is a
+    /// 12 px, 1 px-border, shadowless surface (desktop-ui-redesign D4).
+    /// @req REQ-UI-13
+    #[test]
+    fn desktop_palette_derives_from_pinned_tokens() {
+        let t = AppTheme::build(false, AccentColor::Orange, true);
+        assert_eq!(
+            t.desktop.action.fill,
+            color("#B84415"),
+            "light fill is primaryDark"
+        );
+        assert_eq!(
+            t.desktop.danger.fill,
+            color("#D93025"),
+            "danger is the error token"
+        );
+        assert_eq!(t.desktop.panel, color("#fff"), "panel is surface");
+        assert_eq!(t.desktop.rail, color("#F5F5F7"), "rail is background");
+        assert_eq!(t.desktop.focus, color("#1D1D1F"), "focus is textPrimary");
+        assert_eq!(t.desktop.ink, color("#1D1D1F"), "ink is textPrimary");
+        let ink = desktop::text_ink(false);
+        let fill = desktop::parse_color("#B84415");
+        assert_eq!(
+            t.desktop.action.hover,
+            from_rgb(desktop::action_hover_fill(fill, ink)),
+            "hover is the 8 % ink mix"
+        );
+        assert_eq!(
+            t.desktop.action.pressed,
+            from_rgb(desktop::action_pressed_fill(fill, ink)),
+            "pressed is the 14 % ink mix"
+        );
+        assert_eq!(
+            t.desktop.action.ink,
+            color("#FFFFFF"),
+            "white reads best on the orange fill"
+        );
+
+        // Accent as text is resolved against the fill it sits on (REQ-UI-13):
+        // light orange only reaches 4.23:1 on the white panel, so the ink
+        // falls back to text_primary; emerald clears it and keeps the accent.
+        assert_eq!(
+            t.desktop.accent_on_panel,
+            color("#1D1D1F"),
+            "unreadable accent text falls back to text_primary"
+        );
+        let emerald = AppTheme::build(false, AccentColor::Emerald, true);
+        assert_eq!(
+            emerald.desktop.accent_on_panel, emerald.primary,
+            "a readable accent stays as panel text"
+        );
+        assert_eq!(
+            emerald.desktop.accent_on_rail, emerald.primary,
+            "a readable accent stays as rail text"
+        );
+        // A selected chip paints accent text on the selection fill, not the
+        // panel, so it resolves against that fill (REQ-UI-13): light orange
+        // only reaches 3.84:1 there and falls back to text_primary.
+        assert_eq!(
+            t.desktop.accent_on_selection,
+            color("#1D1D1F"),
+            "unreadable chip accent falls back to text_primary"
+        );
+        let berry = AppTheme::build(false, AccentColor::Berry, true);
+        assert_eq!(
+            berry.desktop.accent_on_selection, berry.primary,
+            "a readable chip accent stays as the selected chip's ink"
+        );
+        // A selected card edge is a control boundary on the selection fill
+        // (REQ-UI-13): light golden only reaches 2.78:1 there, so the edge
+        // falls back to text_primary while orange keeps its accent.
+        assert_eq!(
+            t.desktop.accent_boundary, t.primary,
+            "a readable accent edge stays the accent"
+        );
+        let golden = AppTheme::build(false, AccentColor::Golden, true);
+        assert_eq!(
+            golden.desktop.accent_boundary,
+            color("#1D1D1F"),
+            "an unreadable accent edge falls back to text_primary"
+        );
+
+        let d = AppTheme::build(true, AccentColor::Ocean, true);
+        assert_eq!(
+            d.desktop.action.fill,
+            color("#4A90D9"),
+            "dark fill is the base accent"
+        );
+        assert_eq!(
+            d.desktop.rail,
+            color("#000000"),
+            "dark rail is black background"
+        );
+
+        let panel = t.workspace_panel();
+        assert_eq!(panel.bg, t.desktop.panel);
+        assert_eq!(panel.radius, px(12.));
+        assert_eq!(panel.border.map(|(w, _)| w), Some(px(1.)));
+        assert!(
+            panel.shadow.is_none(),
+            "the desktop panel carries no shadow"
+        );
     }
 }

@@ -1,0 +1,60 @@
+Recapture blocked until the host is rebooted
+============================================
+
+The gallery captures in this directory predate the accent-ink and accent-edge
+fixes of task 1.2. Three accent resolutions changed under REQ-UI-13, all derived
+from the pinned tokens by `snackpilot_model::desktop`:
+
+1. accent as text on the panel / rail: `desktop.accent_on_panel` /
+   `desktop.accent_on_rail`, falling back to `text_primary` below 4.5:1;
+2. accent as text on the selection fill: `desktop.accent_on_selection` (the
+   selected chip's label and check);
+3. accent as a boundary: `desktop.accent_boundary` (`boundary_ink`, 3:1 on the
+   selection fill), now used by all three desktop edges — the selected card's
+   1 px border (`card.rs:39`), the selected chip's 1 px border (`chip.rs:86`)
+   and the record table's 3 px selected-row rule on `primary_surface`
+   (`record_table.rs:83`). Light golden's accent misses 3:1 on that fill, so
+   each of these now falls back to `text_primary` there.
+
+Images that predate the fixes (all written 20:42, all show the old raw accent):
+
+- `rail-light.png`, `rail-dark.png` — selected rail row.
+- `shell-720-light.png`, `shell-720-dark.png` — rail plus selected chip.
+- `shell-768-light.png`, `shell-768-dark.png` — rail plus selected chip.
+- `shell-1280-light.png`, `shell-1280-dark.png` — rail plus selected chip.
+- `controls-all-states-light.png`, `controls-all-states-dark.png` — the
+  selected chip's border and label; the chip is the only accent edge in the
+  captured set.
+
+No captured image contains a selected record-table row, so the table's 3 px
+rule has no capture at all — neither stale nor current.
+
+Images that are still current (mobile recipes and tokens are unchanged):
+
+- `shell-390-light.png`, `a-mobile-android-before-411dp.png`,
+  `b-mobile-android-after-411dp.png` — the 390 px shell is the legacy mobile
+  shell (no rail, no desktop chip, no table).
+
+A host reboot is required before recapturing. The Android emulator cannot boot
+on this VM any more: every start, with the existing `headless` AVD or a freshly
+created `fresh36` AVD, with KVM and with `-accel off`, stops inside the qemu
+vCPU threads ("detected a hanging thread 'QEMU2 CPU0 thread'") and never brings
+up adbd; three host processes are stuck uninterruptibly in
+`kvm_async_pf_task_wait` and the emulator is offline (`emulator-5554 offline`),
+which only a reboot clears. That reboot was not done from inside this session,
+so it is left to the dispatcher. The app crate also cannot be built here
+(missing `pkg-config`/fontconfig), and macOS screen captures were already
+declared out of scope for this task run (`NOT-CAPTURED-macos.txt`).
+
+After the reboot: recapture `rail-*`, `shell-{720,768,1280}-*` and
+`controls-all-states-*` with the documented gallery recipe, and add a
+selected-row capture of the record table so the 3 px rule has evidence too.
+
+The code is verified without captures: `make check` is green, and on the Mac
+host `cargo test --locked -p snackpilot-app --lib` passes 53 tests, including
+`theme::tests::desktop_palette_derives_from_pinned_tokens`, which pins the
+`accent_on_panel` / `accent_on_rail` / `accent_on_selection` / `accent_boundary`
+values. On this VM, `desktop_accent_edges_use_the_resolved_boundary_ink` guards
+that `card.rs`, `chip.rs` and `record_table.rs` paint the resolved boundary ink
+rather than `theme.primary`, and `desktop_contrast_all_accents` checks the 3:1
+floor per accent and appearance.

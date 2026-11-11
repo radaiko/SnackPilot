@@ -16,15 +16,23 @@ use gpui::*;
 use gpui_kit::component::input::InputState;
 #[cfg(target_os = "ios")]
 use gpui_kit::component::WindowExt;
-use snackpilot_model::navigation::{Navigation, Screen, Tab};
+use snackpilot_model::desktop::{HostKind, LayoutMode};
+use snackpilot_model::navigation::{
+    Navigation, Screen, SettingsDetail as ModelSettingsDetail, Tab,
+};
 use snackpilot_model::{format_day_short, AppModel, State};
 
 use crate::components::broadcast_banner::broadcast_banner;
 use crate::components::day_navigator::day_navigator;
+use crate::components::desktop_navigation::desktop_rail;
 use crate::components::dialog::{dialog_overlay, Dialog};
-use crate::components::loading_overlay::loading_overlay;
-use crate::components::tab_bar::{reserved_height, tab_bar};
-use crate::components::toast::{toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION};
+use crate::components::loading_overlay::{desktop_loading_overlay, loading_overlay};
+use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect};
+use crate::components::toast::{
+    desktop_toast, toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION,
+};
+use crate::components::workspace::workspace_header;
+use crate::navigation::ClickHandler;
 use crate::screens::appearance::appearance_screen;
 use crate::screens::billing::billing_tab;
 use crate::screens::login::{login_screen, LoginKind};
@@ -32,7 +40,7 @@ use crate::screens::menus::menus_tab;
 use crate::screens::notifications::notifications_screen;
 use crate::screens::orders::orders_tab;
 use crate::screens::settings::{placeholder_detail, settings_tab};
-use crate::theme::AppTheme;
+use crate::theme::{self, AppTheme};
 
 /// The pushed settings screens (one detail at a time under
 /// `Screen::SettingsDetail`).
@@ -43,6 +51,30 @@ pub(crate) enum Detail {
     LoginAutomaten,
     Appearance,
     Notifications,
+}
+
+/// App screen → the model-owned settings-detail kind. The model is
+/// authoritative (REQ-UI-10); this is the presentation name of the same
+/// section, not a second source of truth.
+fn model_settings_detail(detail: Detail) -> Option<ModelSettingsDetail> {
+    match detail {
+        Detail::Settings => None,
+        Detail::LoginKantine => Some(ModelSettingsDetail::Profile),
+        Detail::LoginAutomaten => Some(ModelSettingsDetail::Security),
+        Detail::Appearance => Some(ModelSettingsDetail::Data),
+        Detail::Notifications => Some(ModelSettingsDetail::Notifications),
+    }
+}
+
+/// Model-owned settings-detail kind → the app screen that renders it.
+fn detail_from_model(detail: Option<ModelSettingsDetail>) -> Detail {
+    match detail {
+        Some(ModelSettingsDetail::Profile) => Detail::LoginKantine,
+        Some(ModelSettingsDetail::Security) => Detail::LoginAutomaten,
+        Some(ModelSettingsDetail::Data) => Detail::Appearance,
+        Some(ModelSettingsDetail::Notifications) => Detail::Notifications,
+        Some(ModelSettingsDetail::Advanced) | None => Detail::Settings,
+    }
 }
 
 /// iOS keyboard driver decision: `Some(true)` show, `Some(false)` hide,
@@ -76,6 +108,66 @@ pub(crate) fn kb_log(line: &str) {
     let _ = line;
 }
 
+/// The workspace header's refresh action, one per tab (brief "Workspace
+/// header": Menüs, Bestellungen and Abrechnung have one, Einstellungen none).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RefreshIntent {
+    Menus,
+    Orders,
+    Billing,
+}
+
+/// Which refresh the active tab dispatches; `None` means no header action.
+pub(crate) fn refresh_intent(tab: Tab) -> Option<RefreshIntent> {
+    match tab {
+        Tab::Menus => Some(RefreshIntent::Menus),
+        Tab::Orders => Some(RefreshIntent::Orders),
+        Tab::Billing => Some(RefreshIntent::Billing),
+        Tab::Settings => None,
+    }
+}
+
+/// Run one existing model refresh. These APIs block on the model's own
+/// runtime, so the desktop shell calls them off the render thread.
+fn run_refresh(model: &AppModel, intent: RefreshIntent) {
+    match intent {
+        RefreshIntent::Menus => model.refresh_menus(),
+        RefreshIntent::Orders => model.refresh_orders(),
+        RefreshIntent::Billing => model.reload_billing(),
+    }
+}
+
+/// Whether a layout renders the desktop shell, and therefore whether the
+/// shared intent boundary dispatches its blocking operation off the render
+/// thread (task 1.2 acceptance). Compact desktop counts: its rail and header
+/// refresh exist too, so only the phone shell keeps the incumbent synchronous
+/// path.
+fn refresh_runs_off_thread(layout: LayoutMode) -> bool {
+    layout != LayoutMode::Phone
+}
+
+/// Dispatch a refresh at the shared intent boundary (task 1.2 acceptance):
+/// on every desktop layout the blocking model call moves to the background
+/// executor, so the cached content keeps painting while the existing flow
+/// runs. Nothing extra is requested — the same model methods run, and their
+/// state notifications repaint the shell. Mobile keeps the incumbent
+/// synchronous path.
+fn dispatch_refresh(
+    model: &Arc<AppModel>,
+    intent: RefreshIntent,
+    layout: LayoutMode,
+    cx: &mut App,
+) {
+    if refresh_runs_off_thread(layout) {
+        let model = Arc::clone(model);
+        cx.background_executor()
+            .spawn(async move { run_refresh(&model, intent) })
+            .detach();
+    } else {
+        run_refresh(model, intent);
+    }
+}
+
 /// Safe-area insets (top, bottom, left, right) in logical px, read from the
 /// host platform. Android asks the live window; iOS reads the FFI window list
 /// with the v1 notch/home-indicator fallback (59/34) before the host reports
@@ -101,6 +193,9 @@ fn safe_area() -> (f32, f32, f32, f32) {
 /// overlay and the new-menu toast.
 /// @req REQ-UI-04
 pub struct AppShell {
+    /// Fallback navigation for a host that has not installed a model yet
+    /// (the iOS spike host). With a model present the model's `Navigation` is
+    /// the only authority and this mirror is unused.
     nav: Navigation,
     dialog: Option<Dialog>,
     toast: Option<Toast>,
@@ -111,8 +206,6 @@ pub struct AppShell {
     pub(crate) swipe_start_y: Option<f32>,
     pub(crate) swipe_claimed: bool,
     pub(crate) swipe_dx: f32,
-    /// Orders tab: true shows the past segment (UI-only).
-    pub(crate) orders_past: bool,
     /// Which pushed settings screen is shown.
     pub(crate) detail: Detail,
     /// Login form fields, created on push so typing survives re-renders.
@@ -168,7 +261,6 @@ impl AppShell {
             swipe_start_y: None,
             swipe_claimed: false,
             swipe_dx: 0.,
-            orders_past: false,
             detail: Detail::Settings,
             login_user: None,
             login_pass: None,
@@ -196,7 +288,7 @@ impl AppShell {
                 rest.parse::<usize>().ok()
             });
             if let Some(n) = tab.filter(|n| *n < Tab::ALL.len()) {
-                shell.nav.select_tab(Tab::ALL[n]);
+                shell.select_tab(Tab::ALL[n]);
             }
             // `--detail=login|automaten` opens a credential screen directly.
             shell.pending_detail = std::env::args().find_map(|a| {
@@ -261,6 +353,36 @@ impl AppShell {
         .detach();
     }
 
+    /// The navigation the shell renders: the model's when a model is
+    /// installed (the shared Root never keeps a second authoritative stack),
+    /// otherwise the host's local mirror.
+    fn navigation(&self) -> Navigation {
+        self.model
+            .as_ref()
+            .map(|model| model.navigation())
+            .unwrap_or_else(|| self.nav.clone())
+    }
+
+    /// Switch tabs through the model so the active tab, stack reset and
+    /// preview cleanup are one model update (REQ-UI-04).
+    fn select_tab(&mut self, tab: Tab) {
+        if let Some(model) = &self.model {
+            model.select_tab(tab);
+        } else {
+            self.nav.select_tab(tab);
+        }
+    }
+
+    /// The pushed settings screen shown: derived from the model's
+    /// `settings_detail` so the model is the only authority. The local
+    /// fallback only serves a host without a model (the iOS spike host).
+    fn current_detail(&self) -> Detail {
+        match &self.model {
+            Some(model) => detail_from_model(model.settings_detail()),
+            None => self.detail,
+        }
+    }
+
     /// Push a settings detail screen; login details create fresh inputs.
     pub(crate) fn open_detail(
         &mut self,
@@ -294,13 +416,26 @@ impl AppShell {
                     .default_value(password.unwrap_or_default())
             }));
         }
-        self.nav.push(Screen::SettingsDetail);
+        if let Some(model) = &self.model {
+            // One model update owns both the detail identity and the narrow
+            // projection's push (REQ-UI-10), so the view cannot disagree.
+            match model_settings_detail(detail) {
+                Some(model_detail) => model.open_settings_detail(model_detail),
+                None => model.push_screen(Screen::SettingsDetail),
+            }
+        } else {
+            self.nav.push(Screen::SettingsDetail);
+        }
         cx.notify();
     }
 
     /// Pop back to the settings root.
     pub(crate) fn pop_detail(&mut self, cx: &mut Context<Self>) {
-        self.nav.pop();
+        if let Some(model) = &self.model {
+            model.close_settings_detail();
+        } else {
+            self.nav.pop();
+        }
         self.detail = Detail::Settings;
         cx.notify();
     }
@@ -345,8 +480,14 @@ impl AppShell {
             let _ = (&self, window, cx);
         }
     }
-    fn placeholder(&self, state: &State, theme: &AppTheme, cx: &mut Context<Self>) -> AnyElement {
-        let (title, hint): (&str, String) = match self.nav.top() {
+    fn placeholder(
+        &self,
+        nav: &Navigation,
+        state: &State,
+        theme: &AppTheme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let (title, hint): (&str, String) = match nav.top() {
             Screen::Menus => match &state.menu_snapshot {
                 Some(snapshot) if !snapshot.available_dates.is_empty() => {
                     let day = state
@@ -410,9 +551,15 @@ impl AppShell {
 
     /// Content of the active screen, including the §4.4 day navigator on the
     /// Menus tab and the §3.5 back affordance on pushed screens.
-    fn screen(&self, state: &State, theme: &AppTheme, cx: &mut Context<Self>) -> AnyElement {
-        if self.nav.top() == Screen::SettingsDetail {
-            return match (self.detail, &self.login_user, &self.login_pass) {
+    fn screen(
+        &self,
+        nav: &Navigation,
+        state: &State,
+        theme: &AppTheme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if nav.top() == Screen::SettingsDetail {
+            return match (self.current_detail(), &self.login_user, &self.login_pass) {
                 (Detail::LoginKantine, Some(user), Some(pass)) => login_screen(
                     LoginKind::Kantine,
                     state,
@@ -442,7 +589,7 @@ impl AppShell {
         }
 
         let mut column = div().flex_1().flex().flex_col().overflow_hidden();
-        if self.nav.top() == Screen::Menus {
+        if nav.top() == Screen::Menus {
             if let (Some(model), Some(snapshot)) = (&self.model, &state.menu_snapshot) {
                 if !snapshot.available_dates.is_empty() {
                     let (prev, next, today) =
@@ -476,13 +623,13 @@ impl AppShell {
             }
         }
         column
-            .child(match self.nav.top() {
+            .child(match nav.top() {
                 Screen::Menus => menus_tab(state, self.model.as_ref(), theme, self.swipe_dx, cx),
                 Screen::Orders => {
-                    orders_tab(state, self.model.as_ref(), self.orders_past, theme, cx)
+                    orders_tab(state, self.model.as_ref(), state.orders_past, theme, cx)
                 }
                 Screen::Billing => billing_tab(state, self.model.as_ref(), theme, cx),
-                _ => self.placeholder(state, theme, cx),
+                _ => self.placeholder(nav, state, theme, cx),
             })
             .into_any_element()
     }
@@ -521,16 +668,27 @@ impl Render for AppShell {
         );
         let theme = AppTheme::resolve(state.theme, state.accent, os_dark);
         let (safe_top, safe_bottom, _, _) = safe_area();
+        // Host-gated layout (task 1.2, REQ-UI-07): only a Desktop host past
+        // the 720 px breakpoint leaves the phone shell, so iOS and Android
+        // keep their exact appearance at every width.
+        let layout = self
+            .model
+            .as_ref()
+            .map(|model| model.layout_mode())
+            .unwrap_or(LayoutMode::Phone);
+        let desktop = layout != LayoutMode::Phone;
+        let nav = self.navigation();
 
         let entity = cx.entity().clone();
-        let on_select = Rc::new(move |tab: Tab, _window: &mut Window, cx: &mut App| {
+        let on_select: TabSelect = Rc::new(move |tab: Tab, _window: &mut Window, cx: &mut App| {
             log::info!("[4.2] tab selected: {tab:?}");
             entity.update(cx, |this, cx| {
-                this.nav.select_tab(tab);
+                this.select_tab(tab);
                 cx.notify();
             });
         });
-        let bar = tab_bar(&theme, self.nav.active_tab(), safe_bottom, on_select);
+        let rail_select = Rc::clone(&on_select);
+        let bar = tab_bar(&theme, nav.active_tab(), safe_bottom, on_select);
 
         let mut banner = None;
         if let Some(message) = state
@@ -549,7 +707,7 @@ impl Render for AppShell {
             });
             banner = Some(broadcast_banner(message, dismiss, &theme));
         }
-        let screen_content = self.screen(&state, &theme, cx);
+        let screen_content = self.screen(&nav, &state, &theme, cx);
         let mut content = div()
             .flex_1()
             .flex()
@@ -561,7 +719,59 @@ impl Render for AppShell {
         }
         let mut content = content.child(screen_content);
         let mut root = div().size_full().flex().flex_col().bg(theme.background);
-        if theme.flat {
+        if layout != LayoutMode::Phone {
+            // SnackPilot Desktop Ledger shell: the navigation rail, then the
+            // centred workspace panel. Every width comes from the model's
+            // geometry, so no screen derives a tile itself.
+            let geometry = self
+                .model
+                .as_ref()
+                .map(|model| model.desktop_geometry())
+                .unwrap_or_else(|| {
+                    snackpilot_model::desktop::desktop_geometry(HostKind::Desktop, 0.)
+                });
+            let tab = nav.active_tab();
+            // Menüs/Bestellungen/Abrechnung carry the refresh action;
+            // Einstellungen has none (brief "Workspace header").
+            let on_refresh: Option<ClickHandler> = match (refresh_intent(tab), self.model.as_ref())
+            {
+                (Some(intent), Some(model)) => {
+                    let model = Arc::clone(model);
+                    Some(Rc::new(move |_w: &mut Window, cx: &mut App| {
+                        dispatch_refresh(&model, intent, layout, cx);
+                    }) as ClickHandler)
+                }
+                _ => None,
+            };
+            let panel = theme::apply(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(px(geometry.workspace_width))
+                    .h_full()
+                    .overflow_hidden(),
+                &theme.workspace_panel(),
+            )
+            .child(workspace_header(tab.title(), on_refresh, &theme))
+            .child(content);
+            // The desktop toast paints over the workspace only, never the
+            // rail (brief "Overlays"), so it lives inside the main region.
+            let mut main_region = div()
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .flex()
+                .relative()
+                .justify_center()
+                .child(panel);
+            if let Some(toast) = &self.toast {
+                main_region = main_region.child(desktop_toast(toast, safe_top + 8., &theme));
+            }
+            root = root
+                .flex_row()
+                .child(desktop_rail(tab, geometry.rail_width, &theme, rail_select))
+                .child(main_region);
+        } else if theme.flat {
             // §2.2: in-flow bottom bar; the safe-area strip under it keeps
             // the bar's surface colour (v1 paddingBottom insets.bottom).
             root = root.child(content).child(
@@ -578,12 +788,20 @@ impl Render for AppShell {
         }
 
         // Overlays stack by paint order (gpui has no z-index): loading, then
-        // toast, then dialog on top.
+        // toast, then dialog on top. Desktop uses the opaque panel variants
+        // whenever the desktop shell is shown; the phone shell keeps the
+        // incumbent mobile recipes on every host (REQ-UI-07/13).
         if state.busy || state.ventopay_busy || state.billing_loading {
-            root = root.child(loading_overlay(&theme));
+            root = root.child(if desktop {
+                desktop_loading_overlay(&theme)
+            } else {
+                loading_overlay(&theme)
+            });
         }
         if let Some(toast) = &self.toast {
-            root = root.child(toast_overlay(toast, safe_top, &theme));
+            if !desktop {
+                root = root.child(toast_overlay(toast, safe_top, &theme));
+            }
         }
         if let Some(dialog) = &self.dialog {
             let entity = cx.entity().clone();
@@ -601,7 +819,12 @@ impl Render for AppShell {
 
 #[cfg(test)]
 mod tests {
-    use super::keyboard_action;
+    use super::{
+        detail_from_model, keyboard_action, model_settings_detail, refresh_intent,
+        refresh_runs_off_thread, Detail, RefreshIntent,
+    };
+    use snackpilot_model::desktop::LayoutMode;
+    use snackpilot_model::navigation::{SettingsDetail, Tab};
 
     /// The soft keyboard follows focus changes and stays put otherwise
     /// (§3.6 typing proof; the iOS side is proven by the XCUITest run).
@@ -612,5 +835,50 @@ mod tests {
         assert_eq!(keyboard_action(true, false), Some(false)); // focus lost
         assert_eq!(keyboard_action(true, true), None); // unchanged
         assert_eq!(keyboard_action(false, false), None); // unchanged
+    }
+
+    /// The workspace header dispatches the active tab's existing refresh and
+    /// shows no action on Einstellungen (brief "Workspace header").
+    /// @req REQ-UI-07
+    #[test]
+    fn refresh_intent_follows_the_active_tab() {
+        assert_eq!(refresh_intent(Tab::Menus), Some(RefreshIntent::Menus));
+        assert_eq!(refresh_intent(Tab::Orders), Some(RefreshIntent::Orders));
+        assert_eq!(refresh_intent(Tab::Billing), Some(RefreshIntent::Billing));
+        assert_eq!(refresh_intent(Tab::Settings), None);
+    }
+
+    /// Every desktop layout, compact included, dispatches refresh off the
+    /// render thread; only the phone shell keeps the synchronous path.
+    /// @req REQ-UI-07
+    #[test]
+    fn refresh_runs_off_thread_on_every_desktop_layout() {
+        assert!(!refresh_runs_off_thread(LayoutMode::Phone));
+        assert!(refresh_runs_off_thread(LayoutMode::DesktopCompact));
+        assert!(refresh_runs_off_thread(LayoutMode::DesktopExpanded));
+    }
+
+    /// The settings detail shown is derived from the model-owned kind, so
+    /// the view cannot disagree with the model (REQ-UI-10).
+    /// @req REQ-UI-10
+    #[test]
+    fn settings_detail_round_trips_through_the_model() {
+        for detail in [
+            Detail::LoginKantine,
+            Detail::LoginAutomaten,
+            Detail::Appearance,
+            Detail::Notifications,
+        ] {
+            assert_eq!(
+                detail_from_model(model_settings_detail(detail)),
+                detail,
+                "{detail:?} must round-trip through the model identity"
+            );
+        }
+        assert_eq!(detail_from_model(None), Detail::Settings);
+        assert_eq!(
+            detail_from_model(Some(SettingsDetail::Advanced)),
+            Detail::Settings
+        );
     }
 }
