@@ -99,8 +99,8 @@ Einstellungen SHALL show the rows/hints and Datenschutz link of `04-ui-ux.md` §
 
 #### Scenario: Datenschutz
 - **WHEN** the user activates Datenschutz
-- **THEN** a dialog titled "Datenschutz" shows the exact incumbent paragraph of §3.4
-- **AND** desktop alone appends its truthful no-statistics paragraph, while mobile copy is unchanged
+- **THEN** a dialog titled "Datenschutz" describes self-hosted Aptabase under authoritative `docs/requirements/07-release.md`, not the historical TelemetryDeck paragraph of §3.4
+- **AND** desktop alone appends its truthful no-statistics paragraph; the approved Aptabase correction is the only mobile privacy-copy amendment
 
 #### Scenario: Desktop settings master
 - **WHEN** wide Einstellungen is entered and a settings row is selected
@@ -132,3 +132,23 @@ On capable mobile hosts Benachrichtigungen SHALL retain `04-ui-ux.md` §3.8: rem
 - **WHEN** macOS or Windows opens Einstellungen or a stale/debug notification route at any width
 - **THEN** the normal list hides Benachrichtigungen and the stale detail displays `Benachrichtigungen sind auf diesem Gerät nicht verfügbar.` without toggles, permission requests, time chips, location actions or mail-success claims
 - **AND** narrow fallback has the incumbent Einstellungen back affordance, wide fallback uses the existing detail container, and all mobile notification layouts remain unchanged
+
+### Requirement: REQ-SCR-09 App bootstrap and background refresh
+At launch the app SHALL show cached menus, orders and billing before any network call, auto-login saved credentials for both services (Ventopay first, without its own billing fetch), fetch the operator broadcast banner, and restore the geofence only on capable hosts. Returning to the foreground SHALL refresh orders, billing and the broadcast without duplicate concurrent scrapes. Unsupported desktop SHALL skip notification/geofence work; mobile startup and refresh ordering SHALL remain unchanged.
+
+#### Scenario: Cache first
+- **WHEN** the app starts with cached menus and no network
+- **THEN** the cached menus are visible immediately
+
+#### Scenario: No duplicate billing scrape
+- **WHEN** both services have saved credentials at launch
+- **THEN** billing is fetched once for both sources
+
+#### Scenario: Broadcast banner
+- **WHEN** the core returns a non-empty broadcast
+- **THEN** a dismissible banner shows and reappears on the next foreground return
+
+#### Scenario: Unsupported desktop bootstrap and foreground
+- **WHEN** macOS or Windows starts or returns to foreground with notification/geofence capabilities unavailable
+- **THEN** notification/geofence permission, restoration and scheduling work is skipped, without changing cache-first publication, authentication or refresh ordering for supported services
+- **AND** capable mobile hosts retain their existing notification/geofence and service ordering

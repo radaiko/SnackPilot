@@ -35,10 +35,14 @@ macOS and Windows SHALL render the shared UI in a native decorated, resizable wi
 - **THEN** the rail is 192 px, outer gutters at least 24 px, and workspace max 960 px centred right of the rail, with interior width split 56% master / 44% detail excluding the 1 px divider
 - **AND** at width 1280 the workspace gutters are 64 px each and the obsolete 480 px cap does not constrain it
 
-#### Scenario: Phone fallback and short windows
-- **WHEN** desktop content width falls below 720 or height is constrained
+#### Scenario: Phone fallback
+- **WHEN** desktop content width falls below 720
 - **THEN** the narrow desktop uses current flat phone content centred up to 480 px, labelled 64 px bottom bar and no mobile safe-area strip
-- **AND** short-window content, rail and modal messages scroll without hiding navigation or modal actions beyond reach
+
+#### Scenario: Short windows preserve width-selected layout
+- **WHEN** desktop height is constrained at any content width
+- **THEN** the width-selected phone, compact or expanded layout remains selected
+- **AND** content, navigation and modal messages remain reachable through scrolling without hiding modal actions beyond reach
 
 #### Scenario: Native window lifecycle
 - **WHEN** the main Mac window is closed and the Dock activates the app again
@@ -62,7 +66,8 @@ Navigation, settings-detail kind, filters, orders segment, stable record preview
 
 #### Scenario: Crossing the breakpoint
 - **WHEN** a desktop window moves through 719 → 720 → 719 with a selected settings form, unsaved input, record preview or pending changes
-- **THEN** only containment changes: narrow settings pushes the same detail, expansion exposes it alongside its master, and input objects/text survive without duplicate pushes
+- **THEN** only containment changes: phone projection keeps exactly one settings-detail push, compact and expanded desktop both contain the same detail without a push, and input objects/text survive without duplicate pushes
+- **AND** a 719→720→719 model-stack test proves these projections and retained input identity
 - **AND** menus/orders/billing use current inline narrow cards without a new detail route; valid selected identities return on expansion, with no login/save/order/cancel/refetch caused by resizing
 
 #### Scenario: Foreground preservation
@@ -75,6 +80,7 @@ Desktop SHALL support the approved focused keyboard map at every width: Cmd+1–
 #### Scenario: Navigation and refresh
 - **WHEN** a tab/settings/refresh shortcut is pressed without a modal
 - **THEN** it uses the same intent as the matching on-screen control; a changed tab focuses its heading and active-tab reselection does nothing
+- **AND** navigation chords remain available while editing unless a modal is open; native editing keys retain priority without view-only eligibility exceptions
 - **AND** refresh acts once only on Menüs/Bestellungen/Abrechnung when not already refreshing or mutating, using existing refresh pipelines
 
 #### Scenario: List and option traversal
@@ -128,8 +134,8 @@ macOS SHALL expose the approved German SnackPilot, Ablage, Bearbeiten, Darstellu
 
 #### Scenario: About and privacy
 - **WHEN** About or Datenschutz is opened on macOS
-- **THEN** the themed About alert uses the exact approved German copy, real version/build and `github.com/patrickl92/GourmetClient`, while Datenschutz retains the incumbent paragraph plus `Auf dem Mac werden derzeit keine Nutzungsstatistiken gesendet.`
-- **AND** Windows privacy uses the equivalent truthful desktop-only sentence `Unter Windows werden derzeit keine Nutzungsstatistiken gesendet.` without altering mobile text
+- **THEN** the themed About alert uses the approved German copy, real version/build and `github.com/patrickl92/GourmetClient`; Datenschutz describes self-hosted Aptabase under authoritative `docs/requirements/07-release.md`, not the historical TelemetryDeck paragraph, plus `Auf dem Mac werden derzeit keine Nutzungsstatistiken gesendet.`
+- **AND** Windows privacy uses the equivalent truthful desktop-only sentence `Unter Windows werden derzeit keine Nutzungsstatistiken gesendet.`; only the approved Aptabase correction changes mobile privacy copy, not mobile behaviour
 
 #### Scenario: Modal keyboard and occlusion
 - **WHEN** an alert or confirm is shown at narrow or wide desktop width

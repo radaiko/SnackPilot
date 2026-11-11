@@ -53,6 +53,12 @@ macOS releases SHALL use Developer ID Application signing, hardened runtime, not
 - **THEN** it can preview or build isolated test artifacts but leaves tracked version inputs, git refs/index, history and counters unchanged and performs no signing submission, install, upload or distribution
 - **AND** a missing required native tool/host is reported explicitly, never replaced by a claimed successful cross-platform artifact
 
+#### Scenario: Native-build receipt validation
+- **WHEN** a native macOS or Windows builder returns an artifact to `ship.sh`
+- **THEN** it supplies the common generated receipt with platform, architecture, version, build, artifact path, trust state, checksum scheme and checksum, all validated before success bookkeeping
+- **AND** macOS uses `macos`/`aarch64` and verified `developer-id-notarized-stapled` trust with SHA-256 of a deterministic bundle-content manifest (sorted relative paths, entry types, modes, symlink targets and file SHA-256 values; no timestamps or absolute paths), not a public ZIP
+- **AND** Windows uses `windows`/`x86_64`, explicit `unsigned` trust and SHA-256 of the installer file; missing fields, mismatches, stale manifests or modified artifacts fail validation
+
 #### Scenario: Build failure is not a release
 - **WHEN** any selected build, package or validation stage fails
 - **THEN** no release commit/tag/history/counter is produced, pre-existing user edits remain intact, and temporary version changes owned by that invocation are restored safely
