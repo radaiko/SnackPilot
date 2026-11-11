@@ -91,38 +91,77 @@ pub fn split_workspace(
     geometry: &DesktopGeometry,
     theme: &AppTheme,
 ) -> AnyElement {
+    split_panes(master, detail, geometry, theme, None, None)
+}
+
+/// The same split with a tracked master scroll region, so a keyboard cursor
+/// can reveal the row it focused (brief "reveal it"), and a focusable detail
+/// region that Enter hands focus to when the preview offers no action. Only
+/// the wide record lists need it; every other screen keeps the plain split.
+pub fn split_workspace_scrolled(
+    master: AnyElement,
+    detail: AnyElement,
+    geometry: &DesktopGeometry,
+    theme: &AppTheme,
+    master_scroll: &ScrollHandle,
+    detail_focus: &FocusHandle,
+) -> AnyElement {
+    split_panes(
+        master,
+        detail,
+        geometry,
+        theme,
+        Some(master_scroll),
+        Some(detail_focus),
+    )
+}
+
+fn split_panes(
+    master: AnyElement,
+    detail: AnyElement,
+    geometry: &DesktopGeometry,
+    theme: &AppTheme,
+    master_scroll: Option<&ScrollHandle>,
+    detail_focus: Option<&FocusHandle>,
+) -> AnyElement {
+    let mut master_pane = div()
+        .id("workspace-master")
+        .w(px(geometry.master_width))
+        .flex_shrink_0()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .overflow_y_scroll();
+    if let Some(scroll) = master_scroll {
+        master_pane = master_pane.track_scroll(scroll);
+    }
+    // The read-only detail region: programmatically focusable (Enter from the
+    // list) but not a tab stop, so Tab keeps moving through the controls.
+    let mut detail_pane = div()
+        .id("workspace-detail")
+        .flex_1()
+        .min_w_0()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .overflow_y_scroll();
+    if let Some(focus) = detail_focus {
+        detail_pane = detail_pane
+            .track_focus(focus)
+            .focus(theme::desktop_focus(theme.desktop.focus));
+    }
     div()
         .flex_1()
         .min_h_0()
         .flex()
-        .child(
-            div()
-                .id("workspace-master")
-                .w(px(geometry.master_width))
-                .flex_shrink_0()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .overflow_y_scroll()
-                .child(master),
-        )
+        .child(master_pane.child(master))
         .child(
             div()
                 .w(px(geometry.divider_width))
                 .flex_shrink_0()
                 .bg(theme.border),
         )
-        .child(
-            div()
-                .id("workspace-detail")
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .overflow_y_scroll()
-                .child(detail),
-        )
+        .child(detail_pane.child(detail))
         .into_any_element()
 }
 

@@ -16,7 +16,20 @@ use snackpilot_model::navigation::SettingsDetail;
 use snackpilot_model::{AppModel, State, ThemePreference};
 use std::sync::Arc;
 
-const DATENSCHUTZ_MESSAGE: &str = "Diese App erfasst anonyme Nutzungsstatistiken zur Verbesserung der Benutzererfahrung. Die Analyse erfolgt über TelemetryDeck — einen datenschutzfreundlichen, cookielosen Dienst. Es werden keine persönlichen Daten, Passwörter, Menüauswahl oder Abrechnungsdaten erfasst.";
+/// The approved Aptabase paragraph, without the desktop-only sentence: mobile
+/// analytics behaviour is unchanged, only the historical provider copy is
+/// corrected (`docs/requirements/07-release.md`).
+const DATENSCHUTZ_MESSAGE: &str = crate::desktop::PRIVACY_PARAGRAPH;
+
+/// The Datenschutz alert body for this host: the approved paragraph alone on
+/// mobile, plus the truthful no-analytics sentence on desktop (REQ-SCR-04).
+pub(crate) fn datenschutz_message(desktop: bool) -> String {
+    if desktop {
+        crate::desktop::privacy_message()
+    } else {
+        DATENSCHUTZ_MESSAGE.to_string()
+    }
+}
 
 /// The Einstellungen root screen.
 pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>) -> AnyElement {
@@ -94,11 +107,8 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
     let datenschutz = cx.entity().clone();
     let on_privacy = Rc::new(move |_: &mut Window, cx: &mut App| {
         let _ = datenschutz.update(cx, |this, cx| {
-            let message = if cfg!(not(any(target_os = "ios", target_os = "android"))) {
-                crate::desktop::privacy_message()
-            } else {
-                DATENSCHUTZ_MESSAGE.to_string()
-            };
+            let message =
+                datenschutz_message(cfg!(not(any(target_os = "ios", target_os = "android"))));
             this.set_dialog(
                 crate::components::dialog::Dialog::Alert {
                     title: "Datenschutz".into(),
@@ -155,7 +165,7 @@ pub fn desktop_settings_tab(
                 720.,
             )
         });
-    let wide = model.is_some_and(|model| model.is_wide());
+    let wide = model.is_some_and(|model| model.is_expanded());
     let pad = if wide { 24. } else { 16. };
 
     let gourmet_hint = match &state.user_info {
@@ -392,4 +402,40 @@ pub(crate) fn placeholder_detail(
                 .child(title),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::datenschutz_message;
+
+    /// The mobile Datenschutz alert carries the approved Aptabase paragraph
+    /// and nothing else; only desktop appends its no-analytics sentence
+    /// (REQ-SCR-04, `docs/requirements/07-release.md`).
+    /// @req REQ-SCR-04
+    #[test]
+    fn datenschutz_alert_uses_the_approved_aptabase_copy() {
+        let mobile = datenschutz_message(false);
+        assert!(
+            mobile.contains("selbst gehostete Aptabase-Instanz"),
+            "the approved provider paragraph is used on mobile: {mobile}"
+        );
+        assert!(
+            !mobile.contains("TelemetryDeck"),
+            "the historical provider is gone: {mobile}"
+        );
+        assert!(mobile.contains("ohne Nutzer- oder Geräte-IDs"));
+        assert!(
+            !mobile.contains("Auf dem Mac") && !mobile.contains("Unter Windows"),
+            "the desktop-only sentence never reaches mobile: {mobile}"
+        );
+
+        let desktop = datenschutz_message(true);
+        assert!(desktop.starts_with(&mobile), "same approved paragraph");
+        assert!(
+            desktop.contains("Auf dem Mac werden derzeit keine Nutzungsstatistiken gesendet.")
+                || desktop
+                    .contains("Unter Windows werden derzeit keine Nutzungsstatistiken gesendet."),
+            "desktop alone states that analytics is a no-op: {desktop}"
+        );
+    }
 }

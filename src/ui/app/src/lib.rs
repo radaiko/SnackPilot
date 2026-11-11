@@ -185,6 +185,58 @@ pub fn shell_model() -> Option<std::sync::Arc<snackpilot_model::AppModel>> {
     SHELL_MODEL.get().cloned()
 }
 
+/// Debug-only isolated offline evidence harness (task 1.5).
+///
+/// A capture run must show known fixture data without a real host, a real
+/// credential or a live broadcast. The three host entry points build their
+/// model through [`evidence::model`], which wraps the host platform in an
+/// in-memory credential store: the normal OS/keychain slots are never read or
+/// written, and the seeded dummy pair is the core's offline demo credentials.
+/// The model is switched into evidence mode *before* `bootstrap`, so the
+/// launch order already skips the live broadcast, the permission prompt and
+/// the geofence restore. A release build can never reach any of this.
+pub mod evidence {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use snackpilot_model::{AppModel, Platform, PlatformError};
+
+    /// Whether this process asked for the harness (`--evidence`, or
+    /// `SNACKPILOT_EVIDENCE=1` on a simulator/emulator; debug builds only).
+    pub fn requested() -> bool {
+        AppModel::evidence_requested()
+    }
+
+    /// The isolated evidence data directory: a subdirectory, so a capture run
+    /// never mixes its cache with the normal one.
+    pub fn storage_dir(base: PathBuf) -> PathBuf {
+        if requested() {
+            base.join("evidence")
+        } else {
+            base
+        }
+    }
+
+    /// Build the shell model for one host: the harness credential store in an
+    /// evidence run, the host platform otherwise. The model is switched into
+    /// evidence mode before the caller runs `bootstrap`.
+    pub fn model(
+        storage_dir: PathBuf,
+        platform: Arc<dyn Platform>,
+    ) -> Result<Arc<AppModel>, PlatformError> {
+        let platform = if requested() {
+            AppModel::evidence_platform(platform)
+        } else {
+            platform
+        };
+        let model = AppModel::new(storage_dir, platform)?;
+        if requested() {
+            model.set_evidence_mode(true);
+        }
+        Ok(Arc::new(model))
+    }
+}
+
 /// Mount the single spike Root: bundled Inter fonts, kit init, one window.
 ///
 /// Called exactly once per app start by each platform host (REQ-UI-03);

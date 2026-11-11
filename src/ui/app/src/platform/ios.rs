@@ -590,9 +590,11 @@ pub unsafe extern "C" fn snackpilot_ios_register_shims(
         }
     };
     let _ = DEBUG_PLATFORM.set(platform.clone());
-    match snackpilot_model::AppModel::new(dir.clone(), platform) {
+    // A debug evidence run gets isolated data and dummy credentials, and runs
+    // the launch order offline (task 1.5).
+    let dir = crate::evidence::storage_dir(dir.clone());
+    match crate::evidence::model(dir.clone(), platform) {
         Ok(session) => {
-            let session = Arc::new(session);
             // Task 5.7: expose the session to the GPUI shell and run the
             // launch order (cached first, broadcast, auto-login).
             crate::install_shell_model(Arc::clone(&session));

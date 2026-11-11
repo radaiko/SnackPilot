@@ -7,6 +7,7 @@
 use gpui::*;
 
 use crate::components::button::ButtonKind;
+use crate::components::record_table::RowFocus;
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::MenuItem;
@@ -274,6 +275,7 @@ pub fn desktop_menu_row(
     item: &MenuItem,
     state: DesktopMenuRowState,
     on_click: ClickHandler,
+    focus: Option<&RowFocus>,
     theme: &AppTheme,
 ) -> AnyElement {
     let selected = state.selected;
@@ -330,7 +332,7 @@ pub fn desktop_menu_row(
         );
     }
 
-    div()
+    let mut row = div()
         .id(SharedString::from(format!(
             "desktop-menu-{}",
             menu_key(item)
@@ -346,9 +348,16 @@ pub fn desktop_menu_row(
             theme.surface
         })
         .hover(|s| s.bg(theme.surface_variant))
-        .tab_index(0)
-        .focus(crate::theme::desktop_focus(theme.desktop.focus))
-        .cursor_pointer()
+        .focus(crate::theme::desktop_focus(theme.desktop.focus));
+    // Inside the wide list the list owns the one tab stop and this row is
+    // focused by its roving handle; a standalone row keeps its own tab stop.
+    row = match focus {
+        Some(focus) => row
+            .track_focus(&focus.handle)
+            .anchor_scroll(Some(focus.anchor.clone())),
+        None => row.tab_index(0),
+    };
+    row.cursor_pointer()
         .on_click(move |_, window, cx| on_click(window, cx))
         .child(
             div()

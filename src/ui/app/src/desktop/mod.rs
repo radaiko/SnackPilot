@@ -97,13 +97,14 @@ pub fn shortcut_command(
 /// AppShell's Back action; arrows are never bound globally, so text editing and
 /// read-only receipt scrolling keep their native meaning.
 ///
-/// The six Bearbeiten entries are bound even though the app installs no handler
-/// for them: the macOS menu bar draws a key equivalent from the binding of the
-/// item's own action, so without these the native Edit items would show names
-/// and OS selectors but no ⌘ glyphs. The items keep their native selectors, and
-/// an unhandled binding propagates to the focused element, whose own text
-/// editing bindings (gpui-kit's `Input` context) run — so no chord is
-/// intercepted.
+/// Only macOS registers the six Bearbeiten key equivalents, because only macOS
+/// has that native menu bar: the menu draws a key equivalent from the binding
+/// of the item's own action, so without these the native Edit items would show
+/// names and OS selectors but no ⌘ glyphs. The items keep their native
+/// selectors, and an unhandled binding propagates to the focused element, whose
+/// own text editing bindings run — so no editing chord is intercepted.
+/// Windows has no global menu, so it registers neither the Edit equivalents nor
+/// the Cmd-only window chords, and text editing keeps every key it owns.
 pub fn key_bindings(platform: PlatformModifier) -> Vec<KeyBinding> {
     let prefix = platform.prefix();
     let chord = |key: &str| format!("{prefix}-{key}");
@@ -115,15 +116,15 @@ pub fn key_bindings(platform: PlatformModifier) -> Vec<KeyBinding> {
         KeyBinding::new(&chord("4"), macos::MenuOpenSettings, None),
         KeyBinding::new(&chord("r"), macos::MenuRefresh, None),
         KeyBinding::new("escape", macos::MenuBack, None),
-        KeyBinding::new(&chord("z"), macos::MenuUndo, None),
-        KeyBinding::new(&chord("shift-z"), macos::MenuRedo, None),
-        KeyBinding::new(&chord("x"), macos::MenuCut, None),
-        KeyBinding::new(&chord("c"), macos::MenuCopy, None),
-        KeyBinding::new(&chord("v"), macos::MenuPaste, None),
-        KeyBinding::new(&chord("a"), macos::MenuSelectAll, None),
     ];
     if platform == PlatformModifier::Command {
         bindings.extend([
+            KeyBinding::new("cmd-z", macos::MenuUndo, None),
+            KeyBinding::new("cmd-shift-z", macos::MenuRedo, None),
+            KeyBinding::new("cmd-x", macos::MenuCut, None),
+            KeyBinding::new("cmd-c", macos::MenuCopy, None),
+            KeyBinding::new("cmd-v", macos::MenuPaste, None),
+            KeyBinding::new("cmd-a", macos::MenuSelectAll, None),
             KeyBinding::new("cmd-w", macos::MenuCloseWindow, None),
             KeyBinding::new("cmd-m", macos::MenuMinimize, None),
             KeyBinding::new("cmd-h", macos::MenuHide, None),
@@ -233,16 +234,20 @@ pub fn about_message(version: &str, build: &str) -> String {
     )
 }
 
-/// The incumbent privacy paragraph plus the truthful desktop-only sentence
-/// (macOS and Windows differ only in the platform name).
+/// The human-approved Aptabase correction (`docs/requirements/07-release.md`
+/// is authoritative), shared by the mobile Datenschutz alert and the desktop
+/// summary.
+pub const PRIVACY_PARAGRAPH: &str = "Diese App erfasst anonyme Nutzungsstatistiken zur Verbesserung der Benutzererfahrung. Die Analyse erfolgt über eine selbst gehostete Aptabase-Instanz — ohne Nutzer- oder Geräte-IDs und ohne appübergreifendes Tracking. Es werden keine persönlichen Daten, Passwörter, Menüauswahl oder Abrechnungsdaten erfasst.";
+
+/// The Datenschutz summary: the approved Aptabase paragraph plus the truthful
+/// desktop-only sentence, which differs only in the platform name.
 pub fn privacy_message() -> String {
-    let incumbent = "Diese App erfasst anonyme Nutzungsstatistiken zur Verbesserung der Benutzererfahrung. Die Analyse erfolgt über TelemetryDeck — einen datenschutzfreundlichen, cookielosen Dienst. Es werden keine persönlichen Daten, Passwörter, Menüauswahl oder Abrechnungsdaten erfasst.";
     let desktop = if cfg!(target_os = "windows") {
         "Unter Windows werden derzeit keine Nutzungsstatistiken gesendet."
     } else {
         "Auf dem Mac werden derzeit keine Nutzungsstatistiken gesendet."
     };
-    format!("{incumbent}\n\n{desktop}")
+    format!("{PRIVACY_PARAGRAPH}\n\n{desktop}")
 }
 
 /// Install the host pieces that need no window: key bindings, the native menu
@@ -450,6 +455,28 @@ mod tests {
                 "missing binding {expected}"
             );
         }
+        // Only macOS has the native Bearbeiten menu, so only macOS registers
+        // its key equivalents; Windows keeps every editing chord for the
+        // focused text field and has no Cmd-only window chords at all.
+        assert!(
+            mac_keys.iter().all(|key| key.starts_with("cmd-")
+                || key == "escape"
+                || key.starts_with("alt-cmd-")),
+            "macOS registers the app chords and the Bearbeiten equivalents"
+        );
+        for edit in [
+            "ctrl-z",
+            "ctrl-shift-z",
+            "ctrl-x",
+            "ctrl-c",
+            "ctrl-v",
+            "ctrl-a",
+        ] {
+            assert!(
+                !windows_keys.iter().any(|key| key == edit),
+                "{edit} must stay with text editing on a host without a menu"
+            );
+        }
         for keys in [&mac_keys, &windows_keys] {
             assert!(
                 keys.iter().all(|key| !key.contains("up"))
@@ -505,7 +532,12 @@ mod tests {
         assert!(about.contains("github.com/patrickl92/GourmetClient"));
         assert!(about.contains("Basierend auf GourmetClient von patrickl92."));
         let privacy = privacy_message();
-        assert!(privacy.contains("TelemetryDeck"));
+        assert!(privacy.contains("selbst gehostete Aptabase-Instanz"));
+        assert!(
+            !privacy.contains("TelemetryDeck"),
+            "07-release.md is authoritative: the historical provider is gone"
+        );
+        assert!(privacy.contains("ohne Nutzer- oder Geräte-IDs"));
         assert!(
             privacy.contains("Auf dem Mac werden derzeit keine Nutzungsstatistiken gesendet.")
                 || privacy

@@ -29,6 +29,7 @@ use crate::components::dialog::{
     dialog_key, dialog_move, dialog_overlay, Dialog, DialogKey, DialogResolution,
 };
 use crate::components::loading_overlay::{desktop_loading_overlay, loading_overlay};
+use crate::components::record_table::RecordListFocus;
 use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect};
 use crate::components::toast::{
     desktop_toast, toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION,
@@ -139,13 +140,6 @@ fn run_refresh(model: &AppModel, intent: RefreshIntent) {
     }
 }
 
-/// Settings containment starts at the desktop compact breakpoint (720):
-/// from there the master and the selected form share the split; below it the
-/// same detail is the incumbent pushed screen (REQ-SCR-04/REQ-UI-10).
-pub(crate) fn settings_containment(layout: LayoutMode) -> bool {
-    layout != LayoutMode::Phone
-}
-
 /// Whether entering `requested` must create fresh credential inputs. Re-entering
 /// the same open form, or crossing 719↔720 while it is open, keeps the one
 /// instance and its unsaved text (REQ-UI-10); leaving and returning creates a
@@ -158,30 +152,63 @@ pub(crate) fn should_create_inputs(current: Detail, requested: Detail, has_input
 /// Where a closing dialog hands focus back (REQ-UI-14). The captured control is
 /// exact while the record it belonged to still exists. A confirmed flow that
 /// deleted that record also unmounts the control, so the wide workspace hands
-/// focus to its screen heading — the one target the shell re-renders after
-/// every action — instead of to a handle with no element behind it. The narrow
-/// shell keeps the incumbent restore because it renders no persistent heading.
+/// focus to the nearest surviving row of the same list — the identity the
+/// model reconciled its cursor to — and only falls back to the screen heading
+/// when no row survives at all. The narrow shell keeps the incumbent restore
+/// because it renders no persistent heading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FocusRestore {
     Origin,
+    Nearest,
     Heading,
 }
 
-pub(crate) fn focus_restore(desktop: bool, origin_record_survives: bool) -> FocusRestore {
-    if desktop && !origin_record_survives {
-        FocusRestore::Heading
-    } else {
+/// Which row a closing dialog may hand focus to: the model reconciled cursor,
+/// but only while this render shows that row. A refresh, filter or segment
+/// change can leave the cursor naming an unmounted record whose handle the
+/// list has pruned; the restore then falls back instead of focusing a dead
+/// handle (REQ-UI-14).
+pub(crate) fn nearest_restore_cursor<'a>(
+    cursor: Option<&'a str>,
+    rendered: &[String],
+) -> Option<&'a str> {
+    cursor.filter(|id| rendered.iter().any(|visible| visible == id))
+}
+
+pub(crate) fn focus_restore(
+    desktop: bool,
+    origin_record_survives: bool,
+    nearest_row_survives: bool,
+) -> FocusRestore {
+    if !desktop || origin_record_survives {
         FocusRestore::Origin
+    } else if nearest_row_survives {
+        FocusRestore::Nearest
+    } else {
+        FocusRestore::Heading
     }
 }
 
-/// Whether a layout renders the desktop shell, and therefore whether the
-/// shared intent boundary dispatches its blocking operation off the render
-/// thread (task 1.2 acceptance). Compact desktop counts: its rail and header
-/// refresh exist too, so only the phone shell keeps the incumbent synchronous
-/// path.
-pub(crate) fn dispatch_off_thread(layout: LayoutMode) -> bool {
-    layout != LayoutMode::Phone
+/// Whether the shared intent boundary dispatches its blocking operation off
+/// the render thread (task 1.2 acceptance, completed in 1.5). This follows the
+/// **host**, not the rail: every desktop process counts, including a narrow
+/// desktop window that projects as `LayoutMode::Phone`; only a phone or tablet
+/// host keeps the incumbent synchronous path.
+pub(crate) fn dispatch_off_thread(host: HostKind) -> bool {
+    host == HostKind::Desktop
+}
+
+/// Run one blocking model flow on the host's thread: off-thread on a desktop
+/// host so cached content keeps painting, inline on a phone/tablet host
+/// (incumbent mobile behaviour). No extra request, no second flow.
+pub(crate) fn run_blocking(host: HostKind, cx: &mut App, action: impl FnOnce() + Send + 'static) {
+    if dispatch_off_thread(host) {
+        cx.background_executor()
+            .spawn(async move { action() })
+            .detach();
+    } else {
+        action();
+    }
 }
 
 /// How one Menüs row activation behaves per host (task 1.3): the phone shell
@@ -305,25 +332,14 @@ impl Drop for MutationTicket {
 }
 
 /// Dispatch a refresh at the shared intent boundary (task 1.2 acceptance):
-/// on every desktop layout the blocking model call moves to the background
-/// executor, so the cached content keeps painting while the existing flow
-/// runs. Nothing extra is requested — the same model methods run, and their
-/// state notifications repaint the shell. Mobile keeps the incumbent
-/// synchronous path.
-fn dispatch_refresh(
-    model: &Arc<AppModel>,
-    intent: RefreshIntent,
-    layout: LayoutMode,
-    cx: &mut App,
-) {
-    if dispatch_off_thread(layout) {
-        let model = Arc::clone(model);
-        cx.background_executor()
-            .spawn(async move { run_refresh(&model, intent) })
-            .detach();
-    } else {
-        run_refresh(model, intent);
-    }
+/// on every desktop host, narrow windows included, the blocking model call
+/// moves to the background executor, so the cached content keeps painting
+/// while the existing flow runs. Nothing extra is requested — the same model
+/// methods run, and their state notifications repaint the shell. A phone or
+/// tablet host keeps the incumbent synchronous path.
+fn dispatch_refresh(model: &Arc<AppModel>, intent: RefreshIntent, host: HostKind, cx: &mut App) {
+    let model = Arc::clone(model);
+    run_blocking(host, cx, move || run_refresh(&model, intent));
 }
 
 /// Safe-area insets (top, bottom, left, right) in logical px, read from the
@@ -399,10 +415,19 @@ pub struct AppShell {
     /// Roving focus inside the desktop settings master and the two appearance
     /// option groups (REQ-UI-11).
     pub(crate) settings_rows: [FocusHandle; 4],
+    /// One tab stop and per-row handles for each wide record list (REQ-UI-11):
+    /// Up/Down/Home/End move the list cursor, and a deleted origin row hands
+    /// focus to its nearest surviving neighbour.
+    pub(crate) menu_list: RecordListFocus,
+    pub(crate) order_list: RecordListFocus,
+    pub(crate) receipt_list: RecordListFocus,
     pub(crate) rail_rows: [FocusHandle; 4],
     /// Screen heading focus target for a changed destination (REQ-UI-11).
     heading_focus: FocusHandle,
     pub(crate) settings_master: FocusHandle,
+    /// One tab stop for the Bestellungen segment group: Left/Right select the
+    /// neighbouring segment without wrapping (REQ-UI-11).
+    pub(crate) segment_group: FocusHandle,
     pub(crate) appearance_design: FocusHandle,
     pub(crate) appearance_accent: FocusHandle,
 }
@@ -502,8 +527,12 @@ impl AppShell {
             ],
             heading_focus: cx.focus_handle(),
             settings_master: cx.focus_handle(),
+            segment_group: cx.focus_handle(),
             appearance_design: cx.focus_handle(),
             appearance_accent: cx.focus_handle(),
+            menu_list: RecordListFocus::new(cx.focus_handle(), cx.focus_handle()),
+            order_list: RecordListFocus::new(cx.focus_handle(), cx.focus_handle()),
+            receipt_list: RecordListFocus::new(cx.focus_handle(), cx.focus_handle()),
         };
         // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
         // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast,
@@ -702,6 +731,16 @@ impl AppShell {
         cx.notify();
     }
 
+    /// The roving list that owns `kind`'s rows, so a closing dialog can hand
+    /// focus back to a surviving row of the same list (REQ-UI-14).
+    pub(crate) fn list_focus(&self, kind: ListKind) -> &RecordListFocus {
+        match kind {
+            ListKind::Menus => &self.menu_list,
+            ListKind::Orders => &self.order_list,
+            ListKind::Receipts => &self.receipt_list,
+        }
+    }
+
     /// Resolve the open dialog at `index` exactly once. Pointer, Return,
     /// Space and backdrop all come through here, so the destructive closure
     /// runs at most once even if the click lands twice before the repaint
@@ -741,31 +780,21 @@ impl AppShell {
             .model
             .as_ref()
             .map(|model| model.state().navigation.active_tab());
-        let nav_tab = match command {
-            snackpilot_model::desktop::DesktopCommand::OpenMenus => {
-                Some(snackpilot_model::navigation::Tab::Menus)
+        // One policy, and it lives in the model: the navigation chords are app
+        // chords that work while a text field has focus and only a modal takes
+        // them away, every other command keeps the guarded scope/claim path,
+        // and native editing keys are never captured. The shell adds no
+        // eligibility of its own; the only thing it adds is the thread: the
+        // refresh flow blocks, so it moves off the render thread.
+        let dispatched = match command {
+            snackpilot_model::desktop::DesktopCommand::Refresh
+            | snackpilot_model::desktop::DesktopCommand::Retry => {
+                self.dispatch_refresh_command(command, cx)
             }
-            snackpilot_model::desktop::DesktopCommand::OpenOrders => {
-                Some(snackpilot_model::navigation::Tab::Orders)
-            }
-            snackpilot_model::desktop::DesktopCommand::OpenBilling => {
-                Some(snackpilot_model::navigation::Tab::Billing)
-            }
-            snackpilot_model::desktop::DesktopCommand::OpenSettings => {
-                Some(snackpilot_model::navigation::Tab::Settings)
-            }
-            _ => None,
-        };
-        // Cmd+1–4 are app chords, not typing keys: they navigate even while a
-        // credential field has focus, but never across a modal. Every other
-        // command keeps the model's guarded scope/claim path.
-        let dispatched = match (&self.model, nav_tab) {
-            (Some(model), Some(tab)) => {
-                model.key_scope() != snackpilot_model::desktop::KeyScope::Modal
-                    && model.select_tab(tab)
-            }
-            (Some(model), None) => model.handle_command(command),
-            (None, _) => false,
+            _ => self
+                .model
+                .as_ref()
+                .is_some_and(|model| model.handle_command(command)),
         };
         let after = self
             .model
@@ -789,11 +818,47 @@ impl AppShell {
         cx.notify();
     }
 
+    /// Cmd+R and the native Aktualisieren item: the model keeps the scope
+    /// eligibility, the busy guard and the command claim, the shell takes its
+    /// mutation gate for the pre-spawn window and moves the blocking flow to
+    /// the host's thread (REQ-UI-07/REQ-UI-11). A phone or tablet host runs it
+    /// inline like every other mobile flow.
+    fn dispatch_refresh_command(
+        &mut self,
+        command: snackpilot_model::desktop::DesktopCommand,
+        cx: &mut App,
+    ) -> bool {
+        let Some(model) = self.model.clone() else {
+            return false;
+        };
+        let state = model.state();
+        let Some(ticket) = self
+            .mutation_gate
+            .claim(state.busy, state.order_progress.is_some())
+        else {
+            return false;
+        };
+        let Some(claim) = model.begin_command(command) else {
+            return false;
+        };
+        let Some(intent) = refresh_intent(state.navigation.active_tab()) else {
+            return false;
+        };
+        let host = state.host_kind;
+        run_blocking(host, cx, move || {
+            let _claim = claim;
+            let _ticket = ticket;
+            run_refresh(&model, intent);
+        });
+        true
+    }
+
     /// Capture focus on dialog open and restore the originating control when
     /// it closes. A confirmed flow can delete the record whose control held
     /// focus, unmounting that handle: the wide workspace then restores the
-    /// screen heading instead of a dead handle, the narrow shell keeps the
-    /// incumbent restore (REQ-UI-14).
+    /// nearest surviving row (the model's reconciled cursor) and only falls
+    /// back to the screen heading when no row survives; the narrow shell keeps
+    /// the incumbent restore (REQ-UI-14).
     fn sync_dialog_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog.is_some() && !self.dialog_open {
             self.dialog_origin = window.focused(cx);
@@ -820,15 +885,34 @@ impl AppShell {
                     .as_ref()
                     .is_some_and(|model| model.preview(*kind).as_deref() == Some(id.as_str())),
             };
+            // The reconciliation also moved the list cursor to the nearest
+            // surviving row; that row can take the focus the deleted control
+            // gave up, and the heading is only the last resort.
+            let nearest = origin_record.as_ref().and_then(|(kind, _)| {
+                let cursor = self.model.as_ref().and_then(|model| model.cursor(*kind));
+                let rendered = self.list_focus(*kind).rendered_ids();
+                nearest_restore_cursor(cursor.as_deref(), &rendered)
+                    .map(|id| (*kind, id.to_string()))
+            });
+            let nearest_available = nearest.is_some();
             let desktop = self
                 .model
                 .as_ref()
                 .is_some_and(|model| model.layout_mode() != LayoutMode::Phone);
-            let target = match focus_restore(desktop, survives) {
-                FocusRestore::Origin => origin,
-                FocusRestore::Heading => self.heading_focus.clone(),
-            };
-            window.focus(&target, cx);
+            match focus_restore(desktop, survives, nearest_available) {
+                FocusRestore::Origin => window.focus(&origin, cx),
+                FocusRestore::Nearest => {
+                    let (kind, id) = nearest.expect("a nearest row was found");
+                    if !self.list_focus(kind).focus(&id, window, cx) {
+                        let heading = self.heading_focus.clone();
+                        window.focus(&heading, cx);
+                    }
+                }
+                FocusRestore::Heading => {
+                    let heading = self.heading_focus.clone();
+                    window.focus(&heading, cx);
+                }
+            }
         }
     }
 
@@ -992,12 +1076,15 @@ impl AppShell {
         layout: LayoutMode,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        // Desktop containment (REQ-SCR-04): from 720 the settings master and
-        // the selected form share the split; below 720 the same detail is the
-        // incumbent pushed screen with its back affordance. The model's
-        // `settings_detail` stays the identity either way.
-        if settings_containment(layout)
-            && matches!(nav.top(), Screen::Settings | Screen::SettingsDetail)
+        // Desktop containment (REQ-SCR-04): the model owns the projection, so
+        // compact and expanded desktop render the settings master beside the
+        // selected form, and only the phone projection is the incumbent
+        // pushed screen with its back affordance.
+        if matches!(nav.top(), Screen::Settings | Screen::SettingsDetail)
+            && self
+                .model
+                .as_ref()
+                .is_some_and(|model| model.settings_contained())
         {
             return desktop_settings_tab(
                 state,
@@ -1091,6 +1178,7 @@ impl AppShell {
                         state,
                         self.model.as_ref(),
                         self.mutation_gate.is_claimed(),
+                        &self.menu_list,
                         theme,
                         cx,
                     ),
@@ -1107,6 +1195,8 @@ impl AppShell {
                             self.model.as_ref(),
                             layout,
                             self.mutation_gate.is_claimed(),
+                            &self.order_list,
+                            &self.segment_group,
                             theme,
                             cx,
                         )
@@ -1116,7 +1206,14 @@ impl AppShell {
                     if layout == LayoutMode::Phone {
                         billing_tab(state, self.model.as_ref(), theme, cx)
                     } else {
-                        desktop_billing_tab(state, self.model.as_ref(), layout, theme, cx)
+                        desktop_billing_tab(
+                            state,
+                            self.model.as_ref(),
+                            layout,
+                            &self.receipt_list,
+                            theme,
+                            cx,
+                        )
                     }
                 }
                 _ => self.placeholder(nav, state, theme, cx),
@@ -1132,8 +1229,13 @@ impl Render for AppShell {
         }
         let active = window.is_window_active();
         if self.seen_frame && active && !self.was_active {
-            if let Some(model) = &self.model {
-                model.on_foreground();
+            if let Some(model) = self.model.as_ref() {
+                // Host-gated dispatch (task 1.5): the foreground refresh blocks
+                // on the model's runtime, so a desktop host, narrow windows
+                // included, runs it on the worker thread and keeps painting.
+                let host = model.state().host_kind;
+                let model = Arc::clone(model);
+                run_blocking(host, cx, move || model.on_foreground());
             }
         }
         self.was_active = active;
@@ -1288,8 +1390,9 @@ impl Render for AppShell {
             {
                 (Some(intent), Some(model)) => {
                     let model = Arc::clone(model);
+                    let host = state.host_kind;
                     Some(Rc::new(move |_w: &mut Window, cx: &mut App| {
-                        dispatch_refresh(&model, intent, layout, cx);
+                        dispatch_refresh(&model, intent, host, cx);
                     }) as ClickHandler)
                 }
                 _ => None,
@@ -1388,9 +1491,10 @@ impl Render for AppShell {
 mod tests {
     use super::{
         desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
-        focus_restore, keyboard_action, menu_row_action, model_settings_detail, order_cancel_state,
-        order_row_effect, refresh_intent, settings_containment, should_create_inputs, Detail,
-        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
+        focus_restore, keyboard_action, menu_row_action, model_settings_detail,
+        nearest_restore_cursor, order_cancel_state, order_row_effect, refresh_intent,
+        should_create_inputs, Detail, FocusRestore, MenuRowAction, MutationGate, OrderCancelState,
+        OrderRowEffect, RefreshIntent,
     };
     use snackpilot_model::desktop::LayoutMode;
     use snackpilot_model::navigation::{ListKind, SettingsDetail, Tab};
@@ -1464,14 +1568,33 @@ mod tests {
         assert_eq!(refresh_intent(Tab::Settings), None);
     }
 
-    /// Every desktop layout, compact included, dispatches blocking work off
-    /// the render thread; only the phone shell keeps the synchronous path.
+    /// Off-thread dispatch follows the host, not the rail (task 1.5): a narrow
+    /// desktop window projects as `LayoutMode::Phone` and still dispatches its
+    /// pointer, shortcut/menu and foreground paths off the render thread,
+    /// while a phone or tablet host keeps the synchronous path at every width.
     /// @req REQ-UI-07
     #[test]
-    fn blocking_actions_run_off_thread_on_every_desktop_layout() {
-        assert!(!dispatch_off_thread(LayoutMode::Phone));
-        assert!(dispatch_off_thread(LayoutMode::DesktopCompact));
-        assert!(dispatch_off_thread(LayoutMode::DesktopExpanded));
+    fn blocking_actions_run_off_thread_on_every_desktop_window() {
+        use snackpilot_model::desktop::{layout_mode, HostKind, LayoutMode};
+
+        for width in [360., 720.] {
+            // Pointer path (submit/confirm/cancel/login), shortcut and menu
+            // path (Cmd+R, native Aktualisieren) and the foreground path all
+            // dispatch through this one predicate.
+            assert!(
+                dispatch_off_thread(HostKind::Desktop),
+                "desktop dispatches off-thread at {width}"
+            );
+            let layout = layout_mode(HostKind::Desktop, width);
+            assert_eq!(
+                layout == LayoutMode::Phone,
+                width < 720.,
+                "the rail gate would have called {width} synchronous"
+            );
+        }
+        assert!(!dispatch_off_thread(HostKind::Phone));
+        assert!(!dispatch_off_thread(HostKind::Tablet));
+        assert_eq!(layout_mode(HostKind::Phone, 720.), LayoutMode::Phone);
     }
 
     /// Selecting a Menüs row previews on every desktop layout and keeps the
@@ -1809,19 +1932,34 @@ mod tests {
         );
     }
 
-    /// Settings containment starts exactly at the desktop 720 breakpoint and
-    /// the one input instance survives the 719→720→719 crossing (REQ-UI-10,
-    /// REQ-SCR-04).
+    /// Settings containment is model-owned from the desktop 720 breakpoint on:
+    /// the shell asks `settings_contained()` instead of deriving a layout rule
+    /// of its own, and the one input instance survives the 719→720→719
+    /// crossing (REQ-UI-10, REQ-SCR-04).
     /// @req REQ-UI-10 @req REQ-SCR-04
     #[test]
-    fn settings_containment_starts_at_720() {
-        use snackpilot_model::desktop::{layout_mode, HostKind};
-        assert!(!settings_containment(layout_mode(HostKind::Desktop, 719.)));
-        assert!(settings_containment(layout_mode(HostKind::Desktop, 720.)));
-        assert!(settings_containment(layout_mode(HostKind::Desktop, 768.)));
-        assert!(settings_containment(layout_mode(HostKind::Desktop, 1280.)));
+    fn settings_containment_is_model_owned_at_720() {
+        use snackpilot_model::desktop::{HostKind, LayoutMode};
+
+        let (model, _platform) = claim_demo_model("containment-projection");
+        model.set_host_kind(HostKind::Desktop);
+        for (width, layout, contained) in [
+            (719., LayoutMode::Phone, false),
+            (720., LayoutMode::DesktopCompact, true),
+            (768., LayoutMode::DesktopCompact, true),
+            (1280., LayoutMode::DesktopExpanded, true),
+        ] {
+            model.set_content_width(width);
+            assert_eq!(model.layout_mode(), layout, "layout at {width}");
+            assert_eq!(
+                model.settings_contained(),
+                contained,
+                "containment at {width} is the model's decision"
+            );
+        }
+        model.set_host_kind(HostKind::Phone);
         assert!(
-            !settings_containment(layout_mode(HostKind::Phone, 1280.)),
+            !model.settings_contained(),
             "a phone host never gets the desktop containment by width alone"
         );
 
@@ -1874,13 +2012,13 @@ mod tests {
         );
     }
 
-    /// One form entry keeps one input instance and its unsaved text through
-    /// 719 → 720 → 719: the crossing changes the containment, never the entry,
-    /// so neither the fields nor the service binding are rebuilt
-    /// (REQ-UI-10, REQ-SCR-04).
+    /// The containment crossing 719 → 720 → 719 never re-enters the form:
+    /// `should_create_inputs` stays false, so the one input instance keeps its
+    /// unsaved text, and the model keeps the same settings detail (and with it
+    /// the service binding) at every width (REQ-UI-10, REQ-SCR-04).
     /// @req REQ-UI-10 @req REQ-SCR-04
     #[test]
-    fn containment_keeps_unsaved_text_across_719_720_719() {
+    fn containment_keeps_one_input_and_model_detail_across_719_720_719() {
         use snackpilot_model::desktop::HostKind;
 
         let (model, _platform) = claim_demo_model("containment-resize");
@@ -1889,7 +2027,6 @@ mod tests {
         model.set_content_width(719.);
         let mut detail = Detail::Settings;
         let mut inputs: Option<u32> = None;
-        let mut typed = String::new();
         let mut creations = 0;
 
         let entered = Detail::LoginKantine;
@@ -1899,18 +2036,16 @@ mod tests {
         }
         detail = entered;
         model.open_settings_detail(SettingsDetail::Profile);
-        typed.push_str("dummy-benutzer"); // unsaved text, never saved here
 
         // Both crossings re-render the same model detail: content width is
         // presentation, so nothing may re-enter (or re-prefill) the form.
         for width in [720., 719.] {
             model.set_content_width(width);
             let requested = detail_from_model(model.state().settings_detail);
-            if should_create_inputs(detail, requested, inputs.is_some()) {
-                creations += 1;
-                inputs = Some(creations);
-                typed.clear();
-            }
+            assert!(
+                !should_create_inputs(detail, requested, inputs.is_some()),
+                "the crossing at {width} must reuse the one input instance"
+            );
             detail = requested;
             assert_eq!(
                 model.state().settings_detail,
@@ -1921,7 +2056,6 @@ mod tests {
 
         assert_eq!(creations, 1, "one entry creates one input pair");
         assert_eq!(inputs, Some(1), "the same instance is still rendered");
-        assert_eq!(typed, "dummy-benutzer", "the unsaved text survived");
         assert_eq!(
             model_settings_detail(detail),
             Some(SettingsDetail::Profile),
@@ -1936,26 +2070,42 @@ mod tests {
     }
 
     /// A dialog whose confirmed flow deleted the origin's record does not put
-    /// focus back on that dead handle: the wide workspace restores the screen
-    /// heading, while the narrow shell keeps the incumbent restore
+    /// focus back on that dead handle: the wide workspace restores the nearest
+    /// surviving row and only falls back to the screen heading when no row
+    /// survives, while the narrow shell keeps the incumbent restore
     /// (REQ-UI-14).
     /// @req REQ-UI-14
     #[test]
-    fn deleted_dialog_origin_restores_the_heading() {
-        assert_eq!(focus_restore(true, true), FocusRestore::Origin);
-        assert_eq!(focus_restore(true, false), FocusRestore::Heading);
+    fn deleted_dialog_origin_restores_the_nearest_surviving_row() {
         assert_eq!(
-            focus_restore(false, false),
+            focus_restore(true, true, true),
+            FocusRestore::Origin,
+            "the origin still exists: exact restore"
+        );
+        assert_eq!(
+            focus_restore(true, false, true),
+            FocusRestore::Nearest,
+            "a deleted origin hands focus to its nearest surviving row"
+        );
+        assert_eq!(
+            focus_restore(true, false, false),
+            FocusRestore::Heading,
+            "the heading is the last resort when no row survives"
+        );
+        assert_eq!(
+            focus_restore(false, false, true),
             FocusRestore::Origin,
             "a narrow host keeps the incumbent restore"
         );
 
         // The real flow: the previewed order is cancelled, the model clears
         // its preview (the row unmounts) and reconciles the cursor to the
-        // surviving sibling, so the restore target is the heading.
+        // surviving sibling. The gate is the render set the list retained, not
+        // the bare cursor: the sibling is still shown, so it can take focus.
         let (model, _platform) = claim_demo_model("dialog-deleted-origin");
         let orders = place_two_orders(&model);
         let previewed = orders[0].position_id.clone();
+        let sibling = orders[1].position_id.clone();
         model.open_preview(ListKind::Orders, &previewed);
         assert_eq!(
             model.preview(ListKind::Orders).as_deref(),
@@ -1965,10 +2115,105 @@ mod tests {
         desktop_cancel_dispatch(&model, &previewed);
         let survives = model.preview(ListKind::Orders).as_deref() == Some(previewed.as_str());
         assert!(!survives, "the deleted record's preview is gone");
-        assert_eq!(focus_restore(true, survives), FocusRestore::Heading);
-        assert!(
-            model.cursor(ListKind::Orders).is_some(),
-            "the nearest surviving row keeps the list cursor"
+        assert_eq!(
+            model.cursor(ListKind::Orders).as_deref(),
+            Some(sibling.as_str()),
+            "the neighbour is the nearest surviving row"
         );
+        let rendered = upcoming_rows(&model);
+        assert_eq!(rendered, vec![sibling.clone()], "the sibling still renders");
+        assert_eq!(
+            nearest_restore_cursor(Some(sibling.as_str()), &rendered),
+            Some(sibling.as_str()),
+            "a row the render shows may take the restore"
+        );
+        assert_eq!(
+            focus_restore(
+                true,
+                survives,
+                nearest_restore_cursor(Some(sibling.as_str()), &rendered).is_some()
+            ),
+            FocusRestore::Nearest
+        );
+
+        // A stale cursor alone is not proof: after a segment/filter change the
+        // cursor can name an id this render no longer shows, the list has
+        // pruned its handle, and the restore must fall back to the heading
+        // rather than focus a dead row.
+        let stale = past_rows(&model);
+        assert!(
+            stale.is_empty(),
+            "a segment change renders a different row set"
+        );
+        assert_eq!(nearest_restore_cursor(Some(sibling.as_str()), &stale), None);
+        assert_eq!(
+            focus_restore(
+                true,
+                false,
+                nearest_restore_cursor(Some(sibling.as_str()), &stale).is_some()
+            ),
+            FocusRestore::Heading
+        );
+
+        // Deleting the last surviving row leaves nothing to restore. A single
+        // cancel is raised from the previewed order's detail, so the row is
+        // previewed first: the model reconciles a cleared preview, and with no
+        // surviving row the fallback cursor is empty.
+        model.open_preview(ListKind::Orders, &sibling);
+        assert_eq!(
+            model.preview(ListKind::Orders).as_deref(),
+            Some(sibling.as_str()),
+            "the row to delete is previewed, as the detail's cancel button is"
+        );
+        desktop_cancel_dispatch(&model, &sibling);
+        assert_eq!(model.preview(ListKind::Orders), None);
+        assert_eq!(model.cursor(ListKind::Orders), None);
+        let rendered = upcoming_rows(&model);
+        assert_eq!(
+            nearest_restore_cursor(model.cursor(ListKind::Orders).as_deref(), &rendered),
+            None
+        );
+        assert_eq!(
+            focus_restore(
+                true,
+                false,
+                nearest_restore_cursor(model.cursor(ListKind::Orders).as_deref(), &rendered)
+                    .is_some()
+            ),
+            FocusRestore::Heading
+        );
+    }
+
+    /// The order identities the upcoming segment renders, i.e. the row set a
+    /// list render retains.
+    fn upcoming_rows(model: &AppModel) -> Vec<String> {
+        model
+            .state()
+            .orders_split
+            .as_ref()
+            .map(|split| {
+                split
+                    .upcoming
+                    .iter()
+                    .map(|order| order.position_id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The order identities the past segment renders.
+    fn past_rows(model: &AppModel) -> Vec<String> {
+        model
+            .state()
+            .orders_split
+            .as_ref()
+            .map(|split| {
+                split
+                    .past
+                    .iter()
+                    .map(|order| order.position_id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }

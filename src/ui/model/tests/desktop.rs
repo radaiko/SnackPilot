@@ -331,15 +331,21 @@ fn desktop_breakpoint_is_host_gated() {
     model.set_host_kind(HostKind::Tablet);
     model.set_content_width(1440.0);
     assert_eq!(model.layout_mode(), LayoutMode::Phone);
-    assert!(!model.is_wide());
+    assert!(!model.is_expanded());
+    assert!(!model.settings_contained());
     model.set_host_kind(HostKind::Desktop);
     assert_eq!(model.layout_mode(), LayoutMode::DesktopExpanded);
-    assert!(model.is_wide());
+    assert!(model.is_expanded());
+    assert!(model.settings_contained());
     model.set_content_width(800.0);
     assert_eq!(model.layout_mode(), LayoutMode::DesktopCompact);
     assert!(
-        !model.is_wide(),
-        "compact counts as narrow for the projection"
+        !model.is_expanded(),
+        "compact is not the expanded split geometry"
+    );
+    assert!(
+        model.settings_contained(),
+        "compact desktop contains the settings detail from 720 on"
     );
 }
 
@@ -980,17 +986,17 @@ fn resize_preserves_settings_projection() {
     assert_eq!(model.settings_detail(), Some(SettingsDetail::Security));
     assert_eq!(
         model.navigation().top(),
-        Screen::SettingsDetail,
-        "narrow layouts project the open detail as a pushed screen"
+        Screen::Settings,
+        "compact desktop contains the open detail, so nothing is pushed"
     );
     assert_eq!(
         model.navigation().depth(),
-        2,
-        "the detail is pushed exactly once"
+        1,
+        "720+ contains instead of pushing"
     );
 
     model.set_content_width(1280.0);
-    assert!(model.is_wide());
+    assert!(model.is_expanded());
     assert_eq!(
         model.settings_detail(),
         Some(SettingsDetail::Security),
@@ -999,7 +1005,7 @@ fn resize_preserves_settings_projection() {
     assert_eq!(
         model.navigation().top(),
         Screen::Settings,
-        "wide layouts drop the push and show containment instead"
+        "expanded desktop contains too"
     );
     assert_eq!(model.navigation().depth(), 1);
 
@@ -1013,14 +1019,70 @@ fn resize_preserves_settings_projection() {
     model.set_content_width(760.0);
     assert_eq!(
         model.navigation().depth(),
-        2,
-        "further resizes must not push a second detail screen"
+        1,
+        "compact desktop drops the push and must not push a second detail"
+    );
+    assert_eq!(
+        model.settings_detail(),
+        Some(SettingsDetail::Security),
+        "the contained detail keeps its identity across the crossing"
     );
 
     model.close_settings_detail();
     assert_eq!(model.settings_detail(), None);
     assert_eq!(model.navigation().top(), Screen::Settings);
     assert_eq!(model.navigation().depth(), 1);
+}
+
+#[test]
+/// @req REQ-UI-10
+/// @req REQ-SCR-04
+fn settings_containment_covers_compact_and_never_duplicates() {
+    let (model, _fake) = demo_model("settings-719-720");
+    model.set_host_kind(HostKind::Desktop);
+    model.select_tab(Tab::Settings);
+
+    // 719 (desktop below the breakpoint) is the phone projection: the same
+    // detail is the pushed screen, exactly once.
+    model.set_content_width(719.);
+    assert_eq!(model.layout_mode(), LayoutMode::Phone);
+    model.open_settings_detail(SettingsDetail::Profile);
+    assert_eq!(model.navigation().depth(), 2);
+    assert_eq!(model.navigation().top(), Screen::SettingsDetail);
+
+    // 720 is compact desktop: containment, so the push is dropped and the
+    // model stack returns to the tab root.
+    model.set_content_width(720.);
+    assert_eq!(model.layout_mode(), LayoutMode::DesktopCompact);
+    assert!(!model.is_expanded());
+    assert!(model.settings_contained());
+    assert_eq!(model.navigation().depth(), 1, "720 contains, never pushes");
+    assert_eq!(model.navigation().top(), Screen::Settings);
+
+    // Back down to 719 pushes exactly one narrow screen again.
+    model.set_content_width(719.);
+    assert_eq!(
+        model.navigation().depth(),
+        2,
+        "phone projection pushes once"
+    );
+    assert_eq!(model.navigation().top(), Screen::SettingsDetail);
+
+    // Expanded desktop contains too, and the identity never changes.
+    model.set_content_width(1280.);
+    assert!(model.is_expanded());
+    assert!(model.settings_contained());
+    assert_eq!(model.navigation().depth(), 1);
+    assert_eq!(model.settings_detail(), Some(SettingsDetail::Profile));
+
+    // A phone host projects the same detail as one pushed screen at any width.
+    model.set_host_kind(HostKind::Phone);
+    model.set_content_width(1280.);
+    assert_eq!(model.layout_mode(), LayoutMode::Phone);
+    assert!(!model.settings_contained());
+    model.set_content_width(719.);
+    assert_eq!(model.navigation().depth(), 2);
+    assert_eq!(model.navigation().top(), Screen::SettingsDetail);
 }
 
 #[test]
@@ -1033,14 +1095,15 @@ fn settings_containment_never_pushes_twice_or_mutates() {
     model.select_tab(Tab::Settings);
     let before = fake.calls().len();
 
-    // Entering the same detail twice keeps one push and the same identity.
+    // Entering the same detail twice keeps one identity and no second push:
+    // 800 is compact desktop, so the detail is contained, not pushed.
     model.open_settings_detail(SettingsDetail::Profile);
     model.open_settings_detail(SettingsDetail::Profile);
     assert_eq!(model.settings_detail(), Some(SettingsDetail::Profile));
     assert_eq!(
         model.navigation().depth(),
-        2,
-        "re-entering the open detail must not push a second screen"
+        1,
+        "compact desktop contains the detail; a re-entry never pushes"
     );
 
     // Crossing the breakpoint is presentation only: no refetch, login, save,
@@ -1056,7 +1119,7 @@ fn settings_containment_never_pushes_twice_or_mutates() {
     assert_eq!(
         model.navigation().depth(),
         2,
-        "the narrow projection holds one push, never a duplicate"
+        "only the narrow projection holds one push, never a duplicate"
     );
     assert_eq!(
         fake.calls().len(),
@@ -1065,11 +1128,12 @@ fn settings_containment_never_pushes_twice_or_mutates() {
     );
 
     // Closing and opening another detail swaps the identity without refetch.
+    model.set_content_width(720.0);
     model.close_settings_detail();
     assert_eq!(model.navigation().depth(), 1);
     model.open_settings_detail(SettingsDetail::Data);
     assert_eq!(model.settings_detail(), Some(SettingsDetail::Data));
-    assert_eq!(model.navigation().depth(), 2);
+    assert_eq!(model.navigation().depth(), 1);
     assert_eq!(
         fake.calls().len(),
         before,
@@ -1198,6 +1262,23 @@ fn scoped_keys_do_not_capture_inputs() {
         !command_allowed(DesktopCommand::Refresh, KeyScope::TextInput, Tab::Menus),
         "no shortcut may steal keys from a focused text field"
     );
+    // The navigation chords are app chords, not typing keys: they work while
+    // a credential field has focus and only a modal takes them away.
+    for (cmd, tab) in [
+        (DesktopCommand::OpenMenus, Tab::Orders),
+        (DesktopCommand::OpenOrders, Tab::Billing),
+        (DesktopCommand::OpenBilling, Tab::Settings),
+        (DesktopCommand::OpenSettings, Tab::Menus),
+    ] {
+        assert!(
+            command_allowed(cmd, KeyScope::TextInput, tab),
+            "{cmd:?} must navigate while editing"
+        );
+        assert!(
+            !command_allowed(cmd, KeyScope::Modal, tab),
+            "{cmd:?} must not escape an open modal"
+        );
+    }
     assert!(
         !command_allowed(DesktopCommand::OpenMenus, KeyScope::Modal, Tab::Menus),
         "a modal captures keys before the workspace"
@@ -1213,10 +1294,15 @@ fn scoped_keys_do_not_capture_inputs() {
     model.set_text_input_focused(true);
     assert_eq!(model.key_scope(), KeyScope::TextInput);
     assert!(!model.handle_command(DesktopCommand::Refresh));
+    assert!(
+        model.handle_command(DesktopCommand::OpenOrders),
+        "Cmd+2 navigates while a credential field has focus"
+    );
+    assert_eq!(model.navigation().active_tab(), Tab::Orders);
     assert_eq!(
         model.claimed_command(),
         None,
-        "a rejected command claims nothing"
+        "a rejected command claims nothing, a navigation chord takes no claim"
     );
     assert!(
         !model.state().busy,
@@ -1237,6 +1323,42 @@ fn scoped_keys_do_not_capture_inputs() {
         None,
         "synchronous commands release their claim before returning"
     );
+}
+
+#[test]
+/// @req REQ-UI-11
+fn begin_command_claims_a_flow_without_running_it() {
+    let (model, _fake) = demo_model("begin-command");
+    assert!(
+        model.begin_command(DesktopCommand::OpenOrders).is_none(),
+        "a navigation chord runs no flow, so it takes no claim"
+    );
+    let claim = model
+        .begin_command(DesktopCommand::Refresh)
+        .expect("Cmd+R is claimable on Menüs");
+    assert_eq!(
+        model.claimed_command().as_deref(),
+        Some("refresh"),
+        "the shell-owned thread still holds the model's claim"
+    );
+    assert!(
+        model.begin_command(DesktopCommand::Refresh).is_none(),
+        "a duplicate dispatch is rejected while the claim is held"
+    );
+    assert!(
+        !model.handle_command(DesktopCommand::Refresh),
+        "the inline path obeys the same claim"
+    );
+    drop(claim);
+    assert_eq!(
+        model.claimed_command(),
+        None,
+        "dropping the claim releases it on every exit path"
+    );
+
+    // The scope policy still decides: Cmd+R has no flow on Einstellungen.
+    model.select_tab(Tab::Settings);
+    assert!(model.begin_command(DesktopCommand::Refresh).is_none());
 }
 
 #[test]
@@ -1275,6 +1397,11 @@ fn repeat_or_busy_command_is_rejected() {
                 !model.handle_command(DesktopCommand::Refresh),
                 "no command may start while another is claimed"
             );
+            assert!(
+                model.handle_command(DesktopCommand::OpenBilling),
+                "a navigation chord runs no flow, so it stays available"
+            );
+            assert_eq!(model.navigation().active_tab(), Tab::Billing);
         }));
         release_tx.send(()).unwrap();
         let accepted = worker.join().unwrap();

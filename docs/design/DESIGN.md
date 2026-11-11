@@ -155,14 +155,17 @@ debug-gallery knobs. Resize reports `host_kind` and `content_width`; crossing
 
 ### Operation dispatch
 
-Desktop refreshes are dispatched at the shared intent boundary
-(`app::RefreshIntent`): the same model methods run, on the background executor
-for every desktop layout (compact and expanded), so cached content keeps
-painting while the synchronous flow runs. No extra request, no mobile change
-(mobile stays synchronous), and a repeat dispatch is rejected by the model's
-claim, not by a disabled visual. Only the workspace-header refresh goes
-off-thread; the Menüs and Bestellungen mutations stay synchronous and belong to
-tasks 1.3/1.4. The rail footer and About use `desktop::product_version()`/`product_build()`:
+Blocking flows are dispatched at the shared intent boundary
+(`app::RefreshIntent`, `app::run_blocking`): the same model methods run, on the
+background executor for every desktop host — the rail is irrelevant, so a
+narrow desktop window that projects as the phone shell dispatches off-thread
+too — while cached content keeps painting. Pointer, shortcut/menu and
+foreground paths all use it: workspace-header refresh, credential save,
+Menüs submit, Bestellungen confirm/cancel (single and batch), billing reload,
+month/source selection and the resume refresh. A phone or tablet host keeps
+the incumbent synchronous path, no extra request is made, and a repeat
+dispatch is rejected by the model's claim or the shell's mutation gate, never
+by a disabled visual alone. The rail footer and About use `desktop::product_version()`/`product_build()`:
 the common release metadata when the packaging step supplies
 `SNACKPILOT_PRODUCT_VERSION`/`SNACKPILOT_BUILD`, otherwise explicit debug
 metadata (`Entwicklung`/`debug`). The app crate's placeholder `0.0.0` is never
@@ -174,47 +177,62 @@ The desktop-only compositions `workspace::split_workspace`,
 `record_table::record_row`/`record_header` and `workspace::action_strip` exist
 and are exercised by the gallery, but the shared root still renders the
 incumbent screen bodies until the screens own their master/detail split. That
-wiring is deliberately **deferred to task 1.3** (Menüs, which introduces the
-first real master/detail and action strip) and **task 1.4** (Bestellungen and
-Abrechnung, which consume `record_row`). Task 1.5 completes the wiring: every non-phone layout
-renders the settings master/detail containment (from the 720 compact
-breakpoint), the same credential/appearance/notifications content is reused
-beside the master, and the desktop dialog/keyboard/menu layer sits above the
-whole shell. Task 1.2 wired the desktop loading and toast overlay variants for
-every non-phone layout; no second screen implementation is introduced.
+wiring was delivered in **task 1.3** (Menüs, the first real master/detail and
+action strip), **task 1.4** (Bestellungen and Abrechnung, which consume
+`record_row`) and **task 1.5** (settings containment, the roving record-list
+focus and the desktop dialog/keyboard/menu layer above the whole shell). Task
+1.2 wired the desktop loading and toast overlay variants for every non-phone
+layout; no second screen implementation is introduced.
 
 ### Settings containment and the single narrow push
 
-Containment at 720 is **app-level presentation**, not model state: the model
-keeps one `settings_detail` identity and its single narrow push, and the shell
-decides per frame whether that detail is the pushed screen (below 720) or the
-right-hand pane of the split (720 and above). That is why 719 → 720 → 719
-never re-enters the form: no model transition happens, the one `InputState`
-pair created on entry stays mounted and its unsaved text survives, and the
-service binding is still the same detail kind. A model-side "wide" push slot
-would be the alternative, but `src/ui/model/src` is outside task 1.5's file
-allowlist and adding one would duplicate the identity the model already owns.
+The model owns the projection (`AppModel::settings_contained`): containment
+starts at the desktop compact breakpoint, so both compact (720–1023) and
+expanded desktop keep the one `settings_detail` identity beside the master and
+push nothing, while the phone projection (a phone host, or a desktop below 720)
+pushes exactly one `Screen::SettingsDetail`. Crossing 719 → 720 → 719 therefore
+keeps that one push slot from ever doubling: at 719 the open detail is the
+pushed screen, at 720 the push is dropped into containment, and back at 719 it
+is pushed again once. The one `InputState` pair created on entry stays mounted,
+its unsaved text survives, and the service binding is still the same detail
+kind. The shell asks the model instead of deriving a layout rule of its own, so
+the rendered containment and the model's navigation stack cannot disagree.
 
 ### Interaction inventory (task 1.5)
 
 - **Commands:** Cmd+1–4, Cmd+comma and Cmd+R on macOS; Ctrl equivalents on
-  Windows. A repeat or the other platform's modifier is rejected before the
-  model's guarded command runs. Cmd+R is enabled only on Menüs/Bestellungen/
-  Abrechnung while no flow is busy or claimed.
+  Windows. The policy is the model's (`desktop::command_allowed`): the
+  navigation chords work while a text field has focus and only a modal takes
+  them away, Cmd+R and the other flow commands stay outside the TextInput
+  scope, and native editing keys are never captured. A repeat or the other
+  platform's modifier is rejected before the model's guarded command runs.
+  Cmd+R is enabled only on Menüs/Bestellungen/Abrechnung while no flow is busy
+  or claimed. Only macOS registers the Bearbeiten key equivalents, because only
+  macOS has that menu bar.
 - **Esc precedence:** dialog → batch selection → preview/settings detail →
   nothing. It never clears pending menu changes and never quits.
-- **Focus:** rail is one stop with a roving cursor; settings master roving
-  Up/Down/Home/End; appearance Design and Akzentfarbe are one stop each with
-  Left/Right/Home/End selecting the neighbouring option without wrapping;
-  credential Return submits Save once (guarded by the shell mutation gate).
-  Arrows are never bound globally, so text editing and read-only receipt
-  scrolling keep their native meaning. Tab/Shift+Tab never leaves a modal.
+- **Focus:** the rail is a roving group (Up/Down/Home/End, Enter/Space
+  activates, an active re-selection is a no-op). The settings master, the two
+  appearance groups, the Bestellungen segment group and each wide record list
+  are one tab stop each. The settings master and the rail move with
+  Up/Down/Home/End, appearance Design and Akzentfarbe and the segment group
+  with Left/Right; the Menüs, Bestellungen and Abrechnung tables keep per-row
+  focus handles driven by Up/Down/Home/End (`record_table::RecordListFocus`),
+  which preview the record and scroll it into view without wrapping. Enter on
+  a record row hands focus to the detail: the preview's first enabled action
+  when it has one, otherwise the detail's read-only scroll region
+  (`record_table::detail_entry`). Every
+  option group selects the neighbour immediately; credential Return submits
+  Save once (guarded by the shell mutation gate). Arrows are never bound
+  globally, so text editing and read-only receipt scrolling keep their native
+  meaning. Tab/Shift+Tab never leaves a modal.
 - **Dialogs:** one resolution object per dialog; the opening key's auto-repeat
   cannot confirm; pointer, Enter/Space, Esc and backdrop share one dispatch;
   focus is captured on open and restored on close. When the confirmed flow
   deleted the record whose control held focus (a cancelled order), its handle
-  has no element left, so the wide workspace restores the screen heading
-  instead; the narrow shell keeps the incumbent exact restore.
+  has no element left, so the wide workspace restores the nearest surviving
+  row (the model's reconciled cursor) and falls back to the screen heading only
+  when no row survives; the narrow shell keeps the incumbent exact restore.
 - **Native Mac host:** standard decorated window titled `SnackPilot`, default
   1180×780 (clamped to the visible work area), minimum 360×480; Dock reopen
   reuses the one installed model and reopens one window. `desktop::application_hook`
@@ -222,9 +240,17 @@ allowlist and adding one would duplicate the identity the model already owns.
   before `run`. The Bearbeiten items keep their native OS selectors and carry
   the brief's key equivalents (⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A) through app key bindings;
   the app installs no handler for them, so text editing keeps its own bindings.
-- **Privacy/About:** the incumbent Datenschutz paragraph plus the desktop-only
-  no-statistics sentence; About shows `SnackPilot`, `Version {version}
-  ({build})`, the product line and the GourmetClient credit.
+- **Privacy/About:** the human-approved Aptabase Datenschutz paragraph
+  (`07-release.md` is authoritative, not the historical TelemetryDeck text)
+  plus the desktop-only no-statistics sentence; About shows `SnackPilot`,
+  `Version {version} ({build})`, the product line and the GourmetClient
+  credit.
+- **Evidence harness:** a debug-only `--evidence` / `SNACKPILOT_EVIDENCE=1`
+  run stores its cache in an `evidence` subdirectory, installs an in-memory
+  dummy credential pair and switches the model to isolated mode before
+  `bootstrap`, so the launch order skips the live broadcast, the permission
+  prompt and the geofence restore. The normal credential slots are never read
+  or written, and a release build cannot reach any of it.
 - **Capabilities:** notifications/geofence remain unsupported on desktop; the
   settings row is hidden at every width and a stale/debug route shows only the
   truthful unavailable sentence.

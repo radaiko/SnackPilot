@@ -476,7 +476,7 @@ fn desktop_menus_case(width: f32, theme: &AppTheme, cx: &mut Context<GalleryRoot
             .child("MENÜ I"),
     );
     for (item, state) in &rows {
-        master = master.child(desktop_menu_row(item, *state, noop.clone(), theme));
+        master = master.child(desktop_menu_row(item, *state, noop.clone(), None, theme));
     }
 
     let (item, state) = &rows[0];
@@ -853,6 +853,7 @@ fn desktop_orders_case(width: f32, theme: &AppTheme, cx: &mut Context<GalleryRoo
             compact,
             noop.clone(),
             Some(noop.clone()),
+            None,
             theme,
         ));
     }
@@ -1026,6 +1027,7 @@ fn desktop_billing_case(width: f32, theme: &AppTheme) -> AnyElement {
             entry.id == "g-1001",
             compact,
             noop.clone(),
+            None,
             theme,
         ));
     }

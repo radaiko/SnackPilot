@@ -11,16 +11,17 @@ use std::sync::Arc;
 
 use gpui::*;
 
-use crate::app::{desktop_mutation_blocked, AppShell};
+use crate::app::{desktop_mutation_blocked, run_blocking, AppShell};
 use crate::components::button::desktop_action_state;
 use crate::components::fab::fab;
 use crate::components::menu_card::{
     desktop_menu_action, desktop_menu_row, desktop_menu_status, menu_card, DesktopMenuRowState,
     MenuCardState,
 };
+use crate::components::record_table::{detail_entry, RecordListFocus};
 use crate::components::spinner::spinner;
 use crate::components::swipe::{swipe_days, SwipeHandlers, CLAIM_PX, EDGE_DAMPING, SWITCH_PX};
-use crate::components::workspace::{action_strip, detail_prompt, split_workspace};
+use crate::components::workspace::{action_strip, detail_prompt, split_workspace_scrolled};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::{MenuCategory, MenuItem};
@@ -52,8 +53,9 @@ pub fn menus_tab(
     if let Some(progress) = &state.order_progress {
         column = column.child(progress_banner(progress, theme));
     }
+    let host = state.host_kind;
     if let Some(error) = &state.error_text {
-        column = column.child(error_banner(&error.message, retry_handler(cx), theme));
+        column = column.child(error_banner(&error.message, retry_handler(host, cx), theme));
     }
 
     let busy = state.busy;
@@ -79,7 +81,7 @@ pub fn menus_tab(
     if let (Some(model), Some(snapshot)) = (model, &state.menu_snapshot) {
         let pending = snapshot.pending_orders.len() + snapshot.pending_cancellations.len();
         if pending > 0 && state.order_progress.is_none() {
-            column = column.child(fab(model.fab_label(), submit_handler(cx), theme));
+            column = column.child(fab(model.fab_label(), submit_handler(host, cx), theme));
         }
     }
 
@@ -305,26 +307,41 @@ fn error_banner(message: &str, retry: ClickHandler, theme: &AppTheme) -> AnyElem
     .into_any_element()
 }
 
-fn retry_handler(cx: &mut Context<AppShell>) -> ClickHandler {
+fn retry_handler(host: HostKind, cx: &mut Context<AppShell>) -> ClickHandler {
     let shell = cx.entity().clone();
     Rc::new(move |_: &mut Window, cx: &mut App| {
         shell.update(cx, |s, cx| {
-            if let Some(model) = &s.model {
-                model.refresh_menus();
-                cx.notify();
-            }
+            let Some(model) = s.model.clone() else {
+                return;
+            };
+            run_blocking(host, cx, move || model.refresh_menus());
+            cx.notify();
         });
     })
 }
 
-fn submit_handler(cx: &mut Context<AppShell>) -> ClickHandler {
+/// The all-days submit of the narrow shell. Off-thread on every desktop host,
+/// the narrow window included, under the shell's synchronous gate so a double
+/// activation cannot submit twice before the model reports `busy`.
+fn submit_handler(host: HostKind, cx: &mut Context<AppShell>) -> ClickHandler {
     let shell = cx.entity().clone();
     Rc::new(move |_: &mut Window, cx: &mut App| {
         shell.update(cx, |s, cx| {
-            if let Some(model) = &s.model {
-                model.submit_orders();
-                cx.notify();
-            }
+            let Some(model) = s.model.clone() else {
+                return;
+            };
+            let state = model.state();
+            let Some(ticket) = s
+                .mutation_gate
+                .claim(state.busy, state.order_progress.is_some())
+            else {
+                return;
+            };
+            run_blocking(host, cx, move || {
+                let _ticket = ticket;
+                model.submit_orders()
+            });
+            cx.notify();
         });
     })
 }
@@ -420,6 +437,7 @@ pub fn desktop_menus_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     mutation_claimed: bool,
+    list_focus: &RecordListFocus,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -441,17 +459,20 @@ pub fn desktop_menus_tab(
     if let Some(progress) = &state.order_progress {
         column = column.child(progress_banner(progress, theme));
     }
+    let host = state.host_kind;
     if let Some(error) = &state.error_text {
-        column = column.child(error_banner(&error.message, retry_handler(cx), theme));
+        column = column.child(error_banner(&error.message, retry_handler(host, cx), theme));
     }
 
     let blocked =
         mutation_claimed || desktop_mutation_blocked(state.busy, state.order_progress.is_some());
-    column = column.child(split_workspace(
-        desktop_menu_master(state, model, theme, cx),
+    column = column.child(split_workspace_scrolled(
+        desktop_menu_master(state, model, blocked, list_focus, theme, cx),
         desktop_menu_detail_pane(state, model, blocked, theme, cx),
         &geometry,
         theme,
+        &list_focus.scroll(),
+        list_focus.detail(),
     ));
     if !blocked {
         if let Some(strip) = desktop_submit_strip(state, model, theme, cx) {
@@ -466,17 +487,22 @@ pub fn desktop_menus_tab(
 fn desktop_menu_master(
     state: &State,
     model: Option<&Arc<AppModel>>,
+    blocked: bool,
+    list_focus: &RecordListFocus,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     let Some(model) = model else {
+        list_focus.retain(&[]);
         return desktop_empty_master(theme);
     };
     let Some(day) = state.selected_day.as_deref() else {
+        list_focus.retain(&[]);
         return desktop_empty_master(theme);
     };
     let groups = model.categories_for_day(day);
     if groups.is_empty() {
+        list_focus.retain(&[]);
         let loading = state
             .menu_snapshot
             .as_ref()
@@ -501,8 +527,64 @@ fn desktop_menu_master(
         .map(|s| (s.pending_orders.clone(), s.pending_cancellations.clone()))
         .unwrap_or_default();
     let preview = state.preview.clone();
+    // The visible row order the roving cursor moves through; every row is
+    // listed, including unavailable ones, because they are all visible.
+    let ids: Vec<String> = groups
+        .iter()
+        .flat_map(|(_, items)| items.iter().map(menu_key))
+        .collect();
+    // Only the rows in this render stay focusable or restorable: a day change
+    // or refresh drops the handles of the previous set.
+    list_focus.retain(&ids);
+    // Whether the previewed dish's detail offers an enabled action; Enter
+    // then lands on that control instead of the read-only region.
+    let detail_control = preview.as_deref().is_some_and(|key| {
+        !blocked
+            && groups
+                .iter()
+                .flat_map(|(_, items)| items.iter())
+                .find(|item| menu_key(item) == key)
+                .is_some_and(|item| {
+                    desktop_menu_action(&desktop_row_state(
+                        item,
+                        model,
+                        &pending_orders,
+                        &pending_cancellations,
+                        true,
+                    ))
+                    .is_some()
+                })
+    });
 
-    let mut list = div().flex().flex_col();
+    // One tab stop for the whole list: Up/Down/Home/End move the row cursor,
+    // preview the stable identity and reveal the row. Enter hands focus to the
+    // detail, no mutation and no wrap.
+    let on_key = {
+        let focus = list_focus.clone();
+        let model = Arc::clone(model);
+        let ids = ids.clone();
+        move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+            if event.keystroke.key.as_str() == "enter" {
+                focus.enter(detail_entry(detail_control), window, cx);
+                cx.stop_propagation();
+                return;
+            }
+            let Some(id) = focus.step(&ids, event.keystroke.key.as_str(), window, cx) else {
+                return;
+            };
+            model.open_preview(ListKind::Menus, &id);
+            model.set_cursor(ListKind::Menus, Some(id));
+            cx.stop_propagation();
+        }
+    };
+    let mut list = div()
+        .id("desktop-menu-list")
+        .flex()
+        .flex_col()
+        .tab_index(0)
+        .track_focus(list_focus.container())
+        .focus(theme::desktop_focus(theme.desktop.focus))
+        .on_key_down(on_key);
     for (category, items) in groups {
         if let Some(heading) = category_heading(category) {
             list = list.child(
@@ -527,10 +609,12 @@ fn desktop_menu_master(
                 &pending_cancellations,
                 selected,
             );
+            let handle = list_focus.row(&key, cx);
             list = list.child(desktop_menu_row(
                 &item,
                 row,
                 desktop_preview_handler(cx, key),
+                Some(&handle),
                 theme,
             ));
         }

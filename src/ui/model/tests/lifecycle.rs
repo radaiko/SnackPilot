@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use snackpilot_model::navigation::{ListKind, SettingsDetail, Tab};
-use snackpilot_model::{menu_key, AppModel, FakePlatform};
+use snackpilot_model::{menu_key, AppModel, FakePlatform, Platform};
 
 fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -131,4 +131,69 @@ fn foreground_preserves_workspace_identities() {
         model.has_pending_changes(),
         "foreground must keep the pending cart"
     );
+}
+
+/// The debug evidence harness: the model runs its launch and foreground order
+/// against isolated data and dummy credentials, never reads or writes a normal
+/// credential slot, and never reaches a live broadcast.
+/// @req REQ-UI-12
+/// @req REQ-SCR-09
+#[test]
+fn evidence_harness_isolates_startup_and_normal_slots() {
+    // The host platform is the real one; the harness wraps it, so any
+    // credential access would be recorded here.
+    let real = Arc::new(FakePlatform::new());
+    let harness: Arc<dyn Platform> = AppModel::evidence_platform(real.clone());
+    let model = AppModel::new(temp_dir("evidence"), harness).unwrap();
+    assert!(
+        !model.evidence_mode(),
+        "the harness is off until the host asks"
+    );
+
+    model.set_evidence_mode(true);
+    assert!(model.evidence_mode());
+    model.bootstrap();
+
+    let calls = real.calls();
+    assert!(
+        calls.iter().all(|call| !call.contains("credential")),
+        "the harness must never touch the normal credential slots: {calls:?}"
+    );
+    assert!(
+        real.tracks().is_empty(),
+        "evidence mode must not send analytics: {:?}",
+        real.tracks()
+    );
+    assert_eq!(real.credential("gourmet_username"), None);
+    assert!(
+        model.state().gourmet_authenticated,
+        "the dummy demo pair opens the offline session"
+    );
+    assert!(
+        model.state().broadcast_dismissed,
+        "no live broadcast banner in an evidence run"
+    );
+    let (user, pass) = model.saved_credentials(false);
+    assert_eq!(user.as_deref(), Some("demo"), "dummy username, not a slot");
+    assert_eq!(
+        pass.as_deref(),
+        Some("demo1234!"),
+        "dummy password, not a slot"
+    );
+
+    // A foreground return keeps the same isolation.
+    model.on_foreground();
+    let calls = real.calls();
+    assert!(
+        calls.iter().all(|call| !call.contains("credential")),
+        "resume must not touch the normal slots either: {calls:?}"
+    );
+    assert!(
+        real.tracks().is_empty(),
+        "resume must not send analytics either"
+    );
+    assert!(model.state().broadcast_dismissed);
+
+    model.set_evidence_mode(false);
+    assert!(!model.evidence_mode(), "the next launch is a normal one");
 }

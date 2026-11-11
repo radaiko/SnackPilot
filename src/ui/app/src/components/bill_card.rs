@@ -7,7 +7,7 @@ use gpui::*;
 
 use crate::components::record_table::{
     record_cell_right, record_header_cells, record_header_fixed, record_header_flex,
-    record_header_right, record_row_focusable, table_date,
+    record_header_right, record_row_focusable, table_date, RowFocus,
 };
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
@@ -196,6 +196,7 @@ pub fn desktop_bill_row(
     selected: bool,
     compact: bool,
     on_preview: ClickHandler,
+    focus: Option<&RowFocus>,
     theme: &AppTheme,
 ) -> AnyElement {
     let date = div()
@@ -270,6 +271,7 @@ pub fn desktop_bill_row(
         Some(on_preview),
         false,
         None,
+        focus,
         theme,
     )
 }

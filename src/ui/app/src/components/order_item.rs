@@ -10,7 +10,8 @@ use crate::app::OrderCancelState;
 use crate::components::button::{desktop_action_state, ButtonKind};
 use crate::components::record_table::{
     record_cell_fixed, record_check_cell, record_header_blank, record_header_cells,
-    record_header_fixed, record_header_flex, record_row_focusable, table_date, CHECK_COLUMN,
+    record_header_fixed, record_header_flex, record_row_focusable, table_date, RowFocus,
+    CHECK_COLUMN,
 };
 use crate::components::spinner::spinner;
 use crate::navigation::ClickHandler;
@@ -299,6 +300,7 @@ pub fn desktop_order_header(compact: bool, selection_mode: bool, theme: &AppThem
 /// batch ID (propagation stopped there), so a row activation can never
 /// approve or cancel anything.
 /// @req REQ-SCR-02 @req REQ-UI-12
+#[allow(clippy::too_many_arguments)]
 pub fn desktop_order_row(
     order: &OrderedMenu,
     description: &str,
@@ -306,6 +308,7 @@ pub fn desktop_order_row(
     compact: bool,
     on_preview: ClickHandler,
     on_check: Option<ClickHandler>,
+    focus: Option<&RowFocus>,
     theme: &AppTheme,
 ) -> AnyElement {
     let selection_mode = on_check.is_some();
@@ -334,6 +337,7 @@ pub fn desktop_order_row(
         Some(on_preview),
         selection_mode,
         on_check,
+        focus,
         theme,
     )
 }

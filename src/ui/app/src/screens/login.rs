@@ -14,9 +14,10 @@ use gpui_kit::component::input::InputState;
 use snackpilot_model::desktop::ControlState;
 
 use crate::app::AppShell;
+use crate::components::dialog::Dialog;
 use crate::components::text_field::{desktop_field_with_state, field_with_state};
 use crate::theme::{self, AppTheme};
-use snackpilot_model::{AppModel, State};
+use snackpilot_model::{AppModel, PlatformError, State};
 
 /// Which credentials pair the form edits.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -334,7 +335,7 @@ fn save_handler(
                 );
                 return;
             }
-            let Some(model) = &s.model else {
+            let Some(model) = s.model.clone() else {
                 // iOS before task 5.7 has no session model installed yet;
                 // show the §3.5 failure alert instead of swallowing the tap.
                 // The success alert lands with 5.7 when the model is wired.
@@ -354,36 +355,77 @@ fn save_handler(
                 LoginKind::Kantine => state.busy,
                 LoginKind::Automaten => state.ventopay_busy,
             };
-            let Some(_ticket) = s.mutation_gate.claim(busy, false) else {
+            let Some(ticket) = s.mutation_gate.claim(busy, false) else {
                 return;
             };
-            let result = match kind {
-                LoginKind::Kantine => model.login(&username, &password),
-                LoginKind::Automaten => model.ventopay_login(&username, &password, true),
-            };
-            let (title, message) = match result {
-                Ok(()) => (
-                    "Gespeichert".to_string(),
-                    kind.success_message().to_string(),
-                ),
-                Err(_) => (
-                    FAILURE_TITLE.to_string(),
-                    model
-                        .state()
-                        .error_text
-                        .map(|e| e.message)
-                        .unwrap_or_else(|| FAILURE_FALLBACK.to_string()),
-                ),
-            };
-            s.set_dialog(
-                crate::components::dialog::Dialog::Alert {
-                    title: title.into(),
-                    message: Some(message.into()),
-                },
-                cx,
-            );
+            // Host-gated dispatch (task 1.5): the auth pipeline blocks on the
+            // model's runtime, so a desktop host runs it on the worker thread
+            // and shows the same alert when it lands; a phone host keeps the
+            // incumbent synchronous path.
+            if crate::app::dispatch_off_thread(state.host_kind) {
+                let model = Arc::clone(&model);
+                let result_model = Arc::clone(&model);
+                let (username, password) = (username.clone(), password.clone());
+                cx.spawn(
+                    async move |this: gpui::WeakEntity<AppShell>, cx: &mut gpui::AsyncApp| {
+                        let worker = Arc::clone(&model);
+                        let result = cx
+                            .background_executor()
+                            .spawn(async move { run_login(kind, &worker, &username, &password) })
+                            .await;
+                        drop(ticket);
+                        let _ = this.update(cx, |s, cx| {
+                            s.set_dialog(login_result(kind, &result_model, &result), cx);
+                            cx.notify();
+                        });
+                    },
+                )
+                .detach();
+                cx.notify();
+                return;
+            }
+            let result = run_login(kind, &model, &username, &password);
+            drop(ticket);
+            s.set_dialog(login_result(kind, &model, &result), cx);
         });
     })
+}
+
+/// Run the one credential flow of `kind` (the only difference between the two
+/// forms is the service binding).
+fn run_login(
+    kind: LoginKind,
+    model: &AppModel,
+    username: &str,
+    password: &str,
+) -> Result<(), PlatformError> {
+    match kind {
+        LoginKind::Kantine => model.login(username, password),
+        LoginKind::Automaten => model.ventopay_login(username, password, true),
+    }
+}
+
+/// The alert a credential save ends with: the success copy, or the §3.5
+/// failure alert with the model's own error text when there is one.
+fn login_result(kind: LoginKind, model: &AppModel, result: &Result<(), PlatformError>) -> Dialog {
+    let (title, message) = match result {
+        Ok(()) => (
+            "Gespeichert".to_string(),
+            kind.success_message().to_string(),
+        ),
+        Err(_) => (
+            FAILURE_TITLE.to_string(),
+            model
+                .state()
+                .error_text
+                .map(|e| e.message)
+                .unwrap_or_else(|| FAILURE_FALLBACK.to_string()),
+        ),
+    };
+    Dialog::Alert {
+        title: title.into(),
+        message: Some(message.into()),
+    }
 }
 
 fn logout_handler(kind: LoginKind, cx: &mut Context<AppShell>) -> crate::navigation::ClickHandler {

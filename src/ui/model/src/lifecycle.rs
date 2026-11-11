@@ -7,16 +7,171 @@
 //! orders, billing and the broadcast under a re-entrancy guard; the broadcast
 //! banner comes back on every foreground after being dismissed.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
+use snackpilot_core::notify::NotificationCommand;
 use snackpilot_core::storage::Kv;
 
+use crate::platform::{Capabilities, LocationFix, Platform, PlatformError, SupportEmail};
 use crate::runtime::handle;
 use crate::session::AppModel;
 
 static FOREGROUND_RUNNING: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 static FOREGROUND_RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+impl AppModel {
+    /// Whether this process asked for the isolated evidence harness:
+    /// `--evidence` on a desktop debug run, `SNACKPILOT_EVIDENCE=1` on a
+    /// simulator or emulator. Never true in a release build.
+    pub fn evidence_requested() -> bool {
+        if !cfg!(debug_assertions) {
+            return false;
+        }
+        std::env::args().any(|arg| arg == "--evidence")
+            || std::env::var("SNACKPILOT_EVIDENCE").ok().as_deref() == Some("1")
+    }
+
+    /// Switch the harness on for this store. Called by the host entry point
+    /// before `bootstrap`, so the launch order below already runs isolated. The
+    /// flag lives in the store, so one isolated run cannot leak into another
+    /// and the default store never turns it on. A release build ignores it, so
+    /// no production path can be talked into offline dummy data.
+    pub fn set_evidence_mode(&self, enabled: bool) {
+        #[cfg(debug_assertions)]
+        let _ = self
+            .kv
+            .set("evidence_mode", if enabled { "true" } else { "false" });
+        #[cfg(not(debug_assertions))]
+        let _ = enabled;
+    }
+
+    /// Whether this store's launch and foreground paths run the isolated
+    /// evidence harness: isolated data and dummy credentials, and never a live
+    /// broadcast, system permission or geofence restore.
+    pub fn evidence_mode(&self) -> bool {
+        #[cfg(debug_assertions)]
+        {
+            self.kv.get("evidence_mode").ok().flatten().as_deref() == Some("true")
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            false
+        }
+    }
+
+    /// The harness credential store for `inner`: everything the app does keeps
+    /// talking to the real host, but every credential read and write stays in
+    /// memory with the dummy pair. An evidence run therefore never reads or
+    /// writes the normal credential slots, and the dummy pair opens the core's
+    /// offline demo data. The host installs it only for an evidence run.
+    pub fn evidence_platform(inner: Arc<dyn Platform>) -> Arc<dyn Platform> {
+        let credentials = [
+            "gourmet_username",
+            "gourmet_password",
+            "ventopay_username",
+            "ventopay_password",
+        ]
+        .into_iter()
+        .map(|slot| {
+            let value = if slot.ends_with("username") {
+                EvidencePlatform::DUMMY_USERNAME
+            } else {
+                EvidencePlatform::DUMMY_PASSWORD
+            };
+            (slot.to_string(), value.to_string())
+        })
+        .collect();
+        Arc::new(EvidencePlatform {
+            inner,
+            credentials: Mutex::new(credentials),
+        })
+    }
+}
+
+/// In-memory credentials over the real host platform for the evidence harness.
+struct EvidencePlatform {
+    inner: Arc<dyn Platform>,
+    credentials: Mutex<HashMap<String, String>>,
+}
+
+impl EvidencePlatform {
+    /// The core's offline demo credentials: the fixture set, never a live host.
+    const DUMMY_USERNAME: &'static str = snackpilot_core::demo::DEMO_USERNAME;
+    const DUMMY_PASSWORD: &'static str = snackpilot_core::demo::DEMO_PASSWORD;
+
+    fn store(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+        self.credentials.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+impl Platform for EvidencePlatform {
+    fn get_credential(&self, key: &str) -> Result<Option<String>, PlatformError> {
+        Ok(self.store().get(key).cloned())
+    }
+
+    fn save_credential(&self, key: &str, value: &str) -> Result<(), PlatformError> {
+        self.store().insert(key.to_string(), value.to_string());
+        Ok(())
+    }
+
+    fn clear_credential(&self, key: &str) -> Result<(), PlatformError> {
+        self.store().remove(key);
+        Ok(())
+    }
+
+    fn notify(&self, command: NotificationCommand) -> Result<(), PlatformError> {
+        self.inner.notify(command)
+    }
+
+    fn request_notification_permission(&self) -> Result<bool, PlatformError> {
+        self.inner.request_notification_permission()
+    }
+
+    fn request_location_authorisation(&self) -> Result<bool, PlatformError> {
+        self.inner.request_location_authorisation()
+    }
+
+    fn current_location(&self) -> Result<Option<LocationFix>, PlatformError> {
+        self.inner.current_location()
+    }
+
+    fn start_geofence(&self) -> Result<(), PlatformError> {
+        self.inner.start_geofence()
+    }
+
+    fn stop_geofence(&self) -> Result<(), PlatformError> {
+        self.inner.stop_geofence()
+    }
+
+    fn is_geofence_monitoring(&self) -> Result<bool, PlatformError> {
+        self.inner.is_geofence_monitoring()
+    }
+
+    fn track(&self, _event: &str, _props: HashMap<String, String>) -> Result<(), PlatformError> {
+        // Evidence mode is offline end to end: no analytics leaves the host,
+        // not even the bootstrap `app.launched` (REQ-PLT-07).
+        Ok(())
+    }
+
+    fn set_app_icon(&self, accent: &str) -> Result<(), PlatformError> {
+        self.inner.set_app_icon(accent)
+    }
+
+    fn open_app_settings(&self) -> Result<(), PlatformError> {
+        self.inner.open_app_settings()
+    }
+
+    fn compose_email(&self, email: SupportEmail) -> Result<(), PlatformError> {
+        self.inner.compose_email(email)
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        self.inner.capabilities()
+    }
+}
 
 /// Clears the re-entrancy flag on every exit path, including a panic.
 struct ForegroundGuard;
@@ -57,18 +212,21 @@ impl AppModel {
         let _ = self.platform.track("app.launched", Default::default());
 
         // 3. Broadcast (best-effort), then 4. the notification permission and
-        //    5. the geofence restore (idempotent across launches).
+        //    5. the geofence restore (idempotent across launches). The evidence
+        //    harness suppresses all three: it must not reach a live host, ask
+        //    for a system permission or arm a region it cannot own.
         self.refresh_broadcast();
         // Evidence builds may suppress the launch prompt so captures are not
         // blocked by the system dialog (debug only).
         #[cfg(debug_assertions)]
-        let skip_prompt = std::env::args().any(|a| a == "--no-permission-prompt");
+        let skip_prompt =
+            self.evidence_mode() || std::env::args().any(|a| a == "--no-permission-prompt");
         #[cfg(not(debug_assertions))]
         let skip_prompt = false;
         if !skip_prompt {
             let _ = self.platform.request_notification_permission();
         }
-        if self.state().company_location.is_some() {
+        if !self.evidence_mode() && self.state().company_location.is_some() {
             // Idempotent across launches: one start per installed app.
             let started =
                 self.kv.get("geofence_restored").ok().flatten().as_deref() == Some("true");
@@ -84,8 +242,17 @@ impl AppModel {
         self.refresh_diagnostic_log();
     }
 
-    /// Fetch the operator broadcast and re-arm the banner.
+    /// Fetch the operator broadcast and re-arm the banner. The evidence
+    /// harness suppresses the fetch entirely and keeps the banner hidden, so an
+    /// offline capture never waits on or shows a live message.
     pub fn refresh_broadcast(&self) {
+        if self.evidence_mode() {
+            self.hub.update("broadcast_suppressed", |s| {
+                s.broadcast = None;
+                s.broadcast_dismissed = true;
+            });
+            return;
+        }
         // Tests never reach the network: the gist fetch is production-only.
         #[cfg(not(test))]
         let message = handle().block_on(self.core.fetch_broadcast());

@@ -41,12 +41,14 @@ mod android_host {
         // The model session GeofenceBroadcastReceiver pumps transitions into
         // (task 3.4): the receiver holds no decision logic, the model and the
         // core decide (design D4, no v1 core duplication in the shell).
-        match snackpilot_model::AppModel::new(
-            std::path::PathBuf::from(&storage_dir),
+        // A debug evidence run gets isolated data and dummy credentials, and
+        // the model runs offline before its launch order (task 1.5).
+        let storage = crate::evidence::storage_dir(std::path::PathBuf::from(&storage_dir));
+        match crate::evidence::model(
+            storage,
             std::sync::Arc::clone(&bridge) as std::sync::Arc<dyn snackpilot_model::Platform>,
         ) {
             Ok(model) => {
-                let model = std::sync::Arc::new(model);
                 // The shell renders from the same AppModel the geofence
                 // session pumps (task 4.2).
                 crate::install_shell_model(std::sync::Arc::clone(&model));
