@@ -28,7 +28,13 @@ const ICON_SIZE: f32 = 20.;
 /// The left navigation rail: brand, the four tabs, version footer.
 /// `width` comes from `AppModel::desktop_geometry()` — the shell never
 /// derives geometry itself.
-pub fn desktop_rail(active: Tab, width: f32, theme: &AppTheme, on_select: TabSelect) -> AnyElement {
+pub fn desktop_rail(
+    active: Tab,
+    width: f32,
+    row_focus: Option<&[FocusHandle; 4]>,
+    theme: &AppTheme,
+    on_select: TabSelect,
+) -> AnyElement {
     let mut column = div()
         .id("desktop-rail")
         .w(px(width))
@@ -38,6 +44,31 @@ pub fn desktop_rail(active: Tab, width: f32, theme: &AppTheme, on_select: TabSel
         .flex_col()
         .bg(theme.desktop.rail)
         .overflow_y_scroll()
+        .on_key_down({
+            let row_focus = row_focus.cloned();
+            move |event: &KeyDownEvent, window, cx| {
+                let Some(row_focus) = &row_focus else {
+                    return;
+                };
+                let key = event.keystroke.key.as_str();
+                let current = row_focus
+                    .iter()
+                    .position(|handle| handle.is_focused(window));
+                let next = match (key, current) {
+                    ("down", Some(index)) => (index + 1 < Tab::ALL.len()).then_some(index + 1),
+                    ("down", None) => Some(0),
+                    ("up", Some(index)) => index.checked_sub(1),
+                    ("up", None) => Some(Tab::ALL.len() - 1),
+                    ("home", _) => Some(0),
+                    ("end", _) => Some(Tab::ALL.len() - 1),
+                    _ => None,
+                };
+                if let Some(index) = next {
+                    window.focus(&row_focus[index], cx);
+                    cx.stop_propagation();
+                }
+            }
+        })
         .child(
             div()
                 .h(px(BRAND_HEIGHT))
@@ -62,41 +93,52 @@ pub fn desktop_rail(active: Tab, width: f32, theme: &AppTheme, on_select: TabSel
             let tab = *tab;
             let is_active = tab == active;
             let on_select = on_select.clone();
-            div()
+            let activate = on_select.clone();
+            let handle = row_focus.map(|handles| handles[index].clone());
+            let mut row = div()
                 .id(SharedString::from(format!("rail-{tab:?}")))
-                .tab_index(index as isize + 1)
-                .min_h(px(ROW_HEIGHT))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .px(px(ROW_INSET))
-                .cursor_pointer()
-                .text_color(if is_active {
-                    theme.desktop.accent_on_rail
-                } else {
-                    theme.text_secondary
-                })
-                .hover(|s| s.bg(theme.surface_variant))
-                .focus(theme::desktop_focus(theme.desktop.focus))
-                .on_click(move |_, window, cx| on_select(tab, window, cx))
-                .child(
-                    Icon::new(tab_icon(tab))
-                        .with_size(px(ICON_SIZE))
-                        .text_color(if is_active {
-                            theme.desktop.accent_on_rail
-                        } else {
-                            theme.text_secondary
-                        }),
-                )
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .line_height(px(20.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .whitespace_nowrap()
-                        .child(tab.title()),
-                )
+                .tab_index(index as isize + 1);
+            if let Some(handle) = &handle {
+                row = row.track_focus(handle);
+            }
+            row.on_key_down(move |event: &KeyDownEvent, window, cx| {
+                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                    activate(tab, window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .min_h(px(ROW_HEIGHT))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .px(px(ROW_INSET))
+            .cursor_pointer()
+            .text_color(if is_active {
+                theme.desktop.accent_on_rail
+            } else {
+                theme.text_secondary
+            })
+            .hover(|s| s.bg(theme.surface_variant))
+            .focus(theme::desktop_focus(theme.desktop.focus))
+            .on_click(move |_, window, cx| on_select(tab, window, cx))
+            .child(
+                Icon::new(tab_icon(tab))
+                    .with_size(px(ICON_SIZE))
+                    .text_color(if is_active {
+                        theme.desktop.accent_on_rail
+                    } else {
+                        theme.text_secondary
+                    }),
+            )
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .line_height(px(20.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .whitespace_nowrap()
+                    .child(tab.title()),
+            )
         }));
 
     // Footer: version only, never a control (no cursor, no click handler).
@@ -111,7 +153,7 @@ pub fn desktop_rail(active: Tab, width: f32, theme: &AppTheme, on_select: TabSel
                     .text_size(px(12.))
                     .line_height(px(16.))
                     .text_color(theme.text_secondary)
-                    .child(format!("Version {}", env!("CARGO_PKG_VERSION"))),
+                    .child(format!("Version {}", crate::desktop::product_version())),
             ),
     );
 

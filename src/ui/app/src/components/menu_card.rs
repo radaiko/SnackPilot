@@ -120,6 +120,8 @@ pub fn menu_card(
 
     if let Some(on_tap) = on_tap {
         card = card
+            .tab_index(0)
+            .focus(crate::theme::desktop_focus(theme.desktop.focus))
             .cursor_pointer()
             .on_click(move |_, window, cx| on_tap(window, cx));
     }
@@ -344,6 +346,8 @@ pub fn desktop_menu_row(
             theme.surface
         })
         .hover(|s| s.bg(theme.surface_variant))
+        .tab_index(0)
+        .focus(crate::theme::desktop_focus(theme.desktop.focus))
         .cursor_pointer()
         .on_click(move |_, window, cx| on_click(window, cx))
         .child(

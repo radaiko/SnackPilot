@@ -1024,6 +1024,60 @@ fn resize_preserves_settings_projection() {
 }
 
 #[test]
+/// @req REQ-UI-10
+/// @req REQ-SCR-04
+fn settings_containment_never_pushes_twice_or_mutates() {
+    let (model, fake) = demo_model("settings-containment");
+    model.set_host_kind(HostKind::Desktop);
+    model.set_content_width(800.0);
+    model.select_tab(Tab::Settings);
+    let before = fake.calls().len();
+
+    // Entering the same detail twice keeps one push and the same identity.
+    model.open_settings_detail(SettingsDetail::Profile);
+    model.open_settings_detail(SettingsDetail::Profile);
+    assert_eq!(model.settings_detail(), Some(SettingsDetail::Profile));
+    assert_eq!(
+        model.navigation().depth(),
+        2,
+        "re-entering the open detail must not push a second screen"
+    );
+
+    // Crossing the breakpoint is presentation only: no refetch, login, save,
+    // order or cancel may run (REQ-UI-10).
+    for width in [720.0, 719.0, 720.0, 1280.0, 719.0] {
+        model.set_content_width(width);
+        assert_eq!(
+            model.settings_detail(),
+            Some(SettingsDetail::Profile),
+            "the detail identity survives every width"
+        );
+    }
+    assert_eq!(
+        model.navigation().depth(),
+        2,
+        "the narrow projection holds one push, never a duplicate"
+    );
+    assert_eq!(
+        fake.calls().len(),
+        before,
+        "resizing and reprojecting must not run a domain operation"
+    );
+
+    // Closing and opening another detail swaps the identity without refetch.
+    model.close_settings_detail();
+    assert_eq!(model.navigation().depth(), 1);
+    model.open_settings_detail(SettingsDetail::Data);
+    assert_eq!(model.settings_detail(), Some(SettingsDetail::Data));
+    assert_eq!(model.navigation().depth(), 2);
+    assert_eq!(
+        fake.calls().len(),
+        before,
+        "opening a settings detail never loads domain data"
+    );
+}
+
+#[test]
 /// @req REQ-UI-11
 fn escape_precedence_preserves_pending() {
     let (model, fake) = demo_model("escape");

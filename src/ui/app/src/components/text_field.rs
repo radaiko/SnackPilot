@@ -54,6 +54,14 @@ pub fn desktop_field_with_state(
     theme::focus_frame(field, control, 8., theme)
 }
 
+/// Whether native copy/cut is available for a text field. The pinned gpui-kit
+/// input implements exactly this rule (`is_copyable = selection && !masked`),
+/// so a masked credential field can never place its text on the clipboard
+/// (brief "masked password copy/cut is disabled", REQ-UI-11).
+pub fn clipboard_copyable(masked: bool, has_selection: bool) -> bool {
+    has_selection && !masked
+}
+
 /// Style an existing `InputState` with the §7 `inputField` recipe.
 pub fn field_with_state(state: &Entity<InputState>, theme: &AppTheme) -> Div {
     let r = theme.input_field();

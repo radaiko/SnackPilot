@@ -123,15 +123,18 @@ including accent text resolved against the panel, rail and selection fills.
 | Brief name | Implementation | Contract |
 | --- | --- | --- |
 | `desktop.sidebarSurface` / `DesktopNavigationRail` | `components/desktop_navigation.rs::desktop_rail` | `railFill`, 56 px brand row, four 44 px rows (20 px icon, 4 px gap, 12 px inset), hover `surface_variant`, active `desktop.accentOnRail` (accent resolved to >=4.5:1, else `text_primary`), inactive text and icons `text_secondary`, version footer that is not a control, scrolls at short heights |
-| `desktop.navigationRow` | same module | active row doubles as the selection; shared focus recipe hook and tab stop are in place, while the 3 px inset rule and the full keyboard layer arrive with 1.5 |
+| `desktop.navigationRow` | same module | active row doubles as the selection; hover `surface_variant`; focus ring independent of selection; one tab stop on the rail with a roving Up/Down/Home/End cursor, Enter/Space activates; a changed destination moves focus, an active re-selection is a no-op |
 | `desktop.panelSurface` / `SplitWorkspace` | `theme.workspace_panel()` + `components/workspace.rs::split_workspace` | `panelFill`, radius 12, 1 px border, no shadow; 1 px divider; both panes scroll independently |
 | `WorkspaceHeader` | `components/workspace.rs::workspace_header` | min 56 px, tab title, trailing 44×44 `refresh-cw` with tooltip `Aktualisieren` for Menüs/Bestellungen/Abrechnung, none for Einstellungen |
 | `desktop.actionStrip` | `components/workspace.rs::action_strip` | min 56 px, 8 px gap, wraps, 1 px top border |
 | `desktop.detailSurface` empty state | `components/workspace.rs::detail_prompt` | centred prompt at 16 px inset |
 | `desktop.tableHeader`, `desktop.tableRow` / `RecordTable` | `components/record_table.rs` | header 36 px on `background`; rows `surface`, min 56, 1 px bottom border, no zebra/shadow; hover `surface_variant`; selected `primary_surface` + always-present 3 px inset rule so width never changes; `record_cell` is read-only (no pointer cursor), the row is the single target |
 | `desktop.buttonPrimary/Danger/Secondary` | `components/button.rs::desktop_action` | min 44, radius 8, paddingX 16, no shadow, derived fills and readable ink; secondary transparent + 1 px border + `surface_variant` hover |
-| `desktop.menuRow`, `desktop.settingsRow`, detail panes, order/receipt tables | tasks 1.3/1.4 | reuse these primitives; no second screen implementation |
-| focus ring, native menus, dialog/toast desktop sizing | task 1.5 | `focusInk` 2 px + 2 px gap, reserved 4 px; the shared ring hook is already on rail rows and the header action |
+| `desktop.menuRow`, detail panes, order/receipt tables | tasks 1.3/1.4 | reuse these primitives; no second screen implementation |
+| `desktop.settingsRow` | `components/settings_row.rs::settings_row_desktop` | 72 px min, 12 px padding, title 14/20 Semibold, hint 12/16, whole row a target; selection tint + 3 px rule; ring independent of selection; Enter/Space opens |
+| focus ring | `theme.rs::focus_frame` / `desktop_focus` | 2 px `focusInk` + 2 px container gap, reserved 4 px on every desktop interactive surface including legacy narrow controls; mobile keeps its own focus defaults |
+| native menus | `desktop/macos.rs` | the approved German SnackPilot/Ablage/Bearbeiten/Darstellung/Fenster inventory; checked active destination; content items disable with no window/while modal; native Quit/Hide/Close/Minimise/Zoom; About uses real metadata |
+| desktop dialog | `components/dialog.rs` | one resolution per open dialog; initial focus OK/confirm; Tab/Shift+Tab and Left/Right cycle inside the action row; Enter/Space activate the focused action; Esc/backdrop resolve index 0; repeats ignored; focus restored to the origin |
 
 Incumbent components keep their mobile contracts: `tab_bar` (bottom bar and
 iOS pill), `card`, `chip`, `text_field`, `dialog`, `toast` (300/4000/300 ms,
@@ -159,8 +162,11 @@ painting while the synchronous flow runs. No extra request, no mobile change
 (mobile stays synchronous), and a repeat dispatch is rejected by the model's
 claim, not by a disabled visual. Only the workspace-header refresh goes
 off-thread; the Menüs and Bestellungen mutations stay synchronous and belong to
-tasks 1.3/1.4. The rail footer prints `Version 0.0.0` (the crate version) until
-task 1.6 supplies real build metadata.
+tasks 1.3/1.4. The rail footer and About use `desktop::product_version()`/`product_build()`:
+the common release metadata when the packaging step supplies
+`SNACKPILOT_PRODUCT_VERSION`/`SNACKPILOT_BUILD`, otherwise explicit debug
+metadata (`Entwicklung`/`debug`). The app crate's placeholder `0.0.0` is never
+shown. Task 1.6 injects the real release values.
 
 ### Deferred desktop shell wiring
 
@@ -170,8 +176,55 @@ and are exercised by the gallery, but the shared root still renders the
 incumbent screen bodies until the screens own their master/detail split. That
 wiring is deliberately **deferred to task 1.3** (Menüs, which introduces the
 first real master/detail and action strip) and **task 1.4** (Bestellungen and
-Abrechnung, which consume `record_row`). The wide settings containment (detail
-shown beside the settings master without push navigation) is deferred to task
-1.5, which owns the settings screens. Task 1.2 wires the desktop loading and
-toast overlay variants for every non-phone layout; no second screen
-implementation is introduced here.
+Abrechnung, which consume `record_row`). Task 1.5 completes the wiring: every non-phone layout
+renders the settings master/detail containment (from the 720 compact
+breakpoint), the same credential/appearance/notifications content is reused
+beside the master, and the desktop dialog/keyboard/menu layer sits above the
+whole shell. Task 1.2 wired the desktop loading and toast overlay variants for
+every non-phone layout; no second screen implementation is introduced.
+
+### Settings containment and the single narrow push
+
+Containment at 720 is **app-level presentation**, not model state: the model
+keeps one `settings_detail` identity and its single narrow push, and the shell
+decides per frame whether that detail is the pushed screen (below 720) or the
+right-hand pane of the split (720 and above). That is why 719 → 720 → 719
+never re-enters the form: no model transition happens, the one `InputState`
+pair created on entry stays mounted and its unsaved text survives, and the
+service binding is still the same detail kind. A model-side "wide" push slot
+would be the alternative, but `src/ui/model/src` is outside task 1.5's file
+allowlist and adding one would duplicate the identity the model already owns.
+
+### Interaction inventory (task 1.5)
+
+- **Commands:** Cmd+1–4, Cmd+comma and Cmd+R on macOS; Ctrl equivalents on
+  Windows. A repeat or the other platform's modifier is rejected before the
+  model's guarded command runs. Cmd+R is enabled only on Menüs/Bestellungen/
+  Abrechnung while no flow is busy or claimed.
+- **Esc precedence:** dialog → batch selection → preview/settings detail →
+  nothing. It never clears pending menu changes and never quits.
+- **Focus:** rail is one stop with a roving cursor; settings master roving
+  Up/Down/Home/End; appearance Design and Akzentfarbe are one stop each with
+  Left/Right/Home/End selecting the neighbouring option without wrapping;
+  credential Return submits Save once (guarded by the shell mutation gate).
+  Arrows are never bound globally, so text editing and read-only receipt
+  scrolling keep their native meaning. Tab/Shift+Tab never leaves a modal.
+- **Dialogs:** one resolution object per dialog; the opening key's auto-repeat
+  cannot confirm; pointer, Enter/Space, Esc and backdrop share one dispatch;
+  focus is captured on open and restored on close. When the confirmed flow
+  deleted the record whose control held focus (a cancelled order), its handle
+  has no element left, so the wide workspace restores the screen heading
+  instead; the narrow shell keeps the incumbent exact restore.
+- **Native Mac host:** standard decorated window titled `SnackPilot`, default
+  1180×780 (clamped to the visible work area), minimum 360×480; Dock reopen
+  reuses the one installed model and reopens one window. `desktop::application_hook`
+  registers that rule on the application and `src/bin/desktop.rs` applies it
+  before `run`. The Bearbeiten items keep their native OS selectors and carry
+  the brief's key equivalents (⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A) through app key bindings;
+  the app installs no handler for them, so text editing keeps its own bindings.
+- **Privacy/About:** the incumbent Datenschutz paragraph plus the desktop-only
+  no-statistics sentence; About shows `SnackPilot`, `Version {version}
+  ({build})`, the product line and the GourmetClient credit.
+- **Capabilities:** notifications/geofence remain unsupported on desktop; the
+  settings row is hidden at every width and a stale/debug route shows only the
+  truthful unavailable sentence.

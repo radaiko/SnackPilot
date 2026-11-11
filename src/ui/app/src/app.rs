@@ -18,14 +18,16 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::component::WindowExt;
 use snackpilot_model::desktop::{HostKind, LayoutMode};
 use snackpilot_model::navigation::{
-    Navigation, Screen, SettingsDetail as ModelSettingsDetail, Tab,
+    ListKind, Navigation, Screen, SettingsDetail as ModelSettingsDetail, Tab,
 };
 use snackpilot_model::{format_day_short, AppModel, State};
 
 use crate::components::broadcast_banner::broadcast_banner;
 use crate::components::day_navigator::day_navigator;
 use crate::components::desktop_navigation::desktop_rail;
-use crate::components::dialog::{dialog_overlay, Dialog};
+use crate::components::dialog::{
+    dialog_key, dialog_move, dialog_overlay, Dialog, DialogKey, DialogResolution,
+};
 use crate::components::loading_overlay::{desktop_loading_overlay, loading_overlay};
 use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect};
 use crate::components::toast::{
@@ -39,7 +41,7 @@ use crate::screens::login::{login_screen, LoginKind};
 use crate::screens::menus::{desktop_menus_tab, menus_tab};
 use crate::screens::notifications::notifications_screen;
 use crate::screens::orders::{cutoff_repaint_due, desktop_orders_tab, orders_tab};
-use crate::screens::settings::{placeholder_detail, settings_tab};
+use crate::screens::settings::{desktop_settings_tab, placeholder_detail, settings_tab};
 use crate::theme::{self, AppTheme};
 
 /// The pushed settings screens (one detail at a time under
@@ -134,6 +136,42 @@ fn run_refresh(model: &AppModel, intent: RefreshIntent) {
         RefreshIntent::Menus => model.refresh_menus(),
         RefreshIntent::Orders => model.refresh_orders(),
         RefreshIntent::Billing => model.reload_billing(),
+    }
+}
+
+/// Settings containment starts at the desktop compact breakpoint (720):
+/// from there the master and the selected form share the split; below it the
+/// same detail is the incumbent pushed screen (REQ-SCR-04/REQ-UI-10).
+pub(crate) fn settings_containment(layout: LayoutMode) -> bool {
+    layout != LayoutMode::Phone
+}
+
+/// Whether entering `requested` must create fresh credential inputs. Re-entering
+/// the same open form, or crossing 719↔720 while it is open, keeps the one
+/// instance and its unsaved text (REQ-UI-10); leaving and returning creates a
+/// fresh prefill.
+pub(crate) fn should_create_inputs(current: Detail, requested: Detail, has_inputs: bool) -> bool {
+    matches!(requested, Detail::LoginKantine | Detail::LoginAutomaten)
+        && (current != requested || !has_inputs)
+}
+
+/// Where a closing dialog hands focus back (REQ-UI-14). The captured control is
+/// exact while the record it belonged to still exists. A confirmed flow that
+/// deleted that record also unmounts the control, so the wide workspace hands
+/// focus to its screen heading — the one target the shell re-renders after
+/// every action — instead of to a handle with no element behind it. The narrow
+/// shell keeps the incumbent restore because it renders no persistent heading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FocusRestore {
+    Origin,
+    Heading,
+}
+
+pub(crate) fn focus_restore(desktop: bool, origin_record_survives: bool) -> FocusRestore {
+    if desktop && !origin_record_survives {
+        FocusRestore::Heading
+    } else {
+        FocusRestore::Origin
     }
 }
 
@@ -345,6 +383,28 @@ pub struct AppShell {
     /// iOS: whether the soft keyboard is currently shown (§3.6, task 5.4).
     #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
     keyboard_up: bool,
+    /// The action row of the open dialog owns keyboard focus; the index moves
+    /// only inside the row (REQ-UI-14).
+    pub(crate) dialog_focus: usize,
+    pub(crate) dialog_handles: [FocusHandle; 2],
+    /// One resolution per open dialog, so a click, Return and backdrop never
+    /// run the destructive closure twice.
+    pub(crate) dialog_resolution: DialogResolution,
+    /// Focus restored after the dialog closes, plus the record whose control
+    /// held it: a flow that deletes that record also unmounts its handle
+    /// (REQ-UI-14).
+    dialog_origin: Option<FocusHandle>,
+    dialog_origin_record: Option<(ListKind, String)>,
+    dialog_open: bool,
+    /// Roving focus inside the desktop settings master and the two appearance
+    /// option groups (REQ-UI-11).
+    pub(crate) settings_rows: [FocusHandle; 4],
+    pub(crate) rail_rows: [FocusHandle; 4],
+    /// Screen heading focus target for a changed destination (REQ-UI-11).
+    heading_focus: FocusHandle,
+    pub(crate) settings_master: FocusHandle,
+    pub(crate) appearance_design: FocusHandle,
+    pub(crate) appearance_accent: FocusHandle,
 }
 
 impl AppShell {
@@ -422,6 +482,28 @@ impl AppShell {
             seen_frame: false,
             pending_detail: None,
             keyboard_up: false,
+            dialog_focus: 0,
+            dialog_handles: [cx.focus_handle(), cx.focus_handle()],
+            dialog_resolution: DialogResolution::default(),
+            dialog_origin: None,
+            dialog_origin_record: None,
+            dialog_open: false,
+            settings_rows: [
+                cx.focus_handle(),
+                cx.focus_handle(),
+                cx.focus_handle(),
+                cx.focus_handle(),
+            ],
+            rail_rows: [
+                cx.focus_handle(),
+                cx.focus_handle(),
+                cx.focus_handle(),
+                cx.focus_handle(),
+            ],
+            heading_focus: cx.focus_handle(),
+            settings_master: cx.focus_handle(),
+            appearance_design: cx.focus_handle(),
+            appearance_accent: cx.focus_handle(),
         };
         // Evidence knobs (debug builds only, same entry as 4.1's --gallery):
         // `--dialog` opens a §4.1 confirm, `--toast` shows the §4.8 toast,
@@ -544,13 +626,25 @@ impl AppShell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // One input instance per entry (REQ-UI-10/REQ-SCR-04): re-selecting
+        // the open detail, or the 719→720→719 reprojection, must not recreate
+        // the fields or re-prefill them from secure storage.
+        let current = self.current_detail();
+        let create_inputs = should_create_inputs(
+            current,
+            detail,
+            self.login_user.is_some() && self.login_pass.is_some(),
+        );
+        if !create_inputs && current == detail {
+            return;
+        }
         self.detail = detail;
         if detail == Detail::Notifications {
             if let Some(model) = &self.model {
                 model.refresh_diagnostic_log();
             }
         }
-        if matches!(detail, Detail::LoginKantine | Detail::LoginAutomaten) {
+        if create_inputs {
             // §3.5: both fields pre-fill from the stored credentials.
             let (username, password) = self
                 .model
@@ -595,6 +689,8 @@ impl AppShell {
     }
 
     pub(crate) fn set_dialog(&mut self, dialog: Dialog, cx: &mut Context<Self>) {
+        self.dialog_focus = dialog.initial_focus();
+        self.dialog_resolution.reset();
         self.dialog = Some(dialog);
         // iOS: an alert must not sit behind the soft keyboard (§4.1).
         #[cfg(target_os = "ios")]
@@ -604,6 +700,189 @@ impl AppShell {
             self.keyboard_up = false;
         }
         cx.notify();
+    }
+
+    /// Resolve the open dialog at `index` exactly once. Pointer, Return,
+    /// Space and backdrop all come through here, so the destructive closure
+    /// runs at most once even if the click lands twice before the repaint
+    /// (REQ-UI-14).
+    pub(crate) fn resolve_dialog(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(dialog) = self.dialog.take() else {
+            return;
+        };
+        let count = dialog.button_count();
+        if self.dialog_resolution.begin(index, count).is_none() {
+            self.dialog = Some(dialog);
+            return;
+        }
+        if let Dialog::Confirm { on_confirm, .. } = &dialog {
+            if index == 1 {
+                on_confirm(window, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Run one guarded desktop command from a shortcut or a native menu item
+    /// (REQ-UI-11/14). Rejections are silent: the same eligibility the
+    /// on-screen control uses decides.
+    pub(crate) fn run_command(
+        &mut self,
+        command: snackpilot_model::desktop::DesktopCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let before = self
+            .model
+            .as_ref()
+            .map(|model| model.state().navigation.active_tab());
+        let nav_tab = match command {
+            snackpilot_model::desktop::DesktopCommand::OpenMenus => {
+                Some(snackpilot_model::navigation::Tab::Menus)
+            }
+            snackpilot_model::desktop::DesktopCommand::OpenOrders => {
+                Some(snackpilot_model::navigation::Tab::Orders)
+            }
+            snackpilot_model::desktop::DesktopCommand::OpenBilling => {
+                Some(snackpilot_model::navigation::Tab::Billing)
+            }
+            snackpilot_model::desktop::DesktopCommand::OpenSettings => {
+                Some(snackpilot_model::navigation::Tab::Settings)
+            }
+            _ => None,
+        };
+        // Cmd+1–4 are app chords, not typing keys: they navigate even while a
+        // credential field has focus, but never across a modal. Every other
+        // command keeps the model's guarded scope/claim path.
+        let dispatched = match (&self.model, nav_tab) {
+            (Some(model), Some(tab)) => {
+                model.key_scope() != snackpilot_model::desktop::KeyScope::Modal
+                    && model.select_tab(tab)
+            }
+            (Some(model), None) => model.handle_command(command),
+            (None, _) => false,
+        };
+        let after = self
+            .model
+            .as_ref()
+            .map(|model| model.state().navigation.active_tab());
+        // A changed destination moves focus to the new screen heading, never
+        // to a destructive action; an active-tab no-op keeps focus (REQ-UI-11).
+        if dispatched
+            && before != after
+            && matches!(
+                command,
+                snackpilot_model::desktop::DesktopCommand::OpenMenus
+                    | snackpilot_model::desktop::DesktopCommand::OpenOrders
+                    | snackpilot_model::desktop::DesktopCommand::OpenBilling
+                    | snackpilot_model::desktop::DesktopCommand::OpenSettings
+            )
+        {
+            let heading = self.heading_focus.clone();
+            window.focus(&heading, cx);
+        }
+        cx.notify();
+    }
+
+    /// Capture focus on dialog open and restore the originating control when
+    /// it closes. A confirmed flow can delete the record whose control held
+    /// focus, unmounting that handle: the wide workspace then restores the
+    /// screen heading instead of a dead handle, the narrow shell keeps the
+    /// incumbent restore (REQ-UI-14).
+    fn sync_dialog_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some() && !self.dialog_open {
+            self.dialog_origin = window.focused(cx);
+            self.dialog_origin_record = self.model.as_ref().and_then(|model| {
+                ListKind::for_tab(model.state().navigation.active_tab())
+                    .and_then(|kind| model.preview(kind).map(|id| (kind, id)))
+            });
+            self.dialog_open = true;
+            let index = self.dialog_focus.min(1);
+            let handle = self.dialog_handles[index].clone();
+            window.focus(&handle, cx);
+        } else if self.dialog.is_none() && self.dialog_open {
+            self.dialog_open = false;
+            let origin_record = self.dialog_origin_record.take();
+            let Some(origin) = self.dialog_origin.take() else {
+                return;
+            };
+            // The preview of a deleted record is cleared by the model's
+            // reconciliation, so its presence is the survival check.
+            let survives = match &origin_record {
+                None => true,
+                Some((kind, id)) => self
+                    .model
+                    .as_ref()
+                    .is_some_and(|model| model.preview(*kind).as_deref() == Some(id.as_str())),
+            };
+            let desktop = self
+                .model
+                .as_ref()
+                .is_some_and(|model| model.layout_mode() != LayoutMode::Phone);
+            let target = match focus_restore(desktop, survives) {
+                FocusRestore::Origin => origin,
+                FocusRestore::Heading => self.heading_focus.clone(),
+            };
+            window.focus(&target, cx);
+        }
+    }
+
+    /// Back/Esc: close the dialog first, otherwise let the model unwind one
+    /// layer (batch, preview, settings detail), never pending menu changes
+    /// (REQ-UI-11).
+    pub(crate) fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some() {
+            self.resolve_dialog(0, window, cx);
+            return;
+        }
+        if let Some(model) = &self.model {
+            model.escape();
+        }
+        cx.notify();
+    }
+
+    /// Whether one of the credential fields currently owns native text focus.
+    /// Workspace shortcuts stay inert while it does (REQ-UI-11).
+    fn text_input_focused(&self, window: &Window, cx: &App) -> bool {
+        [self.login_user.as_ref(), self.login_pass.as_ref()]
+            .into_iter()
+            .flatten()
+            .any(|input| input.read(cx).focus_handle(cx).is_focused(window))
+    }
+
+    /// The dialog's keyboard traversal: arrows and Tab cycle inside the action
+    /// row, Enter/Space use the focused action, Esc resolves index 0 and
+    /// repeats are ignored (REQ-UI-14).
+    fn dialog_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(dialog) = &self.dialog else {
+            return;
+        };
+        let count = dialog.button_count();
+        let action = dialog_key(
+            event.keystroke.key.as_str(),
+            event.keystroke.modifiers.shift,
+            event.is_held,
+            self.dialog_focus,
+            count,
+        );
+        match action {
+            DialogKey::Ignore => {}
+            DialogKey::Previous | DialogKey::Next => {
+                self.dialog_focus =
+                    dialog_move(self.dialog_focus, count, action == DialogKey::Next);
+                if let Some(handle) = self.dialog_handles.get(self.dialog_focus).cloned() {
+                    window.focus(&handle, cx);
+                }
+            }
+            DialogKey::Activate(index) => self.resolve_dialog(index, window, cx),
+            DialogKey::Dismiss => self.resolve_dialog(0, window, cx),
+        }
+        cx.stop_propagation();
     }
 
     /// iOS soft-keyboard driver (§3.6, task 5.4): gpui-mobile creates the
@@ -713,6 +992,26 @@ impl AppShell {
         layout: LayoutMode,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // Desktop containment (REQ-SCR-04): from 720 the settings master and
+        // the selected form share the split; below 720 the same detail is the
+        // incumbent pushed screen with its back affordance. The model's
+        // `settings_detail` stays the identity either way.
+        if settings_containment(layout)
+            && matches!(nav.top(), Screen::Settings | Screen::SettingsDetail)
+        {
+            return desktop_settings_tab(
+                state,
+                self.model.as_ref(),
+                &self.login_user,
+                &self.login_pass,
+                &self.settings_rows,
+                &self.settings_master,
+                &self.appearance_design,
+                &self.appearance_accent,
+                theme,
+                cx,
+            );
+        }
         if nav.top() == Screen::SettingsDetail {
             return match (self.current_detail(), &self.login_user, &self.login_pass) {
                 (Detail::LoginKantine, Some(user), Some(pass)) => login_screen(
@@ -722,6 +1021,7 @@ impl AppShell {
                     user,
                     pass,
                     theme,
+                    None,
                     cx,
                 ),
                 (Detail::LoginAutomaten, Some(user), Some(pass)) => login_screen(
@@ -731,13 +1031,20 @@ impl AppShell {
                     user,
                     pass,
                     theme,
+                    None,
                     cx,
                 ),
-                (Detail::Appearance, _, _) => {
-                    appearance_screen(state, self.model.as_ref(), theme, cx)
-                }
+                (Detail::Appearance, _, _) => appearance_screen(
+                    state,
+                    self.model.as_ref(),
+                    theme,
+                    None,
+                    &self.appearance_design,
+                    &self.appearance_accent,
+                    cx,
+                ),
                 (Detail::Notifications, _, _) => {
-                    notifications_screen(state, self.model.as_ref(), theme, cx)
+                    notifications_screen(state, self.model.as_ref(), theme, None, cx)
                 }
                 (detail, _, _) => placeholder_detail(detail, theme, cx),
             };
@@ -861,6 +1168,12 @@ impl Render for AppShell {
             .unwrap_or(LayoutMode::Phone);
         let desktop = layout != LayoutMode::Phone;
         let nav = self.navigation();
+        // Host focus facts and the native menu enablement follow the same
+        // model state every repaint (REQ-UI-11/14).
+        let text_focused = self.text_input_focused(window, cx);
+        crate::desktop::report_scope(self.model.as_deref(), self.dialog.is_some(), text_focused);
+        crate::desktop::sync_menus(cx, self.model.as_deref());
+        self.sync_dialog_focus(window, cx);
 
         let entity = cx.entity().clone();
         let on_select: TabSelect = Rc::new(move |tab: Tab, _window: &mut Window, cx: &mut App| {
@@ -901,7 +1214,62 @@ impl Render for AppShell {
             content = content.child(banner);
         }
         let mut content = content.child(screen_content);
+        let action_shell = cx.entity().clone();
         let mut root = div().size_full().flex().flex_col().bg(theme.background);
+        // Every native menu command lands here; on-screen buttons call the
+        // same model intents directly.
+        {
+            use crate::desktop::macos::*;
+            use snackpilot_model::desktop::DesktopCommand;
+            macro_rules! menu_command {
+                ($action:ty, $cmd:expr) => {{
+                    let shell = action_shell.clone();
+                    root = root.on_action(move |_: &$action, window: &mut Window, cx: &mut App| {
+                        let shell = shell.clone();
+                        let _ = shell.update(cx, |this, cx| {
+                            this.run_command($cmd, window, cx);
+                        });
+                    });
+                }};
+            }
+            menu_command!(MenuOpenMenus, DesktopCommand::OpenMenus);
+            menu_command!(MenuOpenOrders, DesktopCommand::OpenOrders);
+            menu_command!(MenuOpenBilling, DesktopCommand::OpenBilling);
+            menu_command!(MenuOpenSettings, DesktopCommand::OpenSettings);
+            menu_command!(MenuRefresh, DesktopCommand::Refresh);
+            {
+                let shell = action_shell.clone();
+                root = root.on_action(move |_: &MenuBack, window: &mut Window, cx: &mut App| {
+                    let shell = shell.clone();
+                    let _ = shell.update(cx, |this, cx| this.back(window, cx));
+                });
+            }
+            {
+                let shell = action_shell.clone();
+                root = root.on_action(move |_: &MenuAbout, _window, cx: &mut App| {
+                    let shell = shell.clone();
+                    let message = crate::desktop::about_message(
+                        &crate::desktop::product_version(),
+                        &crate::desktop::product_build(),
+                    );
+                    let _ = shell.update(cx, |this, cx| {
+                        this.set_dialog(
+                            Dialog::Alert {
+                                title: "Über SnackPilot".into(),
+                                message: Some(message.into()),
+                            },
+                            cx,
+                        );
+                    });
+                });
+            }
+        }
+        {
+            let shell = action_shell.clone();
+            root = root.on_key_down(move |event: &KeyDownEvent, window, cx| {
+                let _ = shell.update(cx, |this, cx| this.dialog_key(event, window, cx));
+            });
+        }
         if layout != LayoutMode::Phone {
             // SnackPilot Desktop Ledger shell: the navigation rail, then the
             // centred workspace panel. Every width comes from the model's
@@ -935,7 +1303,13 @@ impl Render for AppShell {
                     .overflow_hidden(),
                 &theme.workspace_panel(),
             )
-            .child(workspace_header(tab.title(), on_refresh, &theme))
+            .child(
+                div()
+                    .tab_index(0)
+                    .track_focus(&self.heading_focus)
+                    .focus(theme::desktop_focus(theme.desktop.focus))
+                    .child(workspace_header(tab.title(), on_refresh, &theme)),
+            )
             .child(content);
             // The desktop toast paints over the workspace only, never the
             // rail (brief "Overlays"), so it lives inside the main region.
@@ -952,7 +1326,13 @@ impl Render for AppShell {
             }
             root = root
                 .flex_row()
-                .child(desktop_rail(tab, geometry.rail_width, &theme, rail_select))
+                .child(desktop_rail(
+                    tab,
+                    geometry.rail_width,
+                    Some(&self.rail_rows),
+                    &theme,
+                    rail_select,
+                ))
                 .child(main_region);
         } else if theme.flat {
             // §2.2: in-flow bottom bar; the safe-area strip under it keeps
@@ -988,13 +1368,17 @@ impl Render for AppShell {
         }
         if let Some(dialog) = &self.dialog {
             let entity = cx.entity().clone();
-            let on_dismiss = Rc::new(move |_window: &mut Window, cx: &mut App| {
-                entity.update(cx, |this, cx| {
-                    this.dialog = None;
-                    cx.notify();
+            let on_activate: crate::components::dialog::DialogActivate =
+                Rc::new(move |index, window: &mut Window, cx: &mut App| {
+                    entity.update(cx, |this, cx| this.resolve_dialog(index, window, cx));
                 });
-            });
-            root = root.child(dialog_overlay(dialog, &theme, on_dismiss));
+            root = root.child(dialog_overlay(
+                dialog,
+                &theme,
+                self.dialog_focus,
+                &self.dialog_handles,
+                on_activate,
+            ));
         }
         root
     }
@@ -1004,12 +1388,12 @@ impl Render for AppShell {
 mod tests {
     use super::{
         desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
-        keyboard_action, menu_row_action, model_settings_detail, order_cancel_state,
-        order_row_effect, refresh_intent, Detail, MenuRowAction, MutationGate, OrderCancelState,
-        OrderRowEffect, RefreshIntent,
+        focus_restore, keyboard_action, menu_row_action, model_settings_detail, order_cancel_state,
+        order_row_effect, refresh_intent, settings_containment, should_create_inputs, Detail,
+        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
     };
     use snackpilot_model::desktop::LayoutMode;
-    use snackpilot_model::navigation::{SettingsDetail, Tab};
+    use snackpilot_model::navigation::{ListKind, SettingsDetail, Tab};
     use snackpilot_model::{AppModel, FakePlatform};
     use std::sync::Arc;
 
@@ -1425,6 +1809,47 @@ mod tests {
         );
     }
 
+    /// Settings containment starts exactly at the desktop 720 breakpoint and
+    /// the one input instance survives the 719→720→719 crossing (REQ-UI-10,
+    /// REQ-SCR-04).
+    /// @req REQ-UI-10 @req REQ-SCR-04
+    #[test]
+    fn settings_containment_starts_at_720() {
+        use snackpilot_model::desktop::{layout_mode, HostKind};
+        assert!(!settings_containment(layout_mode(HostKind::Desktop, 719.)));
+        assert!(settings_containment(layout_mode(HostKind::Desktop, 720.)));
+        assert!(settings_containment(layout_mode(HostKind::Desktop, 768.)));
+        assert!(settings_containment(layout_mode(HostKind::Desktop, 1280.)));
+        assert!(
+            !settings_containment(layout_mode(HostKind::Phone, 1280.)),
+            "a phone host never gets the desktop containment by width alone"
+        );
+
+        // Re-entering the same open form keeps its one input instance;
+        // crossing the breakpoint does not request new inputs either; a fresh
+        // entry after another detail does.
+        assert!(!should_create_inputs(
+            Detail::LoginKantine,
+            Detail::LoginKantine,
+            true
+        ));
+        assert!(should_create_inputs(
+            Detail::LoginKantine,
+            Detail::LoginAutomaten,
+            true
+        ));
+        assert!(should_create_inputs(
+            Detail::LoginKantine,
+            Detail::LoginKantine,
+            false
+        ));
+        assert!(!should_create_inputs(
+            Detail::Appearance,
+            Detail::Appearance,
+            false
+        ));
+    }
+
     /// The settings detail shown is derived from the model-owned kind, so
     /// the view cannot disagree with the model (REQ-UI-10).
     /// @req REQ-UI-10
@@ -1446,6 +1871,104 @@ mod tests {
         assert_eq!(
             detail_from_model(Some(SettingsDetail::Advanced)),
             Detail::Settings
+        );
+    }
+
+    /// One form entry keeps one input instance and its unsaved text through
+    /// 719 → 720 → 719: the crossing changes the containment, never the entry,
+    /// so neither the fields nor the service binding are rebuilt
+    /// (REQ-UI-10, REQ-SCR-04).
+    /// @req REQ-UI-10 @req REQ-SCR-04
+    #[test]
+    fn containment_keeps_unsaved_text_across_719_720_719() {
+        use snackpilot_model::desktop::HostKind;
+
+        let (model, _platform) = claim_demo_model("containment-resize");
+        model.set_host_kind(HostKind::Desktop);
+        // Entry happens at 719: the narrow, pushed form, one input pair.
+        model.set_content_width(719.);
+        let mut detail = Detail::Settings;
+        let mut inputs: Option<u32> = None;
+        let mut typed = String::new();
+        let mut creations = 0;
+
+        let entered = Detail::LoginKantine;
+        if should_create_inputs(detail, entered, inputs.is_some()) {
+            creations += 1;
+            inputs = Some(creations);
+        }
+        detail = entered;
+        model.open_settings_detail(SettingsDetail::Profile);
+        typed.push_str("dummy-benutzer"); // unsaved text, never saved here
+
+        // Both crossings re-render the same model detail: content width is
+        // presentation, so nothing may re-enter (or re-prefill) the form.
+        for width in [720., 719.] {
+            model.set_content_width(width);
+            let requested = detail_from_model(model.state().settings_detail);
+            if should_create_inputs(detail, requested, inputs.is_some()) {
+                creations += 1;
+                inputs = Some(creations);
+                typed.clear();
+            }
+            detail = requested;
+            assert_eq!(
+                model.state().settings_detail,
+                Some(SettingsDetail::Profile),
+                "the model keeps one settings detail at {width}"
+            );
+        }
+
+        assert_eq!(creations, 1, "one entry creates one input pair");
+        assert_eq!(inputs, Some(1), "the same instance is still rendered");
+        assert_eq!(typed, "dummy-benutzer", "the unsaved text survived");
+        assert_eq!(
+            model_settings_detail(detail),
+            Some(SettingsDetail::Profile),
+            "the same service binding (Kantine) is still open"
+        );
+        let (username, _password) = model.saved_credentials(detail == Detail::LoginAutomaten);
+        assert_eq!(
+            username.as_deref(),
+            Some("demo"),
+            "the form still binds to the Gourmet slot, not Ventopay"
+        );
+    }
+
+    /// A dialog whose confirmed flow deleted the origin's record does not put
+    /// focus back on that dead handle: the wide workspace restores the screen
+    /// heading, while the narrow shell keeps the incumbent restore
+    /// (REQ-UI-14).
+    /// @req REQ-UI-14
+    #[test]
+    fn deleted_dialog_origin_restores_the_heading() {
+        assert_eq!(focus_restore(true, true), FocusRestore::Origin);
+        assert_eq!(focus_restore(true, false), FocusRestore::Heading);
+        assert_eq!(
+            focus_restore(false, false),
+            FocusRestore::Origin,
+            "a narrow host keeps the incumbent restore"
+        );
+
+        // The real flow: the previewed order is cancelled, the model clears
+        // its preview (the row unmounts) and reconciles the cursor to the
+        // surviving sibling, so the restore target is the heading.
+        let (model, _platform) = claim_demo_model("dialog-deleted-origin");
+        let orders = place_two_orders(&model);
+        let previewed = orders[0].position_id.clone();
+        model.open_preview(ListKind::Orders, &previewed);
+        assert_eq!(
+            model.preview(ListKind::Orders).as_deref(),
+            Some(previewed.as_str())
+        );
+
+        desktop_cancel_dispatch(&model, &previewed);
+        let survives = model.preview(ListKind::Orders).as_deref() == Some(previewed.as_str());
+        assert!(!survives, "the deleted record's preview is gone");
+        assert_eq!(focus_restore(true, survives), FocusRestore::Heading);
+        assert!(
+            model.cursor(ListKind::Orders).is_some(),
+            "the nearest surviving row keeps the list cursor"
         );
     }
 }

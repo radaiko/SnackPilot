@@ -17,11 +17,52 @@ use crate::theme::{self, AppTheme};
 use snackpilot_model::tokens;
 use snackpilot_model::{AccentColor, AppModel, ThemePreference};
 
+/// Left/Up selects the previous option, Right/Down the next; Home/End the
+/// first/last. No wrap, and only the focused group handles the key
+/// (REQ-UI-11). Returns `None` when the key is not an option traversal key.
+pub fn step_preference(current: ThemePreference, key: &str) -> Option<ThemePreference> {
+    const ALL: [ThemePreference; 3] = [
+        ThemePreference::System,
+        ThemePreference::Light,
+        ThemePreference::Dark,
+    ];
+    let index = ALL.iter().position(|value| *value == current)?;
+    let next = match key {
+        "left" | "up" => index.checked_sub(1)?,
+        "right" | "down" => (index + 1 < ALL.len()).then_some(index + 1)?,
+        "home" => 0,
+        "end" => ALL.len() - 1,
+        _ => return None,
+    };
+    Some(ALL[next])
+}
+
+/// Accent equivalent of [`step_preference`].
+pub fn step_accent(current: AccentColor, key: &str) -> Option<AccentColor> {
+    const ALL: [AccentColor; 5] = [
+        AccentColor::Orange,
+        AccentColor::Emerald,
+        AccentColor::Berry,
+        AccentColor::Golden,
+        AccentColor::Ocean,
+    ];
+    let index = ALL.iter().position(|value| *value == current)?;
+    let next = match key {
+        "left" | "up" => index.checked_sub(1)?,
+        "right" | "down" => (index + 1 < ALL.len()).then_some(index + 1)?,
+        "home" => 0,
+        "end" => ALL.len() - 1,
+        _ => return None,
+    };
+    Some(ALL[next])
+}
+
 fn option(
     id: &'static str,
     icon: IconName,
     label: &'static str,
     selected: bool,
+    index: isize,
     on_click: ClickHandler,
     theme: &AppTheme,
 ) -> AnyElement {
@@ -49,8 +90,11 @@ fn option(
         .items_center()
         .gap(px(6.))
         .py(px(16.))
+        .min_h(px(snackpilot_model::desktop::TARGET_MIN))
         .rounded(px(16.))
         .bg(fill)
+        .tab_index(index)
+        .focus(theme::desktop_focus(theme.desktop.focus))
         .border_b_3()
         .border_color(if selected {
             theme.primary
@@ -74,6 +118,7 @@ fn swatch(
     accent: AccentColor,
     label: &'static str,
     selected: bool,
+    index: isize,
     on_click: ClickHandler,
     theme: &AppTheme,
 ) -> AnyElement {
@@ -107,7 +152,11 @@ fn swatch(
         .flex_col()
         .items_center()
         .gap(px(6.))
+        .min_h(px(snackpilot_model::desktop::TARGET_MIN))
+        .min_w(px(56.))
         .cursor_pointer()
+        .tab_index(index)
+        .focus(theme::desktop_focus(theme.desktop.focus))
         .on_click(move |_, window, cx| on_click(window, cx))
         .child(circle)
         .child(
@@ -129,8 +178,12 @@ pub fn appearance_screen(
     state: &snackpilot_model::State,
     model: Option<&Arc<AppModel>>,
     theme: &AppTheme,
+    containment: Option<f32>,
+    design_focus: &FocusHandle,
+    accent_focus: &FocusHandle,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
+    let desktop = containment.is_some();
     let back = {
         let entity = cx.entity().clone();
         Rc::new(move |_: &mut Window, cx: &mut App| {
@@ -138,7 +191,23 @@ pub fn appearance_screen(
         })
     };
 
-    let mut design = div().flex().gap(px(10.));
+    let mut design = div()
+        .flex()
+        .flex_wrap()
+        .gap(px(10.))
+        .tab_index(0)
+        .track_focus(design_focus)
+        .focus(theme::desktop_focus(theme.desktop.focus));
+    if let Some(model) = model.cloned() {
+        let shell = cx.entity().clone();
+        design = design.on_key_down(move |event: &KeyDownEvent, _window, cx| {
+            if let Some(next) = step_preference(model.state().theme, event.keystroke.key.as_str()) {
+                model.set_theme_preference(next);
+                let _ = shell.update(cx, |_, cx| cx.notify());
+                cx.stop_propagation();
+            }
+        });
+    }
     for (value, icon, label) in [
         (ThemePreference::System, IconName::Smartphone, "System"),
         (ThemePreference::Light, IconName::Sun, "Hell"),
@@ -152,6 +221,11 @@ pub fn appearance_screen(
             }
             let _ = shell.update(cx, |_, cx| cx.notify());
         });
+        let index = match value {
+            ThemePreference::System => 0,
+            ThemePreference::Light => 1,
+            ThemePreference::Dark => 2,
+        };
         design = design.child(option(
             match value {
                 ThemePreference::System => "appearance-system",
@@ -161,12 +235,29 @@ pub fn appearance_screen(
             icon,
             label,
             state.theme == value,
+            index,
             handler,
             theme,
         ));
     }
 
-    let mut swatches = div().flex().gap(px(16.));
+    let mut swatches = div()
+        .flex()
+        .flex_wrap()
+        .gap(px(16.))
+        .tab_index(0)
+        .track_focus(accent_focus)
+        .focus(theme::desktop_focus(theme.desktop.focus));
+    if let Some(model) = model.cloned() {
+        let shell = cx.entity().clone();
+        swatches = swatches.on_key_down(move |event: &KeyDownEvent, _window, cx| {
+            if let Some(next) = step_accent(model.state().accent, event.keystroke.key.as_str()) {
+                model.set_accent_color(next);
+                let _ = shell.update(cx, |_, cx| cx.notify());
+                cx.stop_propagation();
+            }
+        });
+    }
     for (accent, label) in [
         (AccentColor::Orange, "Orange"),
         (AccentColor::Emerald, "Smaragd"),
@@ -182,10 +273,18 @@ pub fn appearance_screen(
             }
             let _ = shell.update(cx, |_, cx| cx.notify());
         });
+        let index = match accent {
+            AccentColor::Orange => 0,
+            AccentColor::Emerald => 1,
+            AccentColor::Berry => 2,
+            AccentColor::Golden => 3,
+            AccentColor::Ocean => 4,
+        };
         swatches = swatches.child(swatch(
             accent,
             label,
             state.accent == accent,
+            index,
             handler,
             theme,
         ));
@@ -207,28 +306,112 @@ pub fn appearance_screen(
         .child(body)
     };
 
-    div()
+    let section = |title: &'static str, body: Div| {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .line_height(px(20.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.text_secondary)
+                    .child(title),
+            )
+            .child(body)
+    };
+
+    let mut page = div()
         .id("appearance")
         .size_full()
         .flex()
         .flex_col()
-        .p(px(20.))
-        .pb(px(100.))
-        .gap(px(16.))
-        .overflow_y_scroll()
-        .child(crate::navigation::back_affordance(
+        .overflow_y_scroll();
+    page = if desktop {
+        page.p(px(containment.unwrap_or(16.)))
+            .gap(px(24.))
+            .w_full()
+            .max_w(px(440.))
+    } else {
+        page.p(px(20.)).pb(px(100.)).gap(px(16.))
+    };
+    if !desktop {
+        page = page.child(crate::navigation::back_affordance(
             "Einstellungen",
             theme,
             back,
-        ))
-        .child(
-            div()
-                .text_size(px(28.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(theme.text_primary)
-                .child("Darstellung"),
-        )
-        .child(card("Design", design))
-        .child(card("Akzentfarbe", swatches))
-        .into_any_element()
+        ));
+    }
+    page.child(
+        div()
+            .text_size(px(if desktop { 20. } else { 28. }))
+            .line_height(px(if desktop { 26. } else { 34. }))
+            .font_weight(if desktop {
+                FontWeight::SEMIBOLD
+            } else {
+                FontWeight::BOLD
+            })
+            .text_color(if desktop {
+                theme.desktop.ink
+            } else {
+                theme.text_primary
+            })
+            .child("Darstellung"),
+    )
+    .child(if desktop {
+        section("Design", design)
+    } else {
+        card("Design", design)
+    })
+    .child(if desktop {
+        section("Akzentfarbe", swatches)
+    } else {
+        card("Akzentfarbe", swatches)
+    })
+    .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{step_accent, step_preference};
+    use snackpilot_model::{AccentColor, ThemePreference};
+
+    /// Appearance groups move logically without wrapping: Left/Up previous,
+    /// Right/Down next, Home/End the ends, and unrelated keys keep native
+    /// editing (REQ-UI-11).
+    /// @req REQ-UI-11 @req REQ-SCR-04
+    #[test]
+    fn option_groups_step_without_wrapping() {
+        assert_eq!(
+            step_preference(ThemePreference::Light, "left"),
+            Some(ThemePreference::System)
+        );
+        assert_eq!(
+            step_preference(ThemePreference::Light, "right"),
+            Some(ThemePreference::Dark)
+        );
+        assert_eq!(step_preference(ThemePreference::System, "left"), None);
+        assert_eq!(step_preference(ThemePreference::Dark, "right"), None);
+        assert_eq!(
+            step_preference(ThemePreference::Dark, "home"),
+            Some(ThemePreference::System)
+        );
+        assert_eq!(
+            step_preference(ThemePreference::System, "end"),
+            Some(ThemePreference::Dark)
+        );
+        assert_eq!(step_preference(ThemePreference::Light, "a"), None);
+
+        assert_eq!(
+            step_accent(AccentColor::Emerald, "right"),
+            Some(AccentColor::Berry)
+        );
+        assert_eq!(step_accent(AccentColor::Orange, "left"), None);
+        assert_eq!(
+            step_accent(AccentColor::Ocean, "end"),
+            Some(AccentColor::Ocean)
+        );
+        assert_eq!(step_accent(AccentColor::Berry, "enter"), None);
+    }
 }

@@ -35,6 +35,9 @@ pub fn broadcast_banner(
                 div()
                     .id("broadcast-dismiss")
                     .px(px(8.))
+                    .min_h(px(snackpilot_model::desktop::TARGET_MIN))
+                    .tab_index(0)
+                    .focus(crate::theme::desktop_focus(theme.desktop.focus))
                     .cursor_pointer()
                     .on_click(move |_, window, cx| on_dismiss(window, cx))
                     .child(

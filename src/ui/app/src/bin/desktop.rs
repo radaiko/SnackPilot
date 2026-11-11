@@ -22,7 +22,9 @@ fn main() {
         caps.notifications, caps.geofence
     );
 
-    gpui_kit::application()
+    // Dock activation after the window was closed reopens it through the
+    // installed model, so there is one session and one window (REQ-UI-07).
+    snackpilot_app::desktop::application_hook(gpui_kit::application())
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             // The shell renders from this AppModel (task 4.2).

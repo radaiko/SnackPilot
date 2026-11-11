@@ -67,6 +67,8 @@ pub fn order_item(
     }
     if let (true, Some(on_select)) = (select_mode, on_select) {
         card = card
+            .tab_index(0)
+            .focus(crate::theme::desktop_focus(theme.desktop.focus))
             .cursor_pointer()
             .on_click(move |_, window, cx| on_select(window, cx));
     }
@@ -212,6 +214,8 @@ pub fn order_item(
         // §4.6: past the cutoff the button is disabled, not merely greyed.
         let button = if cancel_enabled(can_cancel, cutoff) {
             button
+                .tab_index(0)
+                .focus(crate::theme::desktop_focus(theme.desktop.focus))
                 .cursor_pointer()
                 .on_click(move |_, window, cx| on_cancel(window, cx))
         } else {

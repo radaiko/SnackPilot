@@ -7,6 +7,7 @@
 pub mod app;
 pub mod assets;
 pub mod components;
+pub mod desktop;
 pub mod gallery;
 pub mod navigation;
 pub mod platform;
@@ -21,7 +22,6 @@ use gpui_kit::component::{Root, Theme, ThemeMode};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, App, Context, Entity, Window, WindowOptions};
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
-use gpui_kit::{px, size, Bounds, WindowBounds};
 
 /// The spike root view: tab labels plus a tappable counter.
 pub struct SpikeRoot {
@@ -210,7 +210,7 @@ pub fn mount(cx: &mut App) {
 }
 
 /// Shared init for every host: bundled Inter fonts, kit init, light theme.
-fn init_kit(cx: &mut App) {
+pub(crate) fn init_kit(cx: &mut App) {
     log::info!("spike: mounting single gpui-kit Root");
     cx.text_system()
         .add_fonts(vec![
@@ -238,40 +238,6 @@ pub(crate) fn desktop_content_width(window_width: f32) -> f32 {
         window_width.min(snackpilot_model::desktop::PHONE_CONTENT_MAX)
     } else {
         window_width
-    }
-}
-
-/// Desktop frame (REQ-UI-07): reports the live content width and the desktop
-/// host to the model, then lays the shell out at
-/// [`desktop_content_width`] — a centred phone column in a narrow window, the
-/// full width once the shell turns into the rail workspace.
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
-struct DesktopFrame {
-    root: Entity<app::AppShell>,
-}
-
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
-impl Render for DesktopFrame {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Report only changes: the model notifies on every write and the
-        // shell repaints on notifications, so an unconditional report would
-        // repaint forever.
-        let width = f32::from(window.viewport_size().width);
-        let content_width = desktop_content_width(width);
-        let model = self.root.read(cx).model.clone();
-        if let Some(model) = model {
-            if model.state().host_kind != snackpilot_model::desktop::HostKind::Desktop {
-                model.set_host_kind(snackpilot_model::desktop::HostKind::Desktop);
-            }
-            if model.state().content_width != content_width {
-                model.set_content_width(content_width);
-            }
-        }
-        div()
-            .size_full()
-            .flex()
-            .justify_center()
-            .child(div().h_full().w(px(content_width)).child(self.root.clone()))
     }
 }
 
@@ -312,28 +278,10 @@ mod tests {
 /// `src/bin/desktop.rs` (REQ-UI-01, REQ-UI-07).
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn mount_desktop(cx: &mut App) {
-    init_kit(cx);
     if let Some(section) = gallery_requested() {
+        init_kit(cx);
         gallery::mount_gallery(cx, section);
         return;
     }
-    cx.open_window(
-        WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                None,
-                size(px(420.), px(760.)),
-                cx,
-            ))),
-            is_resizable: true,
-            window_min_size: Some(size(px(360.), px(0.))),
-            ..Default::default()
-        },
-        |window, cx| {
-            let content = cx.new(|cx| app::AppShell::new(shell_model(), cx));
-            let frame = cx.new(|_cx| DesktopFrame { root: content });
-            cx.new(|cx| Root::new(frame, window, cx))
-        },
-    )
-    .expect("open desktop window");
-    cx.activate(true);
+    desktop::mount(cx);
 }

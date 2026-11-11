@@ -46,6 +46,8 @@ pub fn day_navigator(
             &recipe,
         )
         .id(SharedString::from(id))
+        .tab_index(0)
+        .focus(crate::theme::desktop_focus(theme.desktop.focus))
         .cursor_pointer();
         let button = if disabled {
             button.opacity(0.3)
@@ -83,6 +85,8 @@ pub fn day_navigator(
         .flex()
         .flex_col()
         .items_center()
+        .tab_index(0)
+        .focus(crate::theme::desktop_focus(theme.desktop.focus))
         .cursor_pointer()
         .on_click(move |_, window, cx| on_today(window, cx))
         .child(

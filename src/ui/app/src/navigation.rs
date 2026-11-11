@@ -25,6 +25,9 @@ pub fn back_affordance(label: &'static str, theme: &AppTheme, on_back: ClickHand
         .flex()
         .items_center()
         .gap(px(2.))
+        .min_h(px(snackpilot_model::desktop::TARGET_MIN))
+        .tab_index(0)
+        .focus(crate::theme::desktop_focus(theme.desktop.focus))
         .cursor_pointer()
         .on_click(move |_, window, cx| on_back(window, cx))
         .child(
