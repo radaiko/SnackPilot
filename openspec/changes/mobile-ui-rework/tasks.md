@@ -61,7 +61,7 @@ Conventions for every task below (same contract fields as `desktop-ui-redesign`)
   - check: `make check`; additionally Mac desktop workflow/app-crate tests and mobile regression workflow
   - proof: menus model tests in ui workflow, app recipe/event tests, iOS/Android action traces and matched menu screenshots in1.3. Touch and swipe demonstrated natively, wide preview remains read-only. Auth gate afters are1.9, not falsely claimed complete here.
 
-- [ ] 1.4 Rework Bestellungen controls/cards; prove wrapping, cancellation and batch parity
+- [x] 1.4 Rework Bestellungen controls/cards; prove wrapping, cancellation and batch parity
   - tier: normal
   - host: Linux; Mac desktop/simulator; Android emulator/device
   - approval prerequisite (satisfied, human2026-11-13): A9/A10 and shared approvals; no domain/cutoff amendment.
