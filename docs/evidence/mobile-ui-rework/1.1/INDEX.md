@@ -186,7 +186,7 @@ numbers from `day_tray_keeps_wide_ledger_geometry`.
 
 | File | Criterion | Status | Host | Metadata |
 | --- | --- | --- | --- | --- |
-| `INDEX.md` | baseline/index honesty, status list, exact commands | PASS | Linux VM | revision `5cf31f9`; no image metadata (no image produced) |
+| `INDEX.md` | baseline/index honesty, status list, exact commands | PASS | Linux VM + MacBook simulator | revision `5cf31f9` text, captures added at the branch tip; the four `baseline-*-light-390.png` images are listed in *Captured baseline* |
 | `make-check-linux.log` | `make check` under the task's `check:` | PASS | Linux VM | revision `5cf31f9`, 503 lines, ends with the model test/doc-test summary |
 
 ## Captured baseline (dispatcher run, 2026-11-13)
