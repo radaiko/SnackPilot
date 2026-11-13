@@ -421,6 +421,48 @@ fn batch_cancel_emits_one_track_with_the_selection_count() {
 
 #[test]
 /// @req REQ-SCR-02
+fn batch_cancel_covers_zero_one_and_many_checks() {
+    // Zero is the incumbent no-op: nothing is dispatched and nothing tracked.
+    let (model, fake) = demo_model("batch-zero");
+    model.begin_order_selection();
+    assert!(
+        !model.cancel_selected_orders(),
+        "an empty check set dispatches nothing"
+    );
+    assert!(cancelled_tracks(&fake).is_empty());
+
+    // One check is one cancellation with count=1, not a batch of one.
+    order_one(&model, MenuCategory::Menu1);
+    let orders = upcoming(&model);
+    assert_eq!(orders.len(), 1);
+    model.begin_order_selection();
+    model.toggle_order_selection(&orders[0].position_id);
+    assert_eq!(
+        model.state().selected_order_ids,
+        [orders[0].position_id.clone()]
+    );
+    assert!(model.cancel_selected_orders());
+    assert!(upcoming(&model).is_empty());
+    assert_eq!(cancelled_tracks(&fake), vec!["1".to_string()]);
+
+    // Many stays one event carrying the whole count.
+    let (model, fake) = demo_model("batch-many");
+    order_one(&model, MenuCategory::Menu1);
+    order_one(&model, MenuCategory::Menu2);
+    let orders = upcoming(&model);
+    assert_eq!(orders.len(), 2);
+    model.begin_order_selection();
+    for order in &orders {
+        model.toggle_order_selection(&order.position_id);
+    }
+    assert_eq!(model.state().selected_order_ids.len(), 2);
+    assert!(model.cancel_selected_orders());
+    assert!(upcoming(&model).is_empty());
+    assert_eq!(cancelled_tracks(&fake), vec!["2".to_string()]);
+}
+
+#[test]
+/// @req REQ-SCR-02
 fn selection_toggles_add_and_remove() {
     let (model, _fake) = demo_model("selection");
     model.begin_order_selection();

@@ -5,6 +5,8 @@
 //! is currently being cancelled, and whether the cutoff has passed.
 
 use gpui::*;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::{Icon, Sizable};
 
 use crate::app::OrderCancelState;
 use crate::components::button::{desktop_action_state, ButtonKind};
@@ -35,10 +37,240 @@ pub fn order_description(dish: Option<String>, order: &OrderedMenu) -> String {
         .unwrap_or_else(|| order.title.clone())
 }
 
-/// One §4.6 card.
+/// The compact card's trailing control (task 1.4), in the incumbent
+/// precedence: multi-select check, running cancellation, cancel before the
+/// cutoff, the visible-but-inert target past it, and nothing on a read-only
+/// past row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MobileOrderTrailing {
+    /// Multi-select is active: the whole card toggles this reserved 44 px area.
+    Check { selected: bool },
+    /// This order's cancellation runs: a 16 px spinner in the same slot.
+    Cancelling,
+    /// Before the cutoff and with no other cancellation in flight.
+    Cancel,
+    /// Past the cutoff: the target stays visible and installs no handler.
+    CancelDisabled,
+    /// A past/read-only row: no trailing action and no implied tap.
+    None,
+}
+
+impl MobileOrderTrailing {
+    /// Whether this control really dispatches a cancellation.
+    pub fn is_action(self) -> bool {
+        matches!(self, Self::Cancel)
+    }
+
+    /// Whether the slot is the batch check rather than a cancel affordance.
+    pub fn is_check(self) -> bool {
+        matches!(self, Self::Check { .. })
+    }
+}
+
+/// The one trailing control for a card, in the incumbent order: selection mode
+/// first, then the in-flight cancellation, then the cancel target. Past rows
+/// (`can_cancel == false`) carry none at all.
+pub fn mobile_order_trailing(
+    select_mode: bool,
+    selected: bool,
+    cancelling: bool,
+    can_cancel: bool,
+    cutoff: bool,
+) -> MobileOrderTrailing {
+    if select_mode {
+        MobileOrderTrailing::Check { selected }
+    } else if cancelling {
+        MobileOrderTrailing::Cancelling
+    } else if can_cancel && !cutoff {
+        MobileOrderTrailing::Cancel
+    } else if can_cancel {
+        MobileOrderTrailing::CancelDisabled
+    } else {
+        MobileOrderTrailing::None
+    }
+}
+
+/// A read-only card is never a button: only the incumbent selection mode makes
+/// the whole card the check target.
+pub fn mobile_order_card_tappable(select_mode: bool) -> bool {
+    select_mode
+}
+
+/// The dish measure the card keeps before moving the trailing column under it:
+/// twelve body-role characters, so a long dish never collapses into a
+/// one-word column at large type.
+pub const MOBILE_ORDER_DISH_CHARS: f32 = 12.;
+
+/// Whether the status/cancel column moves below the dish instead of squeezing
+/// it: exactly when the card's inner width cannot hold the readable dish
+/// measure, the 44 px cancel target and the 8 px gap between them.
+pub fn mobile_order_actions_below(inner_width: f32, body: f32, target: f32) -> bool {
+    inner_width
+        < body * MOBILE_ORDER_DISH_CHARS + target + snackpilot_model::tokens::mobile::SPACE_2
+}
+
+/// The date/category line, shared by both shapes: metadata role, separated by
+/// 4 px and allowed to wrap, so the formatter's output is never abbreviated.
+fn order_meta_row(order: &OrderedMenu, meta: Hsla, theme: &AppTheme) -> Div {
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(theme.mobile.space_1))
+        .child(
+            div()
+                .text_size(px(theme.mobile.meta))
+                .line_height(px(theme.mobile.meta_line))
+                .text_color(meta)
+                .child(format_date_long(order.date_epoch_ms)),
+        )
+        .child(
+            div()
+                .text_size(px(theme.mobile.meta))
+                .line_height(px(theme.mobile.meta_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(meta)
+                .child(order.title.clone()),
+        )
+}
+
+/// The status badge: the incumbent words on their semantic surface at r8 in
+/// the metadata role, with a readable ink resolved on the painted fill.
+fn order_status_badge(order: &OrderedMenu, cancelling: bool, theme: &AppTheme) -> AnyElement {
+    let warning = cancelling || !order.approved;
+    let bg = if warning {
+        if theme.flat {
+            theme.warning_surface
+        } else {
+            theme.glass_warning
+        }
+    } else if theme.flat {
+        theme.success_surface
+    } else {
+        theme.glass_success
+    };
+    let ink = theme.mobile_status_on(bg, if warning { "warning" } else { "success" });
+    div()
+        .px(px(theme.mobile.space_2))
+        .py(px(theme.mobile.space_1))
+        .rounded(px(theme.mobile.radius_status))
+        .bg(bg)
+        .text_size(px(theme.mobile.meta))
+        .line_height(px(theme.mobile.meta_line))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(ink)
+        .child(order_status_label(order.approved, cancelling))
+        .into_any_element()
+}
+
+/// The trailing control as painted: a separate 44x44 target with the neutral
+/// rest surface and the readable danger `X`, the visible-but-inert cutoff
+/// state, the in-slot 16 px spinner, or the reserved check area of selection
+/// mode. Only the enabled cancellation installs a callback.
+fn order_trailing_control(
+    trailing: MobileOrderTrailing,
+    order: &OrderedMenu,
+    on_cancel: ClickHandler,
+    theme: &AppTheme,
+) -> Option<AnyElement> {
+    let size = theme.mobile.target;
+    let slot = || {
+        div()
+            .w(px(size))
+            .h(px(size))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(theme.mobile.radius_option))
+    };
+    match trailing {
+        MobileOrderTrailing::None => None,
+        MobileOrderTrailing::Check { selected } => Some(
+            slot()
+                .bg(if selected {
+                    theme.mobile.selection_fill
+                } else {
+                    theme.mobile_card_fill()
+                })
+                .border_1()
+                .border_color(if selected {
+                    theme.mobile.selection_boundary
+                } else {
+                    theme.border
+                })
+                .child(if selected {
+                    Icon::new(IconName::Check)
+                        .with_size(px(theme.mobile.space_5))
+                        .text_color(theme.mobile.selection_ink)
+                        .into_any_element()
+                } else {
+                    div().into_any_element()
+                })
+                .into_any_element(),
+        ),
+        MobileOrderTrailing::Cancelling => Some(
+            slot()
+                .child(spinner(
+                    theme.mobile_danger_on(theme.mobile_card_fill()),
+                    16.,
+                ))
+                .into_any_element(),
+        ),
+        MobileOrderTrailing::Cancel | MobileOrderTrailing::CancelDisabled => {
+            let enabled = trailing.is_action();
+            let fill = if enabled {
+                theme.mobile.secondary_fill
+            } else {
+                theme.mobile.disabled_fill
+            };
+            let glyph = if enabled {
+                theme.mobile_danger_on(fill)
+            } else {
+                theme.mobile.disabled_ink
+            };
+            let boundary = if enabled {
+                theme.mobile.secondary_boundary
+            } else {
+                theme.border
+            };
+            let mut target = slot()
+                .id(SharedString::from(format!(
+                    "order-cancel-{}",
+                    order.position_id
+                )))
+                .bg(fill)
+                .border_1()
+                .border_color(boundary)
+                .child(
+                    Icon::new(IconName::X)
+                        .with_size(px(theme.mobile.space_5))
+                        .text_color(glyph),
+                );
+            if enabled {
+                target = target
+                    .tab_index(0)
+                    .focus(crate::theme::desktop_focus(theme.mobile.focus))
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| on_cancel(window, cx));
+            }
+            Some(target.into_any_element())
+        }
+    }
+}
+
+/// One compact §4.6 card (task 1.4): 16 px padding, 8 px gaps and 8 px after
+/// the card, the pinned card radii, the date/category line in the readable
+/// metadata role, the description in the body role, the status badge at r8 and
+/// the cancellation as a separate trailing 44x44 target. Below the readable
+/// dish measure the status and cancellation move under the dish. Selection mode
+/// keeps the whole-card check; a read-only row has no action at all.
+/// @req REQ-SCR-02 @req REQ-UI-15 @req REQ-UI-16
+#[allow(clippy::too_many_arguments)]
 pub fn order_item(
     order: &OrderedMenu,
     dish: Option<String>,
+    inner_width: f32,
     can_cancel: bool,
     cancelling: bool,
     cutoff: bool,
@@ -48,184 +280,75 @@ pub fn order_item(
     on_select: Option<ClickHandler>,
     theme: &AppTheme,
 ) -> Stateful<Div> {
-    let description = dish
-        .filter(|d| !d.is_empty())
-        .or_else(|| (!order.subtitle.is_empty()).then(|| order.subtitle.clone()))
-        .unwrap_or_else(|| order.title.clone());
+    let description = order_description(dish, order);
+    let card_fill = theme.mobile_card_fill();
+    let meta = theme.mobile_secondary_on(card_fill);
 
     let mut card = theme::apply(
         div()
             .flex()
-            .items_center()
-            .justify_between()
-            .p(px(16.))
-            .mb(px(8.)),
+            .flex_col()
+            .gap(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_4))
+            .mb(px(theme.mobile.space_2)),
         &theme.card_surface(),
     )
     .id(SharedString::from(format!("order-{}", order.position_id)));
-    if cancelling {
-        card = card.opacity(0.6);
-    }
-    if let (true, Some(on_select)) = (select_mode, on_select) {
+    if let (true, Some(on_select)) = (mobile_order_card_tappable(select_mode), on_select) {
         card = card
             .tab_index(0)
-            .focus(crate::theme::desktop_focus(theme.desktop.focus))
+            .focus(crate::theme::desktop_focus(theme.mobile.focus))
             .cursor_pointer()
             .on_click(move |_, window, cx| on_select(window, cx));
     }
 
-    let left = div()
+    let trailing = mobile_order_trailing(select_mode, selected, cancelling, can_cancel, cutoff);
+    let badge = order_status_badge(order, cancelling, theme);
+    let target = order_trailing_control(trailing, order, on_cancel, theme);
+
+    let dish = div()
         .flex_1()
-        .mr(px(12.))
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .text_size(px(12.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_tertiary)
-                .child(format_date_long(order.date_epoch_ms)),
-        )
-        .child(
-            div()
-                .text_size(px(11.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(theme.primary)
-                .child(order.title.clone()),
-        )
-        .child(
-            div()
-                .text_size(px(16.))
-                .text_color(theme.text_primary)
-                .child(description),
-        );
+        .min_w(px(0.))
+        .text_size(px(theme.mobile.body))
+        .line_height(px(theme.mobile.body_line))
+        .text_color(theme.text_primary)
+        .child(description);
 
-    let (badge_bg, badge_border, badge_fg, badge_label) = if order.approved {
-        (
-            if theme.flat {
-                theme.success_surface
-            } else {
-                theme.glass_success
-            },
-            theme.success,
-            theme.success_text,
-            "Bestätigt",
-        )
-    } else {
-        (
-            if theme.flat {
-                theme.warning_surface
-            } else {
-                theme.glass_warning
-            },
-            theme.warning,
-            theme.warning_text,
-            "Ausstehend",
-        )
-    };
-    let mut right = div().flex().flex_col().items_end().gap(px(8.)).child(
-        div()
-            .px(px(10.))
-            .py(px(4.))
-            .rounded(px(12.))
-            .border_1()
-            .border_color(badge_border)
-            .bg(badge_bg)
-            .text_size(px(11.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(badge_fg)
-            .child(badge_label),
-    );
-
-    if select_mode {
-        right = right.child(
-            div()
-                .w(px(24.))
-                .h(px(24.))
-                .rounded(px(12.))
-                .border_1()
-                .border_color(if selected {
-                    theme.primary
-                } else {
-                    theme.border
-                })
-                .bg(if selected {
-                    theme.primary
-                } else {
-                    hsla(0., 0., 0., 0.)
-                })
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(14.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(theme.on_primary)
-                .child(if selected { "✓" } else { "" }),
-        );
-    } else if cancelling {
-        right = right.child(
-            div()
-                .w(px(32.))
-                .h(px(32.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(spinner(theme.error, 16.)),
-        );
-    } else if can_cancel {
-        let bg = if theme.flat {
-            theme.error_surface
-        } else {
-            theme.glass_error
-        };
-        let (fill, border, glyph) = if cutoff {
-            (
-                if theme.flat {
-                    theme.surface_variant
-                } else {
-                    theme.glass_surface_variant
-                },
-                theme.text_tertiary,
-                theme.text_tertiary,
-            )
-        } else {
-            (bg, theme.error, theme.error)
-        };
-        let button = div()
-            .id(SharedString::from(format!(
-                "order-cancel-{}",
-                order.position_id
-            )))
-            .w(px(32.))
-            .h(px(32.))
-            .rounded(px(16.))
-            .bg(fill)
-            .border_1()
-            .border_color(border)
+    card = card.child(order_meta_row(order, meta, theme));
+    if mobile_order_actions_below(inner_width, theme.mobile.body, theme.mobile.target) {
+        // Narrow or large type: the dish keeps the full card width and the
+        // status/cancel pair sits under it, trailing.
+        let mut actions = div()
             .flex()
+            .flex_wrap()
             .items_center()
-            .justify_center()
-            .child(
-                div()
-                    .text_size(px(16.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(glyph)
-                    .child("✕"),
-            );
-        // §4.6: past the cutoff the button is disabled, not merely greyed.
-        let button = if cancel_enabled(can_cancel, cutoff) {
-            button
-                .tab_index(0)
-                .focus(crate::theme::desktop_focus(theme.desktop.focus))
-                .cursor_pointer()
-                .on_click(move |_, window, cx| on_cancel(window, cx))
-        } else {
-            button.opacity(0.4)
-        };
-        right = right.child(button);
+            .justify_end()
+            .gap(px(theme.mobile.space_2))
+            .child(badge);
+        if let Some(target) = target {
+            actions = actions.child(target);
+        }
+        card.child(dish).child(actions)
+    } else {
+        let mut column = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .items_end()
+            .gap(px(theme.mobile.space_2))
+            .child(badge);
+        if let Some(target) = target {
+            column = column.child(target);
+        }
+        card.child(
+            div()
+                .flex()
+                .items_start()
+                .gap(px(theme.mobile.space_2))
+                .child(dish)
+                .child(column),
+        )
     }
-
-    card.child(left).child(right)
 }
 
 /// §4.6: the cancel affordance is interactive only before the cutoff and
@@ -529,11 +652,15 @@ pub(crate) fn desktop_order_detail(
 #[cfg(test)]
 mod tests {
     use super::{
-        cancel_enabled, order_date_width, order_description, order_status_label,
-        ORDER_DATE_COMPACT, ORDER_DATE_EXPANDED, ORDER_STATUS_EXPANDED,
+        cancel_enabled, mobile_order_actions_below, mobile_order_card_tappable,
+        mobile_order_trailing, order_date_width, order_description, order_status_label,
+        MobileOrderTrailing, ORDER_DATE_COMPACT, ORDER_DATE_EXPANDED, ORDER_STATUS_EXPANDED,
     };
     use crate::components::record_table::CHECK_COLUMN;
+    use crate::theme::{to_rgb, AppTheme};
     use snackpilot_core::domain::OrderedMenu;
+    use snackpilot_model::desktop::contrast_ratio;
+    use snackpilot_model::AccentColor;
 
     fn order(title: &str, subtitle: &str) -> OrderedMenu {
         OrderedMenu {
@@ -584,6 +711,123 @@ mod tests {
             "an empty lookup falls back to the order subtitle"
         );
         assert_eq!(order_description(None, &without), "MENÜ II");
+    }
+
+    /// The compact card's trailing control (REQ-UI-15/16): a past or read-only
+    /// row has no implied action, the cutoff keeps the target visible but
+    /// without a handler, an in-flight cancellation owns the same slot, and in
+    /// selection mode the whole card toggles the reserved check area instead —
+    /// cancel is never reachable through that tap. The painted danger glyph and
+    /// boundary read on the neutral rest fill for every accent, appearance and
+    /// dialect, and the disabled pair keeps readable context.
+    /// @req REQ-UI-15 @req REQ-UI-16
+    #[test]
+    fn mobile_order_cancel_target_and_readable_states() {
+        assert_eq!(
+            mobile_order_trailing(false, false, false, false, false),
+            MobileOrderTrailing::None,
+            "a past row carries no cancel affordance at all"
+        );
+        assert!(
+            !mobile_order_card_tappable(false),
+            "a read-only row is not a button"
+        );
+
+        assert_eq!(
+            mobile_order_trailing(false, false, false, true, false),
+            MobileOrderTrailing::Cancel
+        );
+        assert!(MobileOrderTrailing::Cancel.is_action());
+
+        assert_eq!(
+            mobile_order_trailing(false, false, false, true, true),
+            MobileOrderTrailing::CancelDisabled,
+            "past the cutoff the target stays visible"
+        );
+        assert!(
+            !MobileOrderTrailing::CancelDisabled.is_action(),
+            "and installs no handler"
+        );
+
+        assert_eq!(
+            mobile_order_trailing(false, false, true, true, false),
+            MobileOrderTrailing::Cancelling,
+            "an in-flight cancellation takes the same slot"
+        );
+        assert!(!MobileOrderTrailing::Cancelling.is_action());
+
+        assert_eq!(
+            mobile_order_trailing(true, true, false, true, false),
+            MobileOrderTrailing::Check { selected: true }
+        );
+        assert!(!MobileOrderTrailing::Check { selected: true }.is_action());
+        assert!(mobile_order_card_tappable(true));
+
+        for dark in [false, true] {
+            for flat in [false, true] {
+                for accent in [
+                    AccentColor::Orange,
+                    AccentColor::Emerald,
+                    AccentColor::Berry,
+                    AccentColor::Golden,
+                    AccentColor::Ocean,
+                ] {
+                    let theme = AppTheme::build(dark, accent, flat);
+                    let card = theme.mobile_card_fill();
+                    let fill = theme.mobile.secondary_fill;
+                    let glyph = theme.mobile_danger_on(fill);
+                    assert!(
+                        contrast_ratio(to_rgb(glyph, fill), to_rgb(fill, card)) >= 4.5,
+                        "{accent:?} dark={dark} flat={flat}: the X glyph reads on its rest fill"
+                    );
+                    assert!(
+                        contrast_ratio(
+                            to_rgb(theme.mobile.secondary_boundary, fill),
+                            to_rgb(fill, card)
+                        ) >= 3.0,
+                        "{accent:?} dark={dark} flat={flat}: the target boundary reads"
+                    );
+                    let disabled = theme.mobile.disabled_fill;
+                    assert!(
+                        contrast_ratio(
+                            to_rgb(theme.mobile.disabled_ink, disabled),
+                            to_rgb(disabled, card)
+                        ) >= 4.5,
+                        "{accent:?} dark={dark} flat={flat}: disabled stays readable"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The compact card's two shapes (REQ-UI-15): status and cancel sit beside
+    /// the dish at the 360/390/768 content widths and move below it at large
+    /// type instead of squeezing the description, while the description is
+    /// always the incumbent fallback lookup.
+    /// @req REQ-UI-15
+    #[test]
+    fn mobile_order_actions_move_below_the_dish_at_large_type() {
+        // Card inner width: the shell column at 360/390/768 minus the card's
+        // own 16 px padding on both sides.
+        for (viewport, body) in [(360_f32, 16_f32), (390., 16.), (768., 16.)] {
+            let inner = (viewport - 32.).min(560.) - 32.;
+            assert!(
+                !mobile_order_actions_below(inner, body, 44.),
+                "{viewport} px keeps the trailing column beside the dish"
+            );
+        }
+        let inner = 360. - 32. - 32.;
+        assert!(
+            mobile_order_actions_below(inner, 24., 44.),
+            "at 150 % type the same card moves the actions under the dish"
+        );
+
+        let with_subtitle = order("MENÜ I", "Rindsgulasch");
+        assert_eq!(
+            order_description(None, &with_subtitle),
+            "Rindsgulasch",
+            "the compact card keeps the order's own dish fallback"
+        );
     }
 
     /// Both status words stay available without hover, and a running

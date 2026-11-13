@@ -21,7 +21,32 @@ pub enum Segment {
 /// Callback for a segment tap.
 pub type SegmentHandler = Rc<dyn Fn(Segment, &mut Window, &mut App)>;
 
-/// Render the two segments with their counts and a select callback.
+/// The compact segment rule's 3 px stroke, reserved in both states so the
+/// labels never shift when the selection moves (design "Bestellungen").
+const SELECTION_RULE: f32 = 3.;
+
+/// The compact segment target height: the 48 px action floor.
+pub fn mobile_segment_height(theme: &AppTheme) -> f32 {
+    theme.mobile.action_height
+}
+
+/// The selected rule: its reserved 3 px thickness in both states, and the
+/// accent ink only on the selected segment (transparent otherwise). Painting
+/// the same thickness in both states is what keeps the geometry stable.
+pub fn mobile_segment_rule(selected: bool, theme: &AppTheme) -> (f32, Hsla) {
+    let ink = if selected {
+        theme.primary
+    } else {
+        hsla(0., 0., 0., 0.)
+    };
+    (SELECTION_RULE, ink)
+}
+
+/// Render the two compact segments with their counts and a select callback
+/// (task 1.4): two equal min-48 targets, body Semibold labels whose counts wrap
+/// instead of truncating, the 3 px selected rule reserved in both states, and
+/// the readable secondary projection for the inactive one.
+/// @req REQ-SCR-02 @req REQ-UI-15 @req REQ-UI-16
 pub fn segment_tabs(
     active: Segment,
     upcoming: usize,
@@ -34,41 +59,44 @@ pub fn segment_tabs(
     } else {
         theme.glass_highlight
     };
-    let bg = if theme.flat {
+    let fill = if theme.flat {
         theme.surface
     } else {
         theme.glass_surface
     };
+    let inactive_ink = theme.mobile_secondary_on(fill);
 
     let tab = |segment: Segment, label: String| {
         let selected = segment == active;
         let action = on_select.clone();
+        let (rule, rule_ink) = mobile_segment_rule(selected, theme);
         div()
             .id(SharedString::from(match segment {
                 Segment::Upcoming => "orders-tab-upcoming",
                 Segment::Past => "orders-tab-past",
             }))
             .flex_1()
+            .min_h(px(mobile_segment_height(theme)))
             .flex()
             .items_center()
             .justify_center()
-            .py(px(14.))
+            .px(px(theme.mobile.space_2))
+            .py(px(theme.mobile.space_2))
             .cursor_pointer()
-            .border_b_3()
-            .border_color(if selected {
-                theme.primary
-            } else {
-                hsla(0., 0., 0., 0.)
-            })
+            .border_b(px(rule))
+            .border_color(rule_ink)
             .on_click(move |_, window, cx| action(segment, window, cx))
             .child(
                 div()
-                    .text_size(px(14.))
+                    .min_w(px(0.))
+                    .text_size(px(theme.mobile.body))
+                    .line_height(px(theme.mobile.body_line))
                     .font_weight(FontWeight::SEMIBOLD)
+                    .text_center()
                     .text_color(if selected {
-                        theme.primary
+                        theme.text_primary
                     } else {
-                        theme.text_tertiary
+                        inactive_ink
                     })
                     .child(label),
             )
@@ -77,7 +105,7 @@ pub fn segment_tabs(
     div()
         .flex()
         .w_full()
-        .bg(bg)
+        .bg(fill)
         .border_b_1()
         .border_color(border)
         .child(tab(Segment::Upcoming, format!("Kommende ({upcoming})")))
@@ -210,7 +238,34 @@ pub fn desktop_segment_toolbar(
 
 #[cfg(test)]
 mod tests {
-    use super::{segment_arrow, Segment};
+    use super::{mobile_segment_height, mobile_segment_rule, segment_arrow, Segment};
+    use crate::theme::AppTheme;
+    use snackpilot_model::AccentColor;
+
+    /// The compact segments keep one geometry in both states (REQ-SCR-02/16):
+    /// the 3 px rule is reserved whether or not a segment is selected, so
+    /// tapping never shifts the labels, both targets are at least the 48 px
+    /// action floor, and only the selected one paints the accent rule.
+    /// @req REQ-SCR-02 @req REQ-UI-16
+    #[test]
+    fn mobile_segments_reserve_the_rule_and_equal_targets() {
+        for dark in [false, true] {
+            for flat in [false, true] {
+                for accent in [AccentColor::Orange, AccentColor::Golden] {
+                    let theme = AppTheme::build(dark, accent, flat);
+                    let (thickness, active) = mobile_segment_rule(true, &theme);
+                    let (inactive_thickness, inactive) = mobile_segment_rule(false, &theme);
+                    assert_eq!(
+                        thickness, inactive_thickness,
+                        "the rule is reserved in both states, so selecting never shifts"
+                    );
+                    assert!(thickness > 0.);
+                    assert_ne!(active, inactive, "only the selected rule is painted");
+                    assert!(mobile_segment_height(&theme) >= 48.);
+                }
+            }
+        }
+    }
 
     /// The focused segment group moves one segment on Left/Right without
     /// wrapping, and a group without focus (e.g. the `Auswählen` button) leaves

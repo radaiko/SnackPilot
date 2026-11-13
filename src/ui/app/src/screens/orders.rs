@@ -15,7 +15,10 @@ use crate::app::{
     desktop_check_effect, desktop_mutation_blocked, order_cancel_state, run_blocking, AppShell,
     OrderCancelState, OrderRowEffect,
 };
-use crate::components::button::{desktop_action_state, ButtonKind};
+use crate::components::button::{
+    desktop_action_state, mobile_action, mobile_action_action, mobile_action_metrics, ButtonKind,
+};
+use crate::components::dialog::Dialog;
 use crate::components::order_item::{
     desktop_order_detail, desktop_order_header, desktop_order_row, order_description, order_item,
     DesktopOrderRowState,
@@ -31,11 +34,17 @@ use snackpilot_model::desktop::{ControlState, HostKind, LayoutMode};
 use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{AppModel, State};
 
-/// The Orders tab content.
+/// The compact Orders tab content (task 1.4): shell-owned heading and gutters,
+/// the compact segment bar, the optional confirm banner, the inline error, the
+/// scrolling cards and — in selection mode — the counted batch strip. All state
+/// comes from `AppModel`; the legacy 16/100 px screen padding is gone, so the
+/// shell's measured reservation owns the scroll-end clearance.
+/// @req REQ-SCR-02 @req REQ-UI-15 @req REQ-UI-16
 pub fn orders_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     past: bool,
+    viewport_width: f32,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -75,7 +84,21 @@ pub fn orders_tab(
     };
 
     let host = state.host_kind;
-    let mut column = div().size_full().flex().flex_col();
+    // The compact card moves its status/cancel column under the dish when the
+    // column cannot hold the readable dish measure. The shell hands its own
+    // viewport here (`state.content_width` is only reported by an evidence
+    // run), the shell owns the gutter and the card its own 16 px padding, so
+    // this is the one width the card really paints into.
+    let column_width = crate::compact_width(state.content_width, viewport_width);
+    let inner_width = crate::compact_column(state.host_kind, column_width)
+        .map(|geometry| geometry.content)
+        .unwrap_or(column_width);
+    let inner_width = (inner_width - 2. * theme.mobile.space_4).max(0.);
+
+    // One flex child of the shell's column: it takes exactly the height left
+    // under the shell heading, so the batch strip stays above navigation
+    // instead of overflowing the heading's height.
+    let mut column = div().flex_1().min_h(px(0.)).flex().flex_col();
     column = column.child(segment_tabs(
         active,
         split.upcoming.len(),
@@ -107,23 +130,10 @@ pub fn orders_tab(
         .flex_1()
         .flex()
         .flex_col()
-        .p(px(16.))
-        .pb(px(100.))
         .overflow_y_scroll();
 
     if orders.is_empty() {
-        list = list.child(
-            div().flex_1().flex().items_center().justify_center().child(
-                div()
-                    .text_size(px(16.))
-                    .text_color(theme.text_tertiary)
-                    .child(if past {
-                        "Keine vergangenen Bestellungen"
-                    } else {
-                        "Keine kommenden Bestellungen"
-                    }),
-            ),
-        );
+        list = list.child(empty_state(past, theme));
     } else {
         for order in orders {
             let cancelling = state.cancelling_id.as_deref() == Some(order.position_id.as_str());
@@ -138,6 +148,7 @@ pub fn orders_tab(
             list = list.child(order_item(
                 order,
                 dish,
+                inner_width,
                 can_cancel,
                 cancelling,
                 cutoff,
@@ -161,15 +172,21 @@ pub fn orders_tab(
             div().flex().justify_end().child(
                 div()
                     .id("orders-select")
-                    .px(px(16.))
-                    .py(px(8.))
+                    .min_h(px(theme.mobile.action_height))
+                    .px(px(theme.mobile.space_2))
+                    .flex()
+                    .items_center()
+                    .justify_center()
                     .cursor_pointer()
                     .on_click(move |_, window, cx| handler(window, cx))
                     .child(
                         div()
-                            .text_size(px(14.))
+                            .text_size(px(theme.mobile.body))
+                            .line_height(px(theme.mobile.body_line))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.primary)
+                            .text_color(
+                                theme.mobile_ink_on(theme.mobile_card_fill(), theme.primary),
+                            )
                             .child("Auswählen"),
                     ),
             ),
@@ -177,6 +194,30 @@ pub fn orders_tab(
     }
 
     column.into_any_element()
+}
+
+/// The empty segment's exact text in the body role on the readable secondary
+/// ink, centred and wrapped with the common 16 px padding (state matrix).
+fn empty_state(past: bool, theme: &AppTheme) -> AnyElement {
+    div()
+        .flex_1()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(px(theme.mobile.space_4))
+        .child(
+            div()
+                .text_size(px(theme.mobile.body))
+                .line_height(px(theme.mobile.body_line))
+                .text_center()
+                .text_color(theme.mobile_secondary_on(theme.mobile_card_fill()))
+                .child(if past {
+                    "Keine vergangenen Bestellungen"
+                } else {
+                    "Keine kommenden Bestellungen"
+                }),
+        )
+        .into_any_element()
 }
 
 fn gate(theme: &AppTheme) -> AnyElement {
@@ -194,46 +235,198 @@ fn gate(theme: &AppTheme) -> AnyElement {
         .into_any_element()
 }
 
-fn confirm_banner(
+/// The confirm banner's full-width action: the primary action fill and ink at
+/// the 48 px floor with the 14/12 radius, stretched across the banner's own
+/// width. A busy flow paints the disabled pair and installs no callback, so a
+/// second tap cannot confirm twice.
+fn banner_action(
+    label: &str,
+    enabled: bool,
+    on_click: ClickHandler,
+    theme: &AppTheme,
+) -> AnyElement {
+    let (height, radius) = mobile_action_metrics(ButtonKind::Primary, theme.flat);
+    let (fill, ink) = if enabled {
+        (theme.mobile.action_fill, theme.mobile.action_ink)
+    } else {
+        (theme.mobile.disabled_fill, theme.mobile.disabled_ink)
+    };
+    let mut action = div()
+        .id("orders-confirm")
+        .w_full()
+        .min_h(px(height))
+        .px(px(theme.mobile.space_4))
+        .py(px(theme.mobile.space_2))
+        .rounded(px(radius))
+        .bg(fill)
+        .flex()
+        .items_center()
+        .justify_center();
+    if enabled {
+        action = action
+            .tab_index(0)
+            .focus(crate::theme::desktop_focus(theme.mobile.focus))
+            .cursor_pointer()
+            .on_click(move |_, window, cx| on_click(window, cx));
+    }
+    action
+        .child(
+            div()
+                .text_size(px(theme.mobile.body))
+                .line_height(px(theme.mobile.body_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(ink)
+                .text_center()
+                .child(label.to_string()),
+        )
+        .into_any_element()
+}
+
+/// The unconfirmed banner, stacked as the text above a full-width action at
+/// 360/390 (and inside the 560 px column at 768). Copy and busy label are the
+/// incumbent ones.
+pub(crate) fn confirm_banner(
     text: &str,
     busy: bool,
     on_confirm: ClickHandler,
     theme: &AppTheme,
 ) -> AnyElement {
-    let r = theme.tinted_banner(theme.glass_warning);
-    let r_button = theme.button_primary();
+    let fill = if theme.flat {
+        theme.warning_surface
+    } else {
+        theme.glass_warning
+    };
+    let ink = theme.mobile_status_on(fill, "warning");
+    let r = theme.tinted_banner(fill);
     theme::apply(
         div()
-            .mx(px(16.))
-            .mt(px(8.))
-            .p(px(12.))
+            .mb(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_4))
             .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(8.))
+            .flex_col()
+            .items_start()
+            .gap(px(theme.mobile.space_3))
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(px(theme.mobile.body))
+                    .line_height(px(theme.mobile.body_line))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.warning_text)
+                    .text_color(ink)
                     .child(text.to_string()),
             )
+            .child(banner_action(
+                if busy { "…" } else { "Bestätigen" },
+                !busy,
+                on_confirm,
+                theme,
+            )),
+        &r,
+    )
+    .into_any_element()
+}
+
+fn error_banner(message: &str, theme: &AppTheme) -> AnyElement {
+    let fill = if theme.flat {
+        theme.error_surface
+    } else {
+        theme.glass_error
+    };
+    let ink = theme.mobile_status_on(fill, "error");
+    let r = theme.tinted_banner(fill);
+    theme::apply(
+        div()
+            .mb(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_3))
             .child(
-                theme::apply(div().px(px(20.)).py(px(8.)), &r_button)
-                    .id("orders-confirm")
-                    .cursor_pointer()
-                    .on_click(move |_, window, cx| on_confirm(window, cx))
-                    .child(
-                        div()
-                            .text_size(px(14.))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(theme.on_primary)
-                            .child(if busy { "…" } else { "Bestätigen" }),
-                    ),
+                div()
+                    .text_size(px(theme.mobile.meta))
+                    .line_height(px(theme.mobile.meta_line))
+                    .text_color(ink)
+                    .child(message.to_string()),
             ),
         &r,
     )
     .into_any_element()
+}
+
+/// Whether a batch-cancel activation may run at all: the model's own
+/// precondition — a non-empty check set and no running flow — checked before
+/// the shell's gate claims anything (REQ-SCR-02/16).
+fn batch_cancel_ready(state: &State) -> bool {
+    !state.selected_order_ids.is_empty() && !state.busy
+}
+
+/// The counted batch label, exactly as the model's selection reads it.
+pub(crate) fn mobile_batch_cancel_label(count: usize) -> String {
+    format!("Stornieren ({count})")
+}
+
+/// The selection strip: the counted `Stornieren ({count})` danger action and
+/// `Fertig`, wrapping instead of clipping. It sits in the measured content box
+/// above platform navigation, so it clears the navigation like the menu dock.
+fn selection_bar(
+    state: &State,
+    host: HostKind,
+    cx: &mut Context<AppShell>,
+    theme: &AppTheme,
+) -> AnyElement {
+    let count = state.selected_order_ids.len();
+    let ready = batch_cancel_ready(state);
+    let cancel = cancel_selected_handler(host, cx);
+    let done = end_selection_handler(cx);
+    let danger = if ready {
+        mobile_action_action(
+            "orders-selection-cancel",
+            mobile_batch_cancel_label(count),
+            ButtonKind::Danger,
+            theme,
+            cx,
+            move |_, window, cx| cancel(window, cx),
+        )
+    } else {
+        mobile_action(
+            "orders-selection-cancel",
+            mobile_batch_cancel_label(count),
+            ButtonKind::Danger,
+            false,
+            theme,
+            cx,
+        )
+    };
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_between()
+        .gap(px(theme.mobile.space_2))
+        .px(px(theme.mobile.space_4))
+        .py(px(theme.mobile.space_3))
+        .bg(theme.surface)
+        .border_t_1()
+        .border_color(theme.border)
+        .child(danger)
+        .child(mobile_action_action(
+            "orders-selection-done",
+            "Fertig",
+            ButtonKind::Secondary,
+            theme,
+            cx,
+            move |_, window, cx| done(window, cx),
+        ))
+        .into_any_element()
+}
+
+/// The labelled cancellation dialog, shared by the handler and its test: the
+/// exact incumbent copy, with only the confirm action dispatching.
+/// @req REQ-SCR-02
+pub(crate) fn cancel_dialog(order: &OrderedMenu, on_confirm: ClickHandler) -> Dialog {
+    Dialog::Confirm {
+        title: "Bestellung stornieren".into(),
+        message: format!("\"{}\" stornieren?", order.title).into(),
+        confirm_label: Some("Stornieren"),
+        cancel_label: Some("Behalten"),
+        on_confirm,
+    }
 }
 
 /// The desktop Bestätigen banner: same warning banner and copy as mobile,
@@ -281,74 +474,6 @@ fn desktop_confirm_banner(
         &r,
     )
     .into_any_element()
-}
-
-fn error_banner(message: &str, theme: &AppTheme) -> AnyElement {
-    let r = theme.tinted_banner(theme.glass_error);
-    theme::apply(
-        div().mx(px(16.)).mt(px(8.)).p(px(12.)).child(
-            div()
-                .text_size(px(13.))
-                .text_color(theme.error_text)
-                .child(message.to_string()),
-        ),
-        &r,
-    )
-    .into_any_element()
-}
-
-fn selection_bar(
-    state: &State,
-    host: HostKind,
-    cx: &mut Context<AppShell>,
-    theme: &AppTheme,
-) -> AnyElement {
-    let cancel = cancel_selected_handler(host, cx);
-    let done = end_selection_handler(cx);
-    let count = state.selected_order_ids.len();
-    div()
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(8.))
-        .px(px(16.))
-        .py(px(8.))
-        .bg(theme.surface)
-        .border_t_1()
-        .border_color(theme.border)
-        .child(
-            div()
-                .id("orders-selection-cancel")
-                .px(px(16.))
-                .py(px(8.))
-                .rounded(px(8.))
-                .bg(theme.error)
-                .cursor_pointer()
-                .on_click(move |_, window, cx| cancel(window, cx))
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(theme.on_primary)
-                        .child(format!("Stornieren ({count})")),
-                ),
-        )
-        .child(
-            div()
-                .id("orders-selection-done")
-                .px(px(16.))
-                .py(px(8.))
-                .cursor_pointer()
-                .on_click(move |_, window, cx| done(window, cx))
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme.primary)
-                        .child("Fertig"),
-                ),
-        )
-        .into_any_element()
 }
 
 /// The narrow Bestätigen action. Off-thread on every desktop host, the narrow
@@ -427,17 +552,7 @@ fn cancel_handler(host: HostKind, cx: &mut Context<AppShell>, order: OrderedMenu
                     run_blocking(host, cx, move || model.cancel_order(&id));
                 })
             };
-            let message = format!("\"{}\" stornieren?", order.title);
-            s.set_dialog(
-                crate::components::dialog::Dialog::Confirm {
-                    title: "Bestellung stornieren".into(),
-                    message: message.into(),
-                    confirm_label: Some("Stornieren"),
-                    cancel_label: Some("Behalten"),
-                    on_confirm,
-                },
-                cx,
-            );
+            s.set_dialog(cancel_dialog(&order, on_confirm), cx);
         });
     })
 }
@@ -911,17 +1026,7 @@ fn desktop_cancel_handler(cx: &mut Context<AppShell>, order: OrderedMenu) -> Cli
                     });
                 })
             };
-            let message = format!("\"{}\" stornieren?", order.title);
-            s.set_dialog(
-                crate::components::dialog::Dialog::Confirm {
-                    title: "Bestellung stornieren".into(),
-                    message: message.into(),
-                    confirm_label: Some("Stornieren"),
-                    cancel_label: Some("Behalten"),
-                    on_confirm,
-                },
-                cx,
-            );
+            s.set_dialog(cancel_dialog(&order, on_confirm), cx);
         });
     })
 }
@@ -999,6 +1104,171 @@ fn desktop_segment_ids(state: &State) -> Vec<String> {
         .iter()
         .map(|order| order.position_id.clone())
         .collect()
+}
+
+#[cfg(test)]
+mod mobile_tests {
+    use super::{batch_cancel_ready, cancel_dialog, mobile_batch_cancel_label};
+    use crate::app::MutationGate;
+    use crate::components::dialog::Dialog;
+    use crate::navigation::ClickHandler;
+    use snackpilot_core::domain::{MenuCategory, OrderedMenu};
+    use snackpilot_model::{AppModel, FakePlatform};
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    fn demo(tag: &str) -> (Arc<AppModel>, Arc<FakePlatform>) {
+        let dir = std::env::temp_dir().join(format!(
+            "snackpilot-app-orders-{tag}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let platform = Arc::new(FakePlatform::new());
+        let model = AppModel::new(dir, platform.clone()).unwrap();
+        model.login("demo", "demo1234!").unwrap();
+        (Arc::new(model), platform)
+    }
+
+    /// Two placed demo orders on the last offered day, so the batch paths work
+    /// on real state and no request reaches a host.
+    fn place_two_orders(model: &AppModel) -> Vec<OrderedMenu> {
+        let snapshot = model
+            .state()
+            .menu_snapshot
+            .expect("demo menus load at login");
+        let day = snapshot
+            .available_dates
+            .last()
+            .cloned()
+            .expect("demo offers days");
+        let items: Vec<_> = snapshot
+            .items
+            .into_iter()
+            .filter(|item| {
+                item.day == day && item.available && !item.ordered && !model.is_cutoff(&item.day)
+            })
+            .filter(|item| !item.ordered)
+            .take(2)
+            .collect();
+        assert_eq!(items.len(), 2, "two orderable demo dishes");
+        for item in &items {
+            model.toggle(item);
+        }
+        model.submit_orders();
+        model
+            .state()
+            .orders_split
+            .expect("orders reloaded after submit")
+            .upcoming
+    }
+
+    /// The confirm banner and the counted batch strip act once
+    /// (REQ-SCR-02/16): the strip's label is the counted copy, the batch entry
+    /// is ready for one or many checks but not for none or a running flow, and
+    /// the shell's one gate plus the model's own guard turn a repeated
+    /// activation into exactly one `order.cancelled` with the count.
+    /// @req REQ-SCR-02 @req REQ-UI-16
+    #[test]
+    fn mobile_confirm_and_batch_strip_wrap_without_dual_dispatch() {
+        let (model, fake) = demo("batch-strip");
+        let orders = place_two_orders(&model);
+        // Demo submits are confirmed inline, so the banner is the model's own
+        // text source and has nothing to say here.
+        assert_eq!(model.unconfirmed_banner_text(), None);
+
+        model.begin_order_selection();
+        assert!(
+            !batch_cancel_ready(&model.state()),
+            "no check selected: the strip has nothing to cancel"
+        );
+        model.toggle_order_selection(&orders[0].position_id);
+        assert_eq!(mobile_batch_cancel_label(1), "Stornieren (1)");
+        assert!(batch_cancel_ready(&model.state()), "one check is ready");
+        model.toggle_order_selection(&orders[1].position_id);
+        assert_eq!(mobile_batch_cancel_label(2), "Stornieren (2)");
+        assert!(batch_cancel_ready(&model.state()), "many checks are ready");
+
+        // The shell's one gate: the first activation claims, the second tap
+        // while it is held cannot dispatch, and the claim releases.
+        let gate = MutationGate::default();
+        let first = gate.claim(false, false);
+        assert!(first.is_some(), "the first activation is accepted");
+        assert!(
+            gate.claim(false, false).is_none(),
+            "a repeated tap cannot cancel twice"
+        );
+        assert!(gate.claim(false, true).is_none(), "a running op blocks it");
+        drop(first);
+
+        let before = fake.tracks().len();
+        assert!(model.cancel_selected_orders(), "one dispatch runs");
+        let tracks: Vec<_> = fake
+            .tracks()
+            .into_iter()
+            .filter(|(event, _)| event == "order.cancelled")
+            .map(|(_, props)| props.get("count").cloned().unwrap_or_default())
+            .collect();
+        assert_eq!(tracks, vec!["2".to_string()], "exactly one batch cancel");
+        assert_eq!(
+            fake.tracks().len(),
+            before + 1,
+            "the batch recorded exactly one event"
+        );
+        assert!(
+            !model.cancel_selected_orders(),
+            "a second activation has nothing left to dispatch"
+        );
+        assert_eq!(
+            fake.tracks()
+                .into_iter()
+                .filter(|(event, _)| event == "order.cancelled")
+                .count(),
+            1,
+            "no duplicate cancellation was dispatched"
+        );
+        assert!(
+            !batch_cancel_ready(&model.state()),
+            "the strip closed with the flow"
+        );
+    }
+
+    /// The compact card keeps the incumbent description fallback and opens the
+    /// unchanged labelled cancellation dialog (REQ-SCR-02): `Bestellung
+    /// stornieren`, `"{title}" stornieren?`, `Stornieren`, `Behalten`, two
+    /// actions with index 0 cancelling.
+    /// @req REQ-SCR-02
+    #[test]
+    fn mobile_order_description_and_exact_cancel_dialog() {
+        use crate::components::order_item::order_description;
+
+        let order = OrderedMenu {
+            position_id: "pos-1".into(),
+            eating_cycle_id: "cycle-1".into(),
+            date_epoch_ms: 1_794_308_400_000,
+            title: "MENÜ I".into(),
+            subtitle: "Rindsgulasch".into(),
+            approved: false,
+        };
+        assert_eq!(
+            order_description(None, &order),
+            "Rindsgulasch",
+            "the card's dish is the order subtitle when the menu lookup is empty"
+        );
+
+        let noop: ClickHandler = Rc::new(|_, _| {});
+        let dialog = cancel_dialog(&order, noop);
+        let Dialog::Confirm { title, message, .. } = &dialog else {
+            panic!("the cancel flow opens the labelled confirm dialog");
+        };
+        assert_eq!(title.as_ref(), "Bestellung stornieren");
+        assert_eq!(message.as_ref(), "\"MENÜ I\" stornieren?");
+        assert_eq!(dialog.button_count(), 2, "one cancel, one keep");
+        assert_eq!(dialog.label_at(0), "Behalten");
+        assert_eq!(dialog.label_at(1), "Stornieren");
+        // Unused import guard: the sample order's category never rewrites the
+        // dialog text.
+        assert_eq!(MenuCategory::Menu1.display(), "MENÜ I");
+    }
 }
 
 #[cfg(test)]

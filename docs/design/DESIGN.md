@@ -340,6 +340,20 @@ itself, so the old 480 px narrow-desktop cap is gone.
 | `fab` (`mobile_dock`) | Replaces the absolute FAB column: full column minus the common gutters, min 48, r14 iOS/r12 Android, 16/12 padding, centred wrapping body text on `actionFill`/`actionInk`; exactly `model.fab_label()` while changes wait; during an operation the same band shows the existing exact phase with a 16 px spinner and no callback; painted 8 px above platform navigation inside the shell's measured reservation. Its height is the label's real wrapped line count at the column width and the current metrics (`fab::dock_label_lines`, shaped with the window's text system), 12/12 padding plus one 24 px line each, floored at 48; the shell reserves that measurement and hands the same value to the painted dock, so the two cannot disagree. |
 | `swipe` | Thresholds unchanged (claim 10, switch 50, edge damping 0.3); reduced motion suppresses the painted travel only, never the day decision or its events. |
 
+### Bestellungen (task 1.4)
+
+| Component | Compact presentation |
+| --- | --- |
+| `segment_tabs` | Two equal targets at the 48 px action floor, body Semibold labels whose counts wrap instead of truncating, the 3 px selected rule reserved in both states (`mobile_segment_rule`) so selecting never shifts the labels, accent rule with primary ink on the selected segment and the readable secondary projection on the inactive one. Copy `Kommende (n)` / `Vergangene (n)` is unchanged; the wide Ledger keeps `desktop_segment_toolbar` with its own arrows and `Auswählen`. |
+| `order_item` | 16 px padding, 8 px gaps and 8 px after the card, card radii 16/14. The date/category line shares the readable metadata role 4 px apart and wraps rather than abbreviating the formatter output; the description is the body role and keeps the incumbent lookup/fallback. The status badge sits at r8 in the metadata role on its semantic surface. The cancellation is a separate 44×44 trailing target with the neutral rest fill, the resolved boundary and the readable danger `X` at 20; past the cutoff it stays visible and installs no callback, an in-flight cancellation shows the 16 px spinner in the same slot instead of dimming the card, and below the measured 12-character dish measure (`mobile_order_actions_below`) the status/cancel pair moves under the dish. Selection mode keeps the whole-card check in a reserved 44 px area; a past/read-only row has no action and is not a button. |
+| confirm banner / batch strip | The unconfirmed banner stacks its exact text above a full-width 48 px `Bestätigen` on the primary action fill/ink (the disabled pair while busy, with no callback). The counted `Stornieren ({count})` danger action and `Fertig` wrap in a surface strip that sits in the measured content box above navigation. |
+
+The Bestellungen screen drops its legacy `.p(16)`/`.pb(100)` as well: the shell's
+centred column supplies the 16 px gutter and its measured reservation the
+scroll-end clearance, and `app::legacy_screen_owns_bottom_inset` no longer lists
+`Screen::Orders`. The batch strip is in normal flow inside that measured content
+box, so it clears navigation exactly like the menu dock.
+
 The Menüs screen drops its legacy `.p(16)`/`.pb(100)`: the shell's centred
 column supplies the 16 px gutter and its measured reservation (navigation +
 present dock + 16) supplies the scroll-end clearance. `app::navigation_top`
@@ -351,10 +365,10 @@ above the dock.
 
 `loading_overlay` keeps its initial 36 px spinner card. Screen bodies, the
 remaining screen contracts and their dock/navigator/card projections belong to
-tasks 1.4-1.11; the gallery gains one component **state board**
+tasks 1.5-1.11; the gallery gains one component **state board**
 (`SNACKPILOT_GALLERY_PAGE=mobile`) for the five accents in light/dark on the
-host dialect plus the Menüs cards/dock board, and is not proof of a working
-screen.
+host dialect plus the Menüs cards/dock board and the Bestellungen
+segment/banner/card board, and is not proof of a working screen.
 
 ### Not changed here
 
