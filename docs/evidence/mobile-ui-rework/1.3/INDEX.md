@@ -146,3 +146,18 @@ in-memory dummy pair and the model switches to evidence mode before `bootstrap`.
   tests).
 - GPUI's missing accessibility tree is reported, not worked around: the compact
   screen's names and states exist as text only.
+
+### 768 / 1280 width rows — attempted, BLOCKED(host)
+
+Two attempts were made and are recorded as failures rather than evidence:
+
+- iPad mini (A17 Pro) and iPad Pro 13-inch (M5) simulators: `simctl install` failed
+  (`IXErrorDomain` icon-resource promise) and the screenshots caught the host's window
+  animation, clipped and offset — not a render of the app. Both PNGs were deleted.
+- No available simulator device is 768 or 1280 logical points wide, and the macOS desktop
+  window cannot be sized from the tooling in this workflow.
+
+The 560 px column cap and the wide-`Ledger` behaviour at 720+ are therefore proven only by
+code and tests (`compact_projection_is_host_safe`, `wide_desktop_recipes_unchanged`), not by a
+render. The row stays `BLOCKED(host)` with the desktop-window capture as the open command; the
+1.12 audit carries it.
