@@ -190,6 +190,9 @@ pub struct IosPlatform {
     table: IosShimTable,
     pending: &'static Pending,
     storage_dir: PathBuf,
+    /// This process is an isolated evidence run: permission requests answer
+    /// denied without reaching the OS (task 1.1).
+    evidence: bool,
 }
 
 impl IosPlatform {
@@ -237,6 +240,7 @@ impl IosPlatform {
             table,
             pending,
             storage_dir,
+            evidence: crate::evidence::requested(),
         })
     }
 
@@ -258,6 +262,14 @@ impl IosPlatform {
         shim: extern "C" fn(u64, *mut c_void) -> u8,
         name: &str,
     ) -> Result<bool, PlatformError> {
+        // An isolated evidence run never asks the OS: a system dialog would
+        // cover the capture and could change a permission (task 1.1,
+        // REQ-UI-08). Denied without invoking the shim; a normal run is
+        // unchanged.
+        if self.evidence {
+            log::info!("{name}: denied, no system prompt in evidence mode");
+            return Ok(false);
+        }
         let id = self.pending.begin();
         if shim(id, std::ptr::null_mut()) == 0 {
             self.pending.cancel(id);
@@ -1531,6 +1543,34 @@ mod tests {
         assert!(!called.contains(&"notify_permission"));
         assert!(!called.contains(&"geofence_start"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// @req REQ-UI-08, REQ-UI-16 An isolated evidence run never asks the OS for
+    /// a permission: both permission shims answer denied without reaching the
+    /// table, so no system dialog covers a capture and no permission changes.
+    /// Removing the guard makes both calls reach the stub table and fails here;
+    /// outside evidence mode the same calls still cross the boundary.
+    #[test]
+    fn evidence_run_never_reaches_os_permissions() {
+        let _guard = begin();
+        let mut evidence = platform_in(PathBuf::new());
+        evidence.evidence = true;
+        stub().granted = true;
+        assert!(!evidence.request_notification_permission().unwrap());
+        assert!(!evidence.request_location_authorisation().unwrap());
+        assert!(
+            take_calls().is_empty(),
+            "an evidence run must not reach the platform for a permission"
+        );
+
+        let mut normal = platform_in(PathBuf::new());
+        normal.evidence = false;
+        assert!(normal.request_notification_permission().unwrap());
+        assert!(normal.request_location_authorisation().unwrap());
+        assert_eq!(
+            methods(&take_calls()),
+            vec!["notify_permission", "location_authorisation"]
+        );
     }
 
     // ---- debug exercise -------------------------------------------------------------
