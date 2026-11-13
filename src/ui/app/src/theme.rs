@@ -8,8 +8,9 @@
 
 use gpui::{hsla, InteractiveElement};
 use gpui_kit::{point, px, BoxShadow, Div, Hsla, Pixels, Rgba, StyleRefinement, Styled};
-use snackpilot_model::desktop::{self, ControlState, Rgb, FOCUS_GAP, FOCUS_WIDTH};
+use snackpilot_model::desktop::{self, ControlState, HostKind, Rgb, FOCUS_GAP, FOCUS_WIDTH};
 use snackpilot_model::tokens;
+use snackpilot_model::tokens::mobile as mobile_tokens;
 use snackpilot_model::{AccentColor, ThemePreference};
 
 /// Convert a model-side `Rgb` (from the desktop token helpers) into a gpui
@@ -88,6 +89,76 @@ pub struct DesktopPalette {
     /// Accent used as a selected-card edge, resolved against the selection
     /// fill: the accent only when it clears 3:1 there, else `text_primary`.
     pub accent_boundary: Hsla,
+}
+
+/// The scoped Mobile Day Tray projection (mobile-ui-rework design, shared token
+/// table; REQ-UI-15). Resolved by `build_mobile_palette` from the pinned tokens
+/// through `snackpilot_model::tokens::mobile`, measured on the fill the screen
+/// actually paints (the card surface composited over the screen background), so
+/// no contrast is computed twice and no base recipe reads it.
+///
+/// It is a *presentation projection*, never `theme.desktop`: the wide Desktop
+/// Ledger keeps the incumbent recipes and palette above.
+#[derive(Debug, Clone, Copy)]
+pub struct MobilePalette {
+    /// `mobile.space.1/.2/.3/.4/.5/.6/.8` — the named spacing scale.
+    pub space_1: f32,
+    pub space_2: f32,
+    pub space_3: f32,
+    pub space_4: f32,
+    pub space_5: f32,
+    pub space_6: f32,
+    pub space_8: f32,
+    /// `mobile.type.headline` (24/32).
+    pub headline: f32,
+    pub headline_line: f32,
+    /// `mobile.type.body` (16/24).
+    pub body: f32,
+    pub body_line: f32,
+    /// `mobile.type.meta` (14/20).
+    pub meta: f32,
+    pub meta_line: f32,
+    /// `mobile.target` / `mobile.actionHeight`.
+    pub target: f32,
+    pub action_height: f32,
+    /// `mobile.radius.option` / `mobile.radius.status`.
+    pub radius_option: f32,
+    pub radius_status: f32,
+    /// `mobile.focusWidth` / `mobile.focusGap`, and `mobile.focusInk`.
+    pub focus_width: f32,
+    pub focus_gap: f32,
+    pub focus: Hsla,
+    /// `mobile.secondaryInk` on the plain card fill.
+    pub secondary: Hsla,
+    /// `mobile.selectionFill` / `selectionInk` / `selectionBoundary`.
+    pub selection_fill: Hsla,
+    pub selection_ink: Hsla,
+    pub selection_boundary: Hsla,
+    /// `mobile.actionFill` / its `mobile.pressedFill` / `mobile.actionInk`.
+    pub action_fill: Hsla,
+    pub action_pressed: Hsla,
+    pub action_ink: Hsla,
+    /// The destructive action pair: the pinned `ERROR` fill composited over the
+    /// card and the white/black ink that reads best on it. Not `on_primary`,
+    /// which is only asserted white and fails 4.5:1 on the dark error fill.
+    pub danger_fill: Hsla,
+    pub danger_action_ink: Hsla,
+    /// The neutral outlined secondary: the card fill, the readable secondary
+    /// ink on it, and the accent boundary resolved to >=3:1 on that fill.
+    pub secondary_fill: Hsla,
+    pub secondary_boundary: Hsla,
+    /// The dialog box: the pinned `SURFACE` fill and a boundary resolved to
+    /// >=3:1 on it (the incumbent `border` does not reach it).
+    pub dialog_fill: Hsla,
+    pub dialog_boundary: Hsla,
+    /// `mobile.dangerInk` on the plain card fill (danger *text*, not a fill).
+    pub danger_ink: Hsla,
+    /// `mobile.disabledFill` / `mobile.disabledInk`.
+    pub disabled_fill: Hsla,
+    pub disabled_ink: Hsla,
+    /// `mobile.pressedFill` of the plain card fill and its readable ink.
+    pub pressed_surface: Hsla,
+    pub secondary_on_pressed: Hsla,
 }
 
 /// Parse a §8 token value (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` or
@@ -276,6 +347,9 @@ pub struct AppTheme {
     /// Desktop extension palette, derived from the pinned tokens above; the
     /// mobile screens never read it (desktop-ui-redesign D4, REQ-UI-13).
     pub desktop: DesktopPalette,
+    /// Mobile Day Tray presentation projection (REQ-UI-15): the shared controls
+    /// read this on every compact surface; the wide Ledger never does.
+    pub mobile: MobilePalette,
 }
 
 /// `useFlatStyle` for the platform this binary was built for: Android and
@@ -384,6 +458,7 @@ impl AppTheme {
                 pick(tokens::GLASS_ERROR)
             },
             desktop: build_desktop_palette(dark, accents),
+            mobile: build_mobile_palette(dark, flat, accents),
         }
     }
 
@@ -562,6 +637,192 @@ impl AppTheme {
             border: Some((px(1.), self.border)),
             shadow: None,
         }
+    }
+
+    // Mobile Day Tray projection helpers (REQ-UI-15). Each one delegates to
+    // `snackpilot_model::tokens::mobile` on the fill passed in, so a mobile
+    // control never carries its own contrast arithmetic.
+
+    /// The compact single-column geometry for this host/width, or `None` when
+    /// the width belongs to the wide Desktop Ledger (never a mobile restyle).
+    pub fn mobile_geometry(&self, host: HostKind, width: f32) -> Option<mobile_tokens::Geometry> {
+        mobile_tokens::geometry(host, width)
+    }
+
+    /// `mobile.secondaryInk(fill)`: readable metadata on the actual fill.
+    pub fn mobile_secondary_on(&self, fill: Hsla) -> Hsla {
+        from_rgb(mobile_tokens::secondary_ink(
+            to_rgb(fill, self.mobile_card_fill()),
+            self.dark,
+        ))
+    }
+
+    /// The fill a translucent token really paints: composited over the compact
+    /// card surface, so an ink decision is always measured on screen pixels.
+    pub fn mobile_composited(&self, fill: Hsla) -> Hsla {
+        let f: Rgba = fill.into();
+        let b: Rgba = self.mobile_card_fill().into();
+        let a = f.a.clamp(0., 1.);
+        Rgba {
+            r: f.r * a + b.r * (1. - a),
+            g: f.g * a + b.g * (1. - a),
+            b: f.b * a + b.b * (1. - a),
+            a: 1.,
+        }
+        .into()
+    }
+
+    /// `mobile.statusInk(fill, preferred)` with an explicit preferred ink: the
+    /// preferred colour only while it reads at 4.5:1 on the painted fill, else
+    /// the pinned primary ink. Used where the preferred hue is the accent
+    /// (tinted info banners), never a new semantic colour.
+    pub fn mobile_ink_on(&self, fill: Hsla, preferred: Hsla) -> Hsla {
+        from_rgb(mobile_tokens::status_ink(
+            to_rgb(fill, self.mobile_card_fill()),
+            to_rgb(preferred, self.mobile_card_fill()),
+            self.dark,
+        ))
+    }
+
+    /// `mobile.statusInk(fill, preferred)` with an existing semantic hue
+    /// (`"success"` / `"warning"` / anything else = error).
+    pub fn mobile_status_on(&self, fill: Hsla, kind: &str) -> Hsla {
+        from_rgb(mobile_tokens::status_ink(
+            to_rgb(fill, self.mobile_card_fill()),
+            mobile_tokens::semantic_status_ink(kind, self.dark),
+            self.dark,
+        ))
+    }
+
+    /// `mobile.dangerInk(fill)`: pinned error ink while it reads, else primary.
+    pub fn mobile_danger_on(&self, fill: Hsla) -> Hsla {
+        from_rgb(mobile_tokens::danger_ink(
+            to_rgb(fill, self.mobile_card_fill()),
+            self.dark,
+        ))
+    }
+
+    /// `mobile.pressedFill(fill)`: fill-only press feedback, 14 % ink mix.
+    pub fn mobile_pressed(&self, fill: Hsla) -> Hsla {
+        from_rgb(mobile_tokens::pressed_fill(
+            to_rgb(fill, self.mobile_card_fill()),
+            self.dark,
+        ))
+    }
+
+    /// The plain card fill the compact content sits on: `surface` on the flat
+    /// dialect, the glass surface composited over the screen background on iOS.
+    pub fn mobile_card_fill(&self) -> Hsla {
+        let surface = if self.flat {
+            tokens::SURFACE
+        } else {
+            tokens::GLASS_SURFACE
+        };
+        let background = color(if self.dark {
+            tokens::BACKGROUND.dark
+        } else {
+            tokens::BACKGROUND.light
+        });
+        from_rgb(mobile_tokens::composite_over(
+            if self.dark {
+                surface.dark
+            } else {
+                surface.light
+            },
+            to_rgb(background, background),
+        ))
+    }
+}
+
+/// Byte-wise `Rgb` for a painted gpui colour measured on `backdrop`: a
+/// translucent fill (iOS glass, the overlay) is composited first, because
+/// reading its raw channels would measure a fill the screen never paints.
+pub fn to_rgb(c: Hsla, backdrop: Hsla) -> Rgb {
+    let fill: Rgba = c.into();
+    let back: Rgba = backdrop.into();
+    let a = fill.a.clamp(0.0, 1.0);
+    let q = |x: f32| (x * 255.0).round().clamp(0.0, 255.0) as u8;
+    Rgb::new(
+        q(fill.r * a + back.r * (1.0 - a)),
+        q(fill.g * a + back.g * (1.0 - a)),
+        q(fill.b * a + back.b * (1.0 - a)),
+    )
+}
+
+/// Derive the mobile presentation projection from the pinned tokens only
+/// (REQ-UI-15): the same `snackpilot_model::tokens::mobile` helpers the model
+/// tests check, resolved against the composited card fill. No base recipe, no
+/// desktop palette field and no new colour literal is read or written here.
+fn build_mobile_palette(dark: bool, flat: bool, accents: &tokens::AccentColors) -> MobilePalette {
+    use snackpilot_model::tokens::mobile as m;
+    let background = desktop::parse_color(if dark {
+        tokens::BACKGROUND.dark
+    } else {
+        tokens::BACKGROUND.light
+    });
+    let surface = if flat {
+        tokens::SURFACE
+    } else {
+        tokens::GLASS_SURFACE
+    };
+    let card = m::composite_over(if dark { surface.dark } else { surface.light }, background);
+    let action = m::action_fill(accents, dark);
+    let pressed_surface = m::pressed_fill(card, dark);
+    let danger_fill = m::composite_over(
+        if dark {
+            tokens::ERROR.dark
+        } else {
+            tokens::ERROR.light
+        },
+        card,
+    );
+    let dialog_fill = desktop::parse_color(if dark {
+        tokens::SURFACE.dark
+    } else {
+        tokens::SURFACE.light
+    });
+    MobilePalette {
+        space_1: m::SPACE_1,
+        space_2: m::SPACE_2,
+        space_3: m::SPACE_3,
+        space_4: m::SPACE_4,
+        space_5: m::SPACE_5,
+        space_6: m::SPACE_6,
+        space_8: m::SPACE_8,
+        headline: m::TYPE_HEADLINE.size,
+        headline_line: m::TYPE_HEADLINE.line_height,
+        body: m::TYPE_BODY.size,
+        body_line: m::TYPE_BODY.line_height,
+        meta: m::TYPE_META.size,
+        meta_line: m::TYPE_META.line_height,
+        target: m::TARGET,
+        action_height: m::ACTION_HEIGHT,
+        radius_option: m::RADIUS_OPTION,
+        radius_status: m::RADIUS_STATUS,
+        focus_width: m::FOCUS_WIDTH,
+        focus_gap: m::FOCUS_GAP,
+        focus: from_rgb(m::focus_ink(dark)),
+        secondary: from_rgb(m::secondary_ink(card, dark)),
+        selection_fill: from_rgb(m::selection_fill(accents, dark, flat, card)),
+        selection_ink: from_rgb(m::selection_ink(dark)),
+        selection_boundary: from_rgb(m::selection_boundary(accents, dark, flat, card)),
+        action_fill: from_rgb(action),
+        action_pressed: from_rgb(m::pressed_fill(action, dark)),
+        action_ink: from_rgb(m::action_ink(action)),
+        danger_fill: from_rgb(danger_fill),
+        danger_action_ink: from_rgb(m::action_ink(danger_fill)),
+        secondary_fill: from_rgb(card),
+        secondary_boundary: from_rgb(m::selection_boundary(accents, dark, flat, card)),
+        dialog_fill: from_rgb(dialog_fill),
+        dialog_boundary: from_rgb(desktop::boundary_ink(
+            dialog_fill,
+            desktop::parse_color(accents.primary),
+        )),
+        danger_ink: from_rgb(m::danger_ink(card, dark)),
+        disabled_fill: from_rgb(m::disabled_fill(dark)),
+        disabled_ink: from_rgb(m::disabled_ink(dark)),
+        pressed_surface: from_rgb(pressed_surface),
+        secondary_on_pressed: from_rgb(m::secondary_ink(pressed_surface, dark)),
     }
 }
 
@@ -831,5 +1092,407 @@ mod tests {
             panel.shadow.is_none(),
             "the desktop panel carries no shadow"
         );
+    }
+
+    /// The compact controls paint exactly the Day Tray projection the model
+    /// tests check (REQ-UI-15): every selected mobile recipe field equals
+    /// `snackpilot_model::tokens::mobile` resolved on the fill the screen
+    /// really paints — the card surface composited over the screen background,
+    /// own helpers for the pressed fill — for all five accents, both
+    /// appearances and both dialects. This asserts the rendered fields, not a
+    /// second contrast calculator.
+    /// @req REQ-UI-15
+    #[test]
+    fn mobile_recipes_consume_composited_projection() {
+        use snackpilot_model::desktop::{contrast_ratio, parse_color};
+        use snackpilot_model::tokens::mobile as m;
+
+        for dark in [false, true] {
+            let background = parse_color(if dark {
+                tokens::BACKGROUND.dark
+            } else {
+                tokens::BACKGROUND.light
+            });
+            for flat in [false, true] {
+                let surface = if flat {
+                    tokens::SURFACE
+                } else {
+                    tokens::GLASS_SURFACE
+                };
+                let card =
+                    m::composite_over(if dark { surface.dark } else { surface.light }, background);
+                for (index, accent) in tokens::ACCENTS.iter().enumerate() {
+                    let colors = if dark { &accent.dark } else { &accent.light };
+                    let theme = AppTheme::build(
+                        dark,
+                        [
+                            AccentColor::Orange,
+                            AccentColor::Emerald,
+                            AccentColor::Berry,
+                            AccentColor::Golden,
+                            AccentColor::Ocean,
+                        ][index],
+                        flat,
+                    );
+                    let action = m::action_fill(colors, dark);
+                    let pressed_surface = m::pressed_fill(card, dark);
+                    let danger = m::composite_over(
+                        if dark {
+                            tokens::ERROR.dark
+                        } else {
+                            tokens::ERROR.light
+                        },
+                        card,
+                    );
+                    let dialog = parse_color(if dark {
+                        tokens::SURFACE.dark
+                    } else {
+                        tokens::SURFACE.light
+                    });
+                    let expected = crate::theme::MobilePalette {
+                        space_1: m::SPACE_1,
+                        space_2: m::SPACE_2,
+                        space_3: m::SPACE_3,
+                        space_4: m::SPACE_4,
+                        space_5: m::SPACE_5,
+                        space_6: m::SPACE_6,
+                        space_8: m::SPACE_8,
+                        headline: m::TYPE_HEADLINE.size,
+                        headline_line: m::TYPE_HEADLINE.line_height,
+                        body: m::TYPE_BODY.size,
+                        body_line: m::TYPE_BODY.line_height,
+                        meta: m::TYPE_META.size,
+                        meta_line: m::TYPE_META.line_height,
+                        target: m::TARGET,
+                        action_height: m::ACTION_HEIGHT,
+                        radius_option: m::RADIUS_OPTION,
+                        radius_status: m::RADIUS_STATUS,
+                        focus_width: m::FOCUS_WIDTH,
+                        focus_gap: m::FOCUS_GAP,
+                        focus: from_rgb(m::focus_ink(dark)),
+                        secondary: from_rgb(m::secondary_ink(card, dark)),
+                        selection_fill: from_rgb(m::selection_fill(colors, dark, flat, card)),
+                        selection_ink: from_rgb(m::selection_ink(dark)),
+                        selection_boundary: from_rgb(m::selection_boundary(
+                            colors, dark, flat, card,
+                        )),
+                        action_fill: from_rgb(action),
+                        action_pressed: from_rgb(m::pressed_fill(action, dark)),
+                        action_ink: from_rgb(m::action_ink(action)),
+                        danger_fill: from_rgb(danger),
+                        danger_action_ink: from_rgb(m::action_ink(danger)),
+                        secondary_fill: from_rgb(card),
+                        secondary_boundary: from_rgb(m::selection_boundary(
+                            colors, dark, flat, card,
+                        )),
+                        dialog_fill: from_rgb(dialog),
+                        dialog_boundary: from_rgb(desktop::boundary_ink(
+                            dialog,
+                            parse_color(colors.primary),
+                        )),
+                        danger_ink: from_rgb(m::danger_ink(card, dark)),
+                        disabled_fill: from_rgb(m::disabled_fill(dark)),
+                        disabled_ink: from_rgb(m::disabled_ink(dark)),
+                        pressed_surface: from_rgb(pressed_surface),
+                        secondary_on_pressed: from_rgb(m::secondary_ink(pressed_surface, dark)),
+                    };
+                    let got = theme.mobile;
+                    assert_eq!(
+                        [
+                            got.space_1,
+                            got.space_2,
+                            got.space_3,
+                            got.space_4,
+                            got.space_5,
+                            got.space_6,
+                            got.space_8
+                        ],
+                        [4., 8., 12., 16., 20., 24., 32.],
+                        "the named spacing scale"
+                    );
+                    assert_eq!(got.headline, expected.headline, "{} headline", accent.id);
+                    assert_eq!(got.headline_line, expected.headline_line);
+                    assert_eq!(got.body, expected.body);
+                    assert_eq!(got.body_line, expected.body_line);
+                    assert_eq!(got.meta, expected.meta);
+                    assert_eq!(got.meta_line, expected.meta_line);
+                    assert_eq!((got.target, got.action_height), (44., 48.));
+                    assert_eq!((got.radius_option, got.radius_status), (8., 8.));
+                    assert_eq!((got.focus_width, got.focus_gap), (2., 2.));
+                    assert_eq!(got.focus, expected.focus, "{} focus ink", accent.id);
+                    assert_eq!(
+                        got.secondary, expected.secondary,
+                        "{} secondary ink",
+                        accent.id
+                    );
+                    assert_eq!(
+                        got.selection_fill, expected.selection_fill,
+                        "{} composited selection fill (dark={dark}, flat={flat})",
+                        accent.id
+                    );
+                    assert_eq!(got.selection_ink, expected.selection_ink);
+                    assert_eq!(
+                        got.selection_boundary, expected.selection_boundary,
+                        "{} resolved selection boundary",
+                        accent.id
+                    );
+                    assert_eq!(
+                        got.action_fill, expected.action_fill,
+                        "{} action fill",
+                        accent.id
+                    );
+                    assert_eq!(got.action_pressed, expected.action_pressed);
+                    assert_eq!(got.action_ink, expected.action_ink);
+                    assert_eq!(got.danger_fill, expected.danger_fill);
+                    assert_eq!(got.danger_action_ink, expected.danger_action_ink);
+                    assert_eq!(got.secondary_fill, expected.secondary_fill);
+                    assert_eq!(got.secondary_boundary, expected.secondary_boundary);
+                    assert_eq!(got.dialog_fill, expected.dialog_fill);
+                    assert_eq!(got.dialog_boundary, expected.dialog_boundary);
+                    assert_eq!(got.danger_ink, expected.danger_ink);
+                    assert_eq!(got.disabled_fill, expected.disabled_fill);
+                    assert_eq!(got.disabled_ink, expected.disabled_ink);
+                    assert_eq!(got.pressed_surface, expected.pressed_surface);
+                    assert_eq!(got.secondary_on_pressed, expected.secondary_on_pressed);
+
+                    // The painted fields carry the brief's floors on that fill.
+                    let fill = to_rgb(got.selection_fill, got.selection_fill);
+                    assert!(
+                        contrast_ratio(to_rgb(got.selection_ink, got.selection_fill), fill)
+                            >= m::TEXT_MIN_CONTRAST,
+                        "{} selection ink on the painted fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(to_rgb(got.selection_boundary, got.selection_fill), fill)
+                            >= m::CONTROL_MIN_CONTRAST,
+                        "{} selection boundary on the painted fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(
+                            to_rgb(got.action_ink, got.action_fill),
+                            to_rgb(got.action_fill, got.action_fill)
+                        ) >= m::TEXT_MIN_CONTRAST,
+                        "{} action ink on the action fill",
+                        accent.id
+                    );
+                    // Danger and the outlined secondary paint their projected
+                    // pair: text at 4.5:1 and the boundary at 3:1, measured on
+                    // the fill the control really covers (card, dark={dark}).
+                    let danger_fill = to_rgb(got.danger_fill, got.danger_fill);
+                    assert!(
+                        contrast_ratio(to_rgb(got.danger_action_ink, got.danger_fill), danger_fill)
+                            >= m::TEXT_MIN_CONTRAST,
+                        "{} danger ink on the danger fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(danger_fill, card) >= m::CONTROL_MIN_CONTRAST,
+                        "{} danger fill reads as a control boundary on the card",
+                        accent.id
+                    );
+                    let secondary_fill = to_rgb(got.secondary_fill, got.secondary_fill);
+                    assert!(
+                        contrast_ratio(to_rgb(got.secondary, got.secondary_fill), secondary_fill)
+                            >= m::TEXT_MIN_CONTRAST,
+                        "{} secondary ink on the outlined fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(
+                            to_rgb(got.secondary_boundary, got.secondary_fill),
+                            secondary_fill
+                        ) >= m::CONTROL_MIN_CONTRAST,
+                        "{} secondary boundary on the outlined fill",
+                        accent.id
+                    );
+                    // The modal box carries readable copy and a boundary that
+                    // separates it from the backdrop at 3:1.
+                    let dialog_fill = to_rgb(got.dialog_fill, got.dialog_fill);
+                    assert!(
+                        contrast_ratio(to_rgb(theme.text_primary, got.dialog_fill), dialog_fill)
+                            >= m::TEXT_MIN_CONTRAST,
+                        "{} dialog title on the box fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(
+                            to_rgb(theme.mobile_secondary_on(got.dialog_fill), got.dialog_fill),
+                            dialog_fill
+                        ) >= m::TEXT_MIN_CONTRAST,
+                        "{} dialog body on the box fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(to_rgb(got.dialog_boundary, got.dialog_fill), dialog_fill)
+                            >= m::CONTROL_MIN_CONTRAST,
+                        "{} dialog box boundary",
+                        accent.id
+                    );
+                    // Press changes the fill only: the same control keeps a
+                    // readable ink on its 14 % pressed fill.
+                    let pressed = to_rgb(got.pressed_surface, got.pressed_surface);
+                    assert!(
+                        contrast_ratio(
+                            to_rgb(got.secondary_on_pressed, got.pressed_surface),
+                            pressed
+                        ) >= m::TEXT_MIN_CONTRAST
+                    );
+
+                    // The projection is a projection, not the desktop palette.
+                    assert_eq!(
+                        to_rgb(got.action_fill, got.action_fill),
+                        parse_color(if dark {
+                            accent.dark.primary
+                        } else {
+                            accent.light.primary_dark
+                        }),
+                        "{} action fill is the pinned accent",
+                        accent.id
+                    );
+                    // The projection does not disturb the desktop palette it
+                    // sits beside (the wide Ledger keeps its own recipes).
+                    assert_eq!(
+                        theme.control_fill(ControlState::Selected),
+                        from_rgb(desktop::control_fill(ControlState::Selected, dark)),
+                        "{} desktop selection fill unchanged",
+                        accent.id
+                    );
+                    assert_eq!(
+                        theme.mobile_card_fill(),
+                        from_rgb(card),
+                        "the compact card fill is the composited surface"
+                    );
+                    // Per-fill helpers resolve on the fill they are given.
+                    assert_eq!(theme.mobile_secondary_on(from_rgb(card)), got.secondary);
+                    assert_eq!(theme.mobile_pressed(from_rgb(card)), got.pressed_surface);
+                    assert_eq!(
+                        theme.mobile_status_on(from_rgb(card), "success"),
+                        from_rgb(m::status_ink(
+                            card,
+                            m::semantic_status_ink("success", dark),
+                            dark
+                        ))
+                    );
+                    assert_eq!(
+                        theme.mobile_danger_on(from_rgb(card)),
+                        from_rgb(m::danger_ink(card, dark))
+                    );
+                }
+            }
+        }
+    }
+
+    /// The wide Desktop Ledger keeps its incumbent recipes, palette and host
+    /// gating: the mobile projection never reaches the base recipes, the
+    /// desktop palette still derives from the pinned tokens only, and no
+    /// desktop width at or above 720 receives the compact column.
+    /// @req REQ-UI-15
+    #[test]
+    fn wide_desktop_recipes_unchanged() {
+        use snackpilot_model::desktop::layout_mode;
+
+        for dark in [false, true] {
+            for flat in [false, true] {
+                let t = AppTheme::build(dark, AccentColor::Orange, flat);
+                // Base §7 recipes stay exactly as pinned (04 §7).
+                let card = t.card_surface();
+                assert_eq!(
+                    card.radius,
+                    px(if flat { 14. } else { 16. }),
+                    "card radius unchanged"
+                );
+                assert_eq!(
+                    card.border.map(|(w, _)| w),
+                    Some(px(if flat { 1. } else { 0.5 }))
+                );
+                assert_eq!(
+                    t.button_primary().radius,
+                    px(if flat { 12. } else { 14. }),
+                    "primary radius unchanged"
+                );
+                assert_eq!(t.button_danger().radius, px(if flat { 12. } else { 14. }));
+                assert_eq!(t.input_field().radius, px(12.));
+                assert_eq!(
+                    t.fab().radius,
+                    px(if flat { 16. } else { 28. }),
+                    "fab radius unchanged"
+                );
+                assert_eq!(t.selected_chip().radius, px(8.), "chip radius unchanged");
+                // The desktop palette is still a projection of the pinned
+                // tokens, and the mobile projection does not overwrite it.
+                assert_eq!(t.desktop.focus, t.mobile.focus);
+                assert_eq!(
+                    t.desktop.ink,
+                    color(if dark { "#F5F5F7" } else { "#1D1D1F" })
+                );
+                assert_eq!(
+                    t.desktop.action.fill,
+                    color(if dark { "#FF6B35" } else { "#B84415" })
+                );
+                assert_eq!(t.desktop.panel, t.surface);
+                assert_eq!(t.desktop.rail, t.background);
+                // The compact projection never mutates a base recipe or the
+                // desktop palette: the wide Ledger keeps its own values, still
+                // derived from the pinned tokens (not a copy of itself).
+                let action_before = t.desktop.action.fill;
+                let card_before = t.card_surface();
+                let surface = if flat {
+                    tokens::SURFACE
+                } else {
+                    tokens::GLASS_SURFACE
+                };
+                assert_eq!(
+                    t.mobile_card_fill(),
+                    from_rgb(snackpilot_model::tokens::mobile::composite_over(
+                        if dark { surface.dark } else { surface.light },
+                        desktop::parse_color(if dark {
+                            tokens::BACKGROUND.dark
+                        } else {
+                            tokens::BACKGROUND.light
+                        })
+                    )),
+                    "the compact card fill is the composited dialect projection"
+                );
+                let accents = tokens::accent(AccentColor::Orange);
+                assert_eq!(
+                    t.desktop.action.fill,
+                    from_rgb(desktop::action_fill(
+                        if dark { &accents.dark } else { &accents.light },
+                        dark
+                    )),
+                    "desktop action fill stays the pinned accent projection"
+                );
+                assert_eq!(t.desktop.action.fill, action_before);
+                assert_eq!(t.card_surface().bg, card_before.bg);
+                assert_eq!(t.card_surface().radius, card_before.radius);
+            }
+        }
+
+        // Host gating: the compact column is what a phone gets at any width;
+        // a desktop host at 720 and above keeps the Ledger, at every width
+        // below it stays the same Day Tray column (REQ-UI-07).
+        let t = AppTheme::build(false, AccentColor::Orange, true);
+        for width in [360., 390., 719.] {
+            let compact = t
+                .mobile_geometry(HostKind::Desktop, width)
+                .expect("Day Tray");
+            let phone = t
+                .mobile_geometry(HostKind::Phone, width)
+                .expect("phone column");
+            assert_eq!(compact, phone, "same column at {width}");
+        }
+        for width in [720., 768., 1280.] {
+            assert!(
+                layout_mode(HostKind::Desktop, width)
+                    != snackpilot_model::desktop::LayoutMode::Phone,
+                "the desktop width leaves the phone layout at {width}"
+            );
+            assert!(
+                t.mobile_geometry(HostKind::Desktop, width).is_none(),
+                "desktop at {width} never gets the mobile projection"
+            );
+        }
     }
 }

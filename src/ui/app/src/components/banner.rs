@@ -28,29 +28,71 @@ pub fn banner(
     theme: &AppTheme,
 ) -> Div {
     let (r, fg) = match tone {
-        BannerTone::Neutral => (theme.banner_surface(), theme.text_secondary),
-        BannerTone::Error => (theme.tinted_banner(theme.glass_error), theme.error_text),
-        BannerTone::Warning => (theme.tinted_banner(theme.glass_warning), theme.warning_text),
-        BannerTone::Info => (theme.tinted_banner(theme.glass_primary), theme.primary),
+        // Readable ink on the fill the banner really paints (REQ-UI-15): a
+        // semantic hue only while it clears 4.5:1, otherwise primary text.
+        BannerTone::Neutral => {
+            let r = theme.banner_surface();
+            let fill = theme.mobile_composited(r.bg);
+            (r.clone(), theme.mobile_secondary_on(fill))
+        }
+        BannerTone::Error => {
+            let r = theme.tinted_banner(theme.glass_error);
+            let fill = theme.mobile_composited(r.bg);
+            (r.clone(), theme.mobile_status_on(fill, "error"))
+        }
+        BannerTone::Warning => {
+            let r = theme.tinted_banner(theme.glass_warning);
+            let fill = theme.mobile_composited(r.bg);
+            (r.clone(), theme.mobile_status_on(fill, "warning"))
+        }
+        BannerTone::Info => {
+            let r = theme.tinted_banner(theme.glass_primary);
+            let fill = theme.mobile_composited(r.bg);
+            (r.clone(), theme.mobile_ink_on(fill, theme.primary))
+        }
     };
-    let mut row = theme::apply(div().flex().items_center().gap(px(8.)).p_3(), &r);
+    let mut row = theme::apply(
+        div()
+            .flex()
+            .items_center()
+            .gap(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_3)),
+        &r,
+    );
     if let Some(icon) = icon {
         row = row.child(Icon::new(icon).text_color(fg));
     }
-    row.child(div().text_size(px(13.)).text_color(fg).child(text.into()))
+    row.child(
+        div()
+            .text_size(px(theme.mobile.meta))
+            .line_height(px(theme.mobile.meta_line))
+            .text_color(fg)
+            .child(text.into()),
+    )
 }
 
-/// Refresh banner: spinner + "Aktualisiere..." (04 §4 Menus).
+/// Cached-refresh row: a neutral 16 px spinner + the exact `Aktualisiere...`
+/// text (REQ-UI-15). It never replaces the cached content, so it stays a small
+/// neutral row instead of a blocking overlay.
 pub fn refresh_banner(theme: &AppTheme) -> Div {
-    let r = theme.tinted_banner(theme.glass_primary);
-    theme::apply(div().flex().items_center().gap(px(8.)).p_3(), &r)
-        .child(crate::components::spinner::spinner(theme.primary, 14.))
-        .child(
-            div()
-                .text_size(px(13.))
-                .text_color(theme.primary)
-                .child("Aktualisiere..."),
-        )
+    let r = theme.banner_surface();
+    let ink = theme.mobile_secondary_on(theme.mobile_composited(r.bg));
+    theme::apply(
+        div()
+            .flex()
+            .items_center()
+            .gap(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_3)),
+        &r,
+    )
+    .child(crate::components::spinner::spinner(ink, 16.))
+    .child(
+        div()
+            .text_size(px(theme.mobile.meta))
+            .line_height(px(theme.mobile.meta_line))
+            .text_color(ink)
+            .child("Aktualisiere..."),
+    )
 }
 
 /// Error banner with the store message (04 §4, all tabs).
@@ -70,5 +112,14 @@ pub fn surface_card(
     theme: &AppTheme,
 ) -> Div {
     let r = theme.banner_surface();
-    theme::apply(div().flex().flex_col().items_center().gap(px(8.)).p_4(), &r).children(children)
+    theme::apply(
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_4)),
+        &r,
+    )
+    .children(children)
 }

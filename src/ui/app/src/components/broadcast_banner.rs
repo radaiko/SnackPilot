@@ -5,6 +5,7 @@
 use std::rc::Rc;
 
 use gpui::*;
+use gpui_kit::component::Sizable;
 
 use crate::theme::{self, AppTheme};
 
@@ -15,36 +16,42 @@ pub fn broadcast_banner(
     theme: &AppTheme,
 ) -> AnyElement {
     let r = theme.tinted_banner(theme.glass_warning);
+    let ink = theme.mobile_status_on(theme.mobile_composited(r.bg), "warning");
     theme::apply(
         div()
-            .mx(px(16.))
-            .mt(px(8.))
-            .p(px(12.))
+            .mx(px(theme.mobile.space_4))
+            .mt(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_3))
             .flex()
             .items_center()
             .justify_between()
-            .gap(px(8.))
+            .gap(px(theme.mobile.space_2))
             .child(
                 div()
                     .flex_1()
-                    .text_size(px(14.))
-                    .text_color(theme.warning_text)
+                    .text_size(px(theme.mobile.meta))
+                    .line_height(px(theme.mobile.meta_line))
+                    .text_color(ink)
                     .child(message.to_string()),
             )
             .child(
+                // The dismissal is a full 44×44 target, above the safe area and
+                // never smaller than the touch floor (REQ-UI-16).
                 div()
                     .id("broadcast-dismiss")
-                    .px(px(8.))
-                    .min_h(px(snackpilot_model::desktop::TARGET_MIN))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .w(px(theme.mobile.target))
+                    .h(px(theme.mobile.target))
                     .tab_index(0)
-                    .focus(crate::theme::desktop_focus(theme.desktop.focus))
+                    .focus(crate::theme::desktop_focus(theme.mobile.focus))
                     .cursor_pointer()
                     .on_click(move |_, window, cx| on_dismiss(window, cx))
                     .child(
-                        div()
-                            .text_size(px(18.))
-                            .text_color(theme.warning_text)
-                            .child("✕"),
+                        gpui_kit::component::Icon::new(gpui_kit::assets::IconName::X)
+                            .with_size(px(theme.mobile.space_5))
+                            .text_color(ink),
                     ),
             ),
         &r,

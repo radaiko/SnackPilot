@@ -50,6 +50,22 @@ final class DesktopRegressionTests: XCTestCase {
         return app
     }
 
+    /// Bounded wait for the next rendered frame (foreground + existing window).
+    /// It replaces the fixed `sleep(1)`; GPUI has no accessibility tree, so the
+    /// screenshots remain the evidence and this helper does not invent a label
+    /// assertion.
+    private func waitForSettledFrame(_ app: XCUIApplication, timeout: TimeInterval = 5) {
+        let foreground = expectation(
+            for: NSPredicate(
+                format: "state == %d",
+                XCUIApplication.State.runningForeground.rawValue),
+            evaluatedWith: app)
+        wait(for: [foreground], timeout: timeout)
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: timeout),
+            "no rendered window after the interaction")
+    }
+
     /// The Day Tray baseline runs on the isolated debug host and records the
     /// actual rendered window bounds for every destination at the selected
     /// logical viewport. It waits for the window rather than sleeping, and
@@ -97,10 +113,10 @@ final class DesktopRegressionTests: XCTestCase {
         let app = launch([])
         saveScreenshot("mobile-before-menus")
         app.coordinate(withNormalizedOffset: settingsTab).tap()
-        sleep(1)
+        waitForSettledFrame(app)
         saveScreenshot("mobile-settings")
         app.coordinate(withNormalizedOffset: menusTab).tap()
-        sleep(1)
+        waitForSettledFrame(app)
         saveScreenshot("mobile-after-menus")
         XCTAssertTrue(app.state == .runningForeground)
     }
@@ -113,9 +129,52 @@ final class DesktopRegressionTests: XCTestCase {
         let app = launch(["--tab=3"])
         saveScreenshot("mobile-settings-list")
         app.coordinate(withNormalizedOffset: firstSettingsRow).tap()
-        sleep(1)
+        waitForSettledFrame(app)
         saveScreenshot("mobile-settings-pushed-form")
         XCTAssertTrue(app.state == .runningForeground)
+    }
+
+    /// Mobile Day Tray 1.2 (REQ-UI-03/REQ-UI-04/REQ-UI-07/REQ-UI-15): the
+    /// compact shell is one root with the platform navigation at360, 390, 768
+    /// and1280. Each launch records a real frame at the requested in-app
+    /// viewport; GPUI has no accessibility tree, so the only honest assertions
+    /// are the rendered window/screenshot and foreground state. The content cap,
+    /// single column and rail absence are visual-review facts in the 1.2 index,
+    /// backed by the Rust `compact_shell_plan` tests, not coordinate claims.
+    /// @req REQ-UI-03 @req REQ-UI-04 @req REQ-UI-07
+    func testDayTrayCompactShellAtEveryWidth() {
+        for viewport in ["360x780", "390x844", "768x1024", "1280x1024"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["--evidence", "--viewport=\(viewport)", "--tab=0"]
+            app.launchEnvironment["SNACKPILOT_EVIDENCE"] = "1"
+            app.launch()
+            let window = app.windows.firstMatch
+            XCTAssertTrue(
+                window.waitForExistence(timeout: 30),
+                "\(viewport): the compact shell did not render")
+            XCTAssertGreaterThan(window.frame.width, 0, "\(viewport): no frame")
+            XCTAssertEqual(app.state, .runningForeground)
+            saveScreenshot("daytray-shell-\(viewport)")
+            app.terminate()
+        }
+    }
+
+    /// Mobile Day Tray 1.2 (REQ-UI-06): the in-app new-menu toast uses the
+    /// approved C1 copy without the exclamation mark, at its unchanged
+    /// 300/4000/300 ms timing. The toast is a painted overlay with no
+    /// accessibility node, so the capture is the evidence and no label
+    /// assertion is fabricated.
+    /// @req REQ-UI-06
+    func testDayTrayToastCopy() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--evidence", "--viewport=390x844", "--tab=0", "--toast"]
+        app.launchEnvironment["SNACKPILOT_EVIDENCE"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: 30),
+            "the compact shell did not render")
+        saveScreenshot("daytray-toast")
+        XCTAssertEqual(app.state, .runningForeground)
     }
 
     /// A stale notification route on the phone keeps the mobile screen, not

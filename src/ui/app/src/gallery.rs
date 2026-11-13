@@ -75,6 +75,7 @@ impl GalleryRoot {
         let page = match crate::gallery_page().as_deref() {
             Some("bottom") | Some("1") => 1,
             Some("desktop") | Some("2") => 2,
+            Some("mobile") | Some("3") => 3,
             _ => 0,
         };
         Self {
@@ -182,6 +183,22 @@ impl GalleryRoot {
                             move |_, _window, cx| {
                                 page_e.update(cx, |this, cx| {
                                     this.page = 2;
+                                    cx.notify();
+                                });
+                            }
+                        },
+                    ))
+                    .child(button::button_action(
+                        format!("page3-{dark}"),
+                        "Mobile",
+                        button::ButtonKind::Secondary,
+                        &theme,
+                        cx,
+                        {
+                            let page_e = page_entity.clone();
+                            move |_, _window, cx| {
+                                page_e.update(cx, |this, cx| {
+                                    this.page = 3;
                                     cx.notify();
                                 });
                             }
@@ -730,7 +747,7 @@ fn desktop_settings_dialog_demo(
         on_confirm: noop.clone(),
     };
     let activate: DialogActivate = Rc::new(|_, _, _| {});
-    let overlay = dialog_overlay(&dialog, theme, 1, &[f0, f1], activate);
+    let overlay = dialog_overlay(&dialog, false, theme, 1, &[f0, f1], activate);
 
     div()
         .flex()
@@ -1443,10 +1460,218 @@ fn state_index(state: ControlState) -> usize {
     }
 }
 
+/// Compact Day Tray component state board (REQ-UI-15/16): every state the
+/// shared controls can show, for all five accents in the requested appearance,
+/// on the host's dialect. It is a component board only — never proof that a
+/// running screen or a native input works.
+fn mobile_state_board(dark: bool, cx: &mut Context<GalleryRoot>) -> AnyElement {
+    use gpui_kit::component::{Icon, Sizable};
+
+    let dialect: SharedString = if use_flat_style() { "flach" } else { "Glas" }.into();
+    let appearance: SharedString = if dark { "Dunkel" } else { "Hell" }.into();
+    let mut board = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(px(snackpilot_model::tokens::mobile::SPACE_4))
+        .p(px(snackpilot_model::tokens::mobile::SPACE_4))
+        .bg(AppTheme::build(dark, AccentColor::Orange, use_flat_style()).background)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(snackpilot_model::tokens::mobile::SPACE_2))
+                .child(
+                    div()
+                        .text_size(px(20.))
+                        .font_semibold()
+                        .text_color(
+                            AppTheme::build(dark, AccentColor::Orange, use_flat_style())
+                                .text_primary,
+                        )
+                        .child(format!("Mobile · {appearance} · {dialect}")),
+                ),
+        );
+
+    for accent in [
+        AccentColor::Orange,
+        AccentColor::Emerald,
+        AccentColor::Berry,
+        AccentColor::Golden,
+        AccentColor::Ocean,
+    ] {
+        let theme = AppTheme::build(dark, accent, use_flat_style());
+        let label = snackpilot_model::tokens::accent(accent).label;
+        let card = theme.mobile_card_fill();
+        let focus_room = theme.mobile.focus_width + theme.mobile.focus_gap;
+        board = board.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(theme.mobile.space_2))
+                .p(px(theme.mobile.space_3))
+                .rounded(px(theme.mobile.radius_option))
+                .bg(card)
+                .border(px(1.))
+                .border_color(theme.border)
+                .child(
+                    div()
+                        .text_size(px(theme.mobile.meta))
+                        .text_color(theme.mobile_secondary_on(card))
+                        .child(format!("Akzent: {label}")),
+                )
+                // Primary and danger actions, plus the disabled variant (whose
+                // fill swaps and whose callback is absent).
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap(px(theme.mobile.space_2))
+                        .child(button::mobile_action(
+                            format!("mb-primary-{label}-{dark}"),
+                            "Bestellen",
+                            button::ButtonKind::Primary,
+                            true,
+                            &theme,
+                            cx,
+                        ))
+                        .child(button::mobile_action(
+                            format!("mb-danger-{label}-{dark}"),
+                            "Stornieren",
+                            button::ButtonKind::Danger,
+                            true,
+                            &theme,
+                            cx,
+                        ))
+                        .child(button::mobile_action(
+                            format!("mb-disabled-{label}-{dark}"),
+                            "Geschlossen",
+                            button::ButtonKind::Primary,
+                            false,
+                            &theme,
+                            cx,
+                        )),
+                )
+                // Pending selection (tint + check + boundary), unselected
+                // option, selected filter and the semantic statuses.
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap(px(theme.mobile.space_2))
+                        .child(chip::chip("Vorgemerkt", true, &theme))
+                        .child(chip::chip("Verfügbar", false, &theme))
+                        .child(chip::status_tag(
+                            "Bestellt",
+                            chip::StatusTone::Success,
+                            &theme,
+                        ))
+                        .child(chip::status_tag(
+                            "Geschlossen",
+                            chip::StatusTone::Warning,
+                            &theme,
+                        ))
+                        .child(chip::status_tag(
+                            "Ausverkauft",
+                            chip::StatusTone::Error,
+                            &theme,
+                        )),
+                )
+                // Navigation: active and inactive destinations, and the
+                // independent focus ring in its reserved 2 + 2 room.
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(theme.mobile.space_3))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(theme.mobile.space_2))
+                                .child(
+                                    Icon::new(crate::components::tab_bar::tab_icon(Tab::Menus))
+                                        .with_size(px(26.))
+                                        .text_color(theme.primary),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(theme.mobile.meta))
+                                        .text_color(theme.primary)
+                                        .child("Menüs (aktiv)"),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(theme.mobile.space_2))
+                                .child(
+                                    Icon::new(crate::components::tab_bar::tab_icon(Tab::Orders))
+                                        .with_size(px(24.))
+                                        .text_color(theme.mobile_secondary_on(card)),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(theme.mobile.meta))
+                                        .text_color(theme.mobile_secondary_on(card))
+                                        .child("Bestellungen (inaktiv)"),
+                                ),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(theme.mobile.space_2))
+                        .child(
+                            div()
+                                .p(px(theme.mobile.focus_gap))
+                                .rounded(px(theme.mobile.radius_option + focus_room))
+                                .border(px(theme.mobile.focus_width))
+                                .border_color(theme.mobile.focus)
+                                .child(
+                                    div()
+                                        .min_h(px(theme.mobile.target))
+                                        .flex()
+                                        .items_center()
+                                        .px(px(theme.mobile.space_3))
+                                        .rounded(px(theme.mobile.radius_option))
+                                        .bg(card)
+                                        .border(px(1.))
+                                        .border_color(theme.border)
+                                        .child(
+                                            div()
+                                                .text_size(px(theme.mobile.meta))
+                                                .text_color(theme.text_primary)
+                                                .child("Fokus (2 + 2 reserviert)"),
+                                        ),
+                                ),
+                        ),
+                ),
+        );
+    }
+
+    board.into_any_element()
+}
+
 impl Render for GalleryRoot {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut col = div().size_full().flex().flex_col().overflow_y_scrollbar();
-        if self.page == 2 {
+        if self.page == 3 {
+            match self.which {
+                Section::Light => col = col.child(mobile_state_board(false, cx)),
+                Section::Dark => col = col.child(mobile_state_board(true, cx)),
+                Section::Both => {
+                    col = col
+                        .child(mobile_state_board(false, cx))
+                        .child(mobile_state_board(true, cx))
+                }
+            }
+        } else if self.page == 2 {
             match self.which {
                 Section::Light => {
                     col = col.child(desktop_section(false, &self.control_fields[0], cx))

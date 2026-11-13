@@ -32,7 +32,7 @@ use crate::components::loading_overlay::{desktop_loading_overlay, loading_overla
 use crate::components::record_table::RecordListFocus;
 use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect};
 use crate::components::toast::{
-    desktop_toast, toast_overlay, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION,
+    desktop_toast, toast_overlay_for, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION,
 };
 use crate::components::workspace::workspace_header;
 use crate::navigation::ClickHandler;
@@ -363,6 +363,162 @@ fn safe_area() -> (f32, f32, f32, f32) {
     (top, bottom, left, right)
 }
 
+/// Distance from the safe-area top to the compact heading, and from the
+/// heading to the screen's own controls (design "Common mobile contract":
+/// 16 below safe top, 16 above screen controls).
+pub(crate) const HEADING_TOP: f32 = 16.;
+pub(crate) const HEADING_GAP: f32 = 16.;
+/// Scroll-end breathing room below the measured obstruction.
+pub(crate) const SCROLL_END_GAP: f32 = 16.;
+
+/// The compact shell's heading: the active tab's German title in the headline
+/// role, supplied by the shell instead of every screen. A pushed settings
+/// screen draws its own 48 px back row and title, so the tab heading is not
+/// repeated there (design "Common mobile contract").
+pub(crate) fn shell_heading(tab: Tab, pushed: bool) -> Option<&'static str> {
+    (!pushed).then(|| tab.title())
+}
+
+/// The measured bottom obstruction a scrolled compact surface must clear
+/// (REQ-UI-15/REQ-UI-16): the navigation height only when it is painted over the
+/// content (the iOS floating pill), plus the dock's measured height when a dock
+/// is present, plus the 16 px scroll-end gap. A bar in normal flow already owns
+/// its height, so it is never counted twice, and no blind 100 px padding is
+/// added anywhere in the shell.
+pub(crate) fn obstruction_reservation(
+    flat: bool,
+    safe_bottom: f32,
+    in_flow_navigation: bool,
+    dock_height: f32,
+) -> f32 {
+    let navigation = if in_flow_navigation {
+        0.
+    } else {
+        reserved_height(flat, safe_bottom)
+    };
+    navigation + dock_height.max(0.) + SCROLL_END_GAP
+}
+
+/// Legacy screens that still paint their own bottom inset (`p(16)` + `pb(100)`
+/// on the list/detail roots). Tasks 1.3–1.6 move them onto the shell; until
+/// then the shell must not stack its measured reservation on top. This is the
+/// tracked contract gap, not a second layout owner: once a screen drops its
+/// padding it also drops out of this list and the measured value applies.
+pub(crate) fn legacy_screen_owns_bottom_inset(top: Screen) -> bool {
+    matches!(
+        top,
+        Screen::Menus
+            | Screen::Orders
+            | Screen::Billing
+            | Screen::Settings
+            | Screen::SettingsDetail
+    )
+}
+
+/// The inset a legacy screen already paints (`.pb(px(100.))`). The shell tops
+/// it up only when the measured clearance is larger, so the two never sum.
+pub(crate) const LEGACY_SCREEN_BOTTOM_INSET: f32 = 100.;
+
+/// The compact column's one bottom inset. A legacy screen already owns most of
+/// it, so the shell contributes only the shortfall up to the measured target;
+/// a migrated screen gets the measured reservation when the bar floats over it,
+/// or only the 16 px scroll-end gap when the bar is in normal flow and already
+/// owns its height.
+pub(crate) fn compact_content_bottom(
+    plan: &CompactShellPlan,
+    in_flow: bool,
+    screen_owns_inset: bool,
+) -> f32 {
+    let target = if in_flow {
+        SCROLL_END_GAP
+    } else {
+        plan.reservation
+    };
+    if screen_owns_inset {
+        (target - LEGACY_SCREEN_BOTTOM_INSET).max(0.)
+    } else {
+        target
+    }
+}
+
+/// One compact-shell presentation plan: exactly one heading, one centred
+/// content frame, one navigation surface and the incumbent active-tab identity,
+/// with the safe-area top applied once and a measured obstruction reservation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CompactShellPlan {
+    pub heading: Option<&'static str>,
+    /// Total top offset of the heading, including the one safe-area top.
+    pub heading_top: f32,
+    pub heading_gap: f32,
+    /// `min(viewport − 32, 560)`, or the 440 px form cap on a credential form.
+    pub content_width: f32,
+    /// Measured clearance the scrolled content keeps free at its end.
+    pub reservation: f32,
+    /// The platform navigation stays visible on pushed screens too.
+    pub bar_visible: bool,
+    /// A push never changes which destination is active.
+    pub active: Tab,
+    /// The shell applies the safe-area top once, outside the column.
+    pub safe_top: f32,
+}
+
+/// Build the compact plan for one frame (REQ-UI-03/REQ-UI-04/REQ-UI-15). The
+/// model still owns navigation, selection and identity; this only projects the
+/// compact geometry the design fixes.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compact_shell_plan(
+    host: HostKind,
+    reported_width: f32,
+    viewport_width: f32,
+    tab: Tab,
+    top: Screen,
+    form: bool,
+    flat: bool,
+    safe_top: f32,
+    safe_bottom: f32,
+    dock_height: f32,
+) -> CompactShellPlan {
+    let width = crate::compact_width(reported_width, viewport_width);
+    let pushed = top == Screen::SettingsDetail;
+    let geometry = crate::compact_column(host, width);
+    CompactShellPlan {
+        heading: shell_heading(tab, pushed),
+        heading_top: HEADING_TOP,
+        heading_gap: HEADING_GAP,
+        // A credential form keeps the 440 px cap inside the same column; the
+        // shell owns the cap so no screen derives its own.
+        content_width: geometry
+            .map(|g| if form { g.form } else { g.content })
+            .unwrap_or(width),
+        reservation: obstruction_reservation(
+            flat,
+            safe_bottom,
+            /* in_flow_navigation: */ flat,
+            dock_height,
+        ),
+        bar_visible: true,
+        active: tab,
+        safe_top,
+    }
+}
+
+/// The compact shell heading row: headline role (24/32 Bold), on the pinned
+/// primary ink, wrapping rather than ellipsizing.
+fn shell_heading_row(title: &'static str, theme: &AppTheme) -> Div {
+    div()
+        .w_full()
+        .pt(px(HEADING_TOP))
+        .pb(px(HEADING_GAP))
+        .child(
+            div()
+                .text_size(px(theme.mobile.headline))
+                .line_height(px(theme.mobile.headline_line))
+                .font_weight(FontWeight::BOLD)
+                .text_color(theme.text_primary)
+                .child(title),
+        )
+}
+
 /// The single root view: four tabs, one push/pop stack, dialogs, loading
 /// overlay and the new-menu toast.
 /// @req REQ-UI-04
@@ -602,7 +758,7 @@ impl AppShell {
     #[allow(dead_code)]
     pub fn show_toast(&mut self, cx: &mut Context<Self>) {
         self.toast = Some(Toast {
-            message: "Neue Menüs verfügbar!".into(),
+            message: crate::components::toast::NEW_MENU_MESSAGE.into(),
             phase: ToastPhase::In,
         });
         cx.notify();
@@ -1317,16 +1473,28 @@ impl Render for AppShell {
             banner = Some(broadcast_banner(message, dismiss, &theme));
         }
         let screen_content = self.screen(&nav, &state, &theme, layout, cx);
-        let mut content = div()
-            .flex_1()
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .pt(px(safe_top));
-        if let Some(banner) = banner {
-            content = content.child(banner);
-        }
-        let mut content = content.child(screen_content);
+        // Compact Day Tray shell plan (REQ-UI-03/04/15/16): one heading, one
+        // centred column of min(viewport − 32, 560), the safe-area top applied
+        // exactly once outside the column and a measured obstruction below the
+        // scrolled content. The wide Ledger never reads this plan.
+        let viewport_width = f32::from(window.viewport_size().width);
+        let credential_form = nav.top() == Screen::SettingsDetail
+            && matches!(
+                self.current_detail(),
+                Detail::LoginKantine | Detail::LoginAutomaten
+            );
+        let plan = compact_shell_plan(
+            state.host_kind,
+            state.content_width,
+            viewport_width,
+            nav.active_tab(),
+            nav.top(),
+            credential_form,
+            theme.flat,
+            safe_top,
+            safe_bottom,
+            0.,
+        );
         let action_shell = cx.entity().clone();
         let mut root = div().size_full().flex().flex_col().bg(theme.background);
         // Every native menu command lands here; on-screen buttons call the
@@ -1424,7 +1592,27 @@ impl Render for AppShell {
                     .focus(theme::desktop_focus(theme.desktop.focus))
                     .child(workspace_header(tab.title(), on_refresh, &theme)),
             )
-            .child(content);
+            .child(
+                banner
+                    .map(|banner| {
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            .pt(px(plan.safe_top))
+                            .child(banner)
+                    })
+                    .unwrap_or_else(|| {
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            .pt(px(plan.safe_top))
+                    })
+                    .child(screen_content),
+            );
             // The desktop toast paints over the workspace only, never the
             // rail (brief "Overlays"), so it lives inside the main region.
             let mut main_region = div()
@@ -1448,20 +1636,53 @@ impl Render for AppShell {
                     rail_select,
                 ))
                 .child(main_region);
-        } else if theme.flat {
-            // §2.2: in-flow bottom bar; the safe-area strip under it keeps
-            // the bar's surface colour (v1 paddingBottom insets.bottom).
-            root = root.child(content).child(
-                div()
-                    .w_full()
-                    .bg(theme.surface)
-                    .pb(px(safe_bottom))
-                    .child(bar),
-            );
         } else {
-            // §2.1: floating pill, painted over the content it reserves.
-            content = content.pb(px(reserved_height(false, safe_bottom)));
-            root = root.child(content).child(bar);
+            // Compact Day Tray: the shell's one heading, then the centred
+            // column, with the safe-area top applied once outside it.
+            let mut column = div()
+                .w(px(plan.content_width))
+                .flex_1()
+                .flex()
+                .flex_col()
+                .min_h(px(0.));
+            if let Some(heading) = plan.heading {
+                column = column.child(shell_heading_row(heading, &theme));
+            }
+            if let Some(banner) = banner {
+                column = column.child(banner);
+            }
+            let bottom = compact_content_bottom(
+                &plan,
+                theme.flat,
+                legacy_screen_owns_bottom_inset(nav.top()),
+            );
+            let content = div()
+                .w_full()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .items_center()
+                .overflow_hidden()
+                .pt(px(plan.safe_top))
+                .pb(px(bottom))
+                .child(column.child(screen_content));
+            if theme.flat {
+                // §2.2: in-flow bottom bar; the safe-area strip under it keeps
+                // the bar's surface colour (v1 paddingBottom insets.bottom). The
+                // bar owns its height in flow, so only the scroll-end gap is
+                // added above it, never the bar's own height a second time.
+                root = root.child(content).child(
+                    div()
+                        .w_full()
+                        .bg(theme.surface)
+                        .pb(px(safe_bottom))
+                        .child(bar),
+                );
+            } else {
+                // §2.1: floating pill, painted over the content it reserves,
+                // with the measured obstruction + 16 px scroll-end gap.
+                root = root.child(content).child(bar);
+            }
         }
 
         // Overlays stack by paint order (gpui has no z-index): loading, then
@@ -1477,7 +1698,12 @@ impl Render for AppShell {
         }
         if let Some(toast) = &self.toast {
             if !desktop {
-                root = root.child(toast_overlay(toast, safe_top, &theme));
+                root = root.child(toast_overlay_for(
+                    toast,
+                    safe_top,
+                    cx.reduce_motion(),
+                    &theme,
+                ));
             }
         }
         if let Some(dialog) = &self.dialog {
@@ -1488,6 +1714,7 @@ impl Render for AppShell {
                 });
             root = root.child(dialog_overlay(
                 dialog,
+                !desktop,
                 &theme,
                 self.dialog_focus,
                 &self.dialog_handles,
@@ -1501,11 +1728,13 @@ impl Render for AppShell {
 #[cfg(test)]
 mod tests {
     use super::{
-        desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
-        focus_restore, keyboard_action, menu_row_action, model_settings_detail,
-        nearest_restore_cursor, order_cancel_state, order_row_effect, refresh_intent,
-        should_create_inputs, Detail, FocusRestore, MenuRowAction, MutationGate, OrderCancelState,
-        OrderRowEffect, RefreshIntent,
+        compact_content_bottom, compact_shell_plan, desktop_check_effect, desktop_mutation_blocked,
+        detail_from_model, dispatch_off_thread, focus_restore, keyboard_action,
+        legacy_screen_owns_bottom_inset, menu_row_action, model_settings_detail,
+        nearest_restore_cursor, obstruction_reservation, order_cancel_state, order_row_effect,
+        refresh_intent, shell_heading, should_create_inputs, Detail, FocusRestore, MenuRowAction,
+        MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, HEADING_GAP, HEADING_TOP,
+        LEGACY_SCREEN_BOTTOM_INSET, SCROLL_END_GAP,
     };
     use snackpilot_model::desktop::LayoutMode;
     use snackpilot_model::navigation::{ListKind, SettingsDetail, Tab};
@@ -1566,6 +1795,204 @@ mod tests {
         assert_eq!(keyboard_action(true, false), Some(false)); // focus lost
         assert_eq!(keyboard_action(true, true), None); // unchanged
         assert_eq!(keyboard_action(false, false), None); // unchanged
+    }
+
+    /// The compact shell keeps one root, one navigation and one heading
+    /// (REQ-UI-03/REQ-UI-04): every destination gets the tab's own heading in
+    /// the headline role while a pushed settings screen keeps its own back row
+    /// and title instead, the platform bar stays visible on pushes, the active
+    /// tab identity never changes, the safe-area top is applied exactly once
+    /// outside the column, and the bottom reservation is measured — never the
+    /// old blind 100 px, never a second copy of an in-flow bar.
+    /// @req REQ-UI-03 @req REQ-UI-04
+    #[test]
+    fn mobile_shell_preserves_navigation_and_single_root() {
+        use crate::components::tab_bar::{reserved_height, BAR_HEIGHT};
+        use snackpilot_model::desktop::HostKind;
+        use snackpilot_model::navigation::{Screen, Tab};
+
+        // One heading per destination, in the shell's headline role.
+        for tab in Tab::ALL {
+            assert_eq!(
+                shell_heading(tab, false),
+                Some(tab.title()),
+                "{tab:?} keeps the shell heading"
+            );
+            assert_eq!(
+                shell_heading(tab, true),
+                None,
+                "a pushed settings screen draws its own back row and title"
+            );
+        }
+        assert_eq!((HEADING_TOP, HEADING_GAP), (16., 16.));
+
+        // The compact plan at the accepted widths: one centred column, the
+        // safe top applied once, the bar always visible and the identity kept.
+        for (width, content) in [(360., 328.), (390., 358.), (768., 560.), (1280., 560.)] {
+            let plan = compact_shell_plan(
+                HostKind::Phone,
+                width,
+                width,
+                Tab::Menus,
+                Screen::Menus,
+                false,
+                false,
+                59.,
+                34.,
+                0.,
+            );
+            assert_eq!(plan.content_width, content, "centred column at {width}");
+            assert_eq!(plan.heading, Some("Menüs"));
+            assert_eq!(plan.heading_top, 16., "16 below the safe top");
+            assert_eq!(plan.safe_top, 59., "the safe top is applied once");
+            assert!(plan.bar_visible, "the platform bar stays visible");
+            assert_eq!(plan.active, Tab::Menus);
+            // The pill is painted over the content, so its height is reserved
+            // once, plus the 16 px scroll-end gap.
+            assert_eq!(
+                plan.reservation,
+                reserved_height(false, 34.) + SCROLL_END_GAP
+            );
+            assert_ne!(plan.reservation, 100., "no blind 100 px padding");
+        }
+
+        // A push keeps the navigation topology and the active destination.
+        let pushed = compact_shell_plan(
+            HostKind::Phone,
+            390.,
+            390.,
+            Tab::Settings,
+            Screen::SettingsDetail,
+            false,
+            false,
+            59.,
+            34.,
+            0.,
+        );
+        assert_eq!(
+            pushed.active,
+            Tab::Settings,
+            "the active tab identity stays"
+        );
+        assert!(
+            pushed.bar_visible,
+            "changing bar visibility on a push is out of scope"
+        );
+        assert_eq!(pushed.heading, None, "the pushed screen owns its title");
+        assert_eq!(pushed.content_width, 358.);
+
+        // A credential form keeps the 440 px cap inside the column at 768/1280.
+        for width in [360., 390., 768., 1280.] {
+            let form = compact_shell_plan(
+                HostKind::Phone,
+                width,
+                width,
+                Tab::Settings,
+                Screen::SettingsDetail,
+                true,
+                false,
+                59.,
+                34.,
+                0.,
+            );
+            let expected = if width >= 768. { 440. } else { width - 32. };
+            assert_eq!(form.content_width, expected, "form cap at {width}");
+            assert!(form.content_width <= 440., "never wider than the form cap");
+        }
+
+        // Reservation arithmetic: an in-flow bar already owns its height, so it
+        // is not counted a second time; a dock adds exactly its measured height.
+        assert_eq!(
+            obstruction_reservation(true, 34., true, 0.),
+            SCROLL_END_GAP,
+            "the flat bar is in flow: no duplicate navigation padding"
+        );
+        assert_eq!(
+            obstruction_reservation(false, 34., false, 0.),
+            reserved_height(false, 34.) + SCROLL_END_GAP
+        );
+        assert_eq!(
+            obstruction_reservation(false, 34., false, 56.),
+            reserved_height(false, 34.) + 56. + SCROLL_END_GAP,
+            "the dock adds its measured height"
+        );
+        assert_eq!(
+            obstruction_reservation(true, 34., true, 56.),
+            56. + SCROLL_END_GAP,
+            "an in-flow bar never contributes its own height twice"
+        );
+        assert!(
+            obstruction_reservation(true, 34., true, 56.) < BAR_HEIGHT + 56.,
+            "the in-flow bar's own height is not added again"
+        );
+    }
+
+    /// The compact column owns one bottom inset (REQ-UI-03/15). A legacy screen
+    /// body still paints its own 16/100 px padding, so the shell must not add
+    /// its measured reservation on top of it (the double gutter the review
+    /// found); once a screen is migrated the shell supplies exactly one inset,
+    /// and the in-flow branch keeps its 16 px scroll-end gap. The real column
+    /// arithmetic is what `render` uses, and the test fails if the two insets
+    /// ever sum.
+    /// @req REQ-UI-03 @req REQ-UI-15
+    #[test]
+    fn compact_shell_does_not_stack_a_screen_bottom_inset() {
+        use snackpilot_model::desktop::HostKind;
+        use snackpilot_model::navigation::{Screen, Tab};
+
+        for width in [360., 390., 768., 1280.] {
+            let plan = compact_shell_plan(
+                HostKind::Phone,
+                width,
+                width,
+                Tab::Menus,
+                Screen::Menus,
+                false,
+                false,
+                59.,
+                34.,
+                0.,
+            );
+            // Every current screen body is still legacy and owns its inset, in
+            // both navigation modes; the shell only tops up any shortfall.
+            for top in [
+                Screen::Menus,
+                Screen::Orders,
+                Screen::Billing,
+                Screen::Settings,
+                Screen::SettingsDetail,
+            ] {
+                assert!(legacy_screen_owns_bottom_inset(top), "{top:?}");
+                assert_eq!(
+                    compact_content_bottom(&plan, false, true),
+                    (plan.reservation - LEGACY_SCREEN_BOTTOM_INSET).max(0.)
+                );
+                assert_eq!(
+                    compact_content_bottom(&plan, true, true),
+                    (SCROLL_END_GAP - LEGACY_SCREEN_BOTTOM_INSET).max(0.)
+                );
+            }
+            // A migrated screen gets exactly the measured reservation (floating
+            // pill) or the 16 px scroll-end gap (in-flow bar owns its height).
+            assert_eq!(
+                compact_content_bottom(&plan, false, false),
+                plan.reservation
+            );
+            assert_eq!(compact_content_bottom(&plan, true, false), SCROLL_END_GAP);
+
+            // The effective scroll-end clearance is one copy — the legacy inset
+            // topped up to the measured target — never the sum of both.
+            let total = LEGACY_SCREEN_BOTTOM_INSET + compact_content_bottom(&plan, false, true);
+            assert_eq!(total, plan.reservation.max(LEGACY_SCREEN_BOTTOM_INSET));
+            assert!(
+                total >= plan.reservation,
+                "the last content still clears the measured pill"
+            );
+            assert_ne!(total, LEGACY_SCREEN_BOTTOM_INSET + plan.reservation);
+            let migrated_total = compact_content_bottom(&plan, true, false);
+            assert_eq!(migrated_total, SCROLL_END_GAP);
+            assert_ne!(migrated_total, SCROLL_END_GAP + plan.reservation);
+        }
     }
 
     /// The workspace header dispatches the active tab's existing refresh and
