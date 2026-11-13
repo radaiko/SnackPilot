@@ -1,8 +1,10 @@
-//! Menu card — docs/requirements/04-ui-ux.md §4.5.
+//! Menu row — docs/requirements/04-ui-ux.md §4.5.
 //!
-//! One card per menu item: state-driven surface, at most one badge, dish text,
-//! allergens and price, plus the selected checkmark disc. Tappability is
-//! decided by the caller from the model (`ordered || (available && !cutoff)`).
+//! One flat row per menu item: surface, 1 px hairline, 12 radius, 16 padding,
+//! dish and price strong, allergens quiet, a status chip that always carries
+//! its word, and the reserved 24 px check while the dish is pending.
+//! Tappability is decided by the caller from the model
+//! (`ordered || (available && !cutoff)`).
 
 use gpui::*;
 use gpui_kit::assets::IconName;
@@ -10,13 +12,11 @@ use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::prelude::Styled;
 
 use crate::components::button::ButtonKind;
-use crate::components::record_table::RowFocus;
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::MenuItem;
-use snackpilot_model::menu_key;
 
-/// §4.5 state overlays, later wins.
+/// §4.5 state overlays.
 pub struct MenuCardState {
     pub selected: bool,
     pub pending_cancel: bool,
@@ -25,9 +25,9 @@ pub struct MenuCardState {
     pub cutoff: bool,
 }
 
-/// The dish a compact card presents: the required dish `subtitle`, falling
+/// The dish a compact row presents: the required dish `subtitle`, falling
 /// back to the title only when the subtitle is empty (sample M2). The category
-/// stays the neutral group heading, so the card never repeats `MENÜ I`.
+/// stays the quiet group label, so the row never repeats `MENÜ I`.
 pub fn mobile_dish(item: &MenuItem) -> String {
     if item.subtitle.trim().is_empty() {
         item.title.clone()
@@ -36,67 +36,95 @@ pub fn mobile_dish(item: &MenuItem) -> String {
     }
 }
 
-/// The one badge label in the §4.5 precedence
-/// cancellation → ordered → unavailable → cutoff. It is a status word, never
-/// the pending check: no glyph, and a badge and the inline check can appear
-/// together without being confused.
-pub fn mobile_badge_label(state: &MenuCardState) -> Option<&'static str> {
-    if state.pending_cancel {
-        Some("Wird storniert")
+/// The row's one status word, in the design's precedence:
+/// pending cancellation → ordered → pending selection → sold out → open.
+/// A dish past the cutoff is simply not tappable and carries no chip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuStatus {
+    Open,
+    Reserved,
+    Ordered,
+    Cancelling,
+    SoldOut,
+}
+
+impl MenuStatus {
+    /// The chip's visible word: the status is never conveyed by colour alone.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Open => "Geöffnet",
+            Self::Reserved => "Reserviert",
+            Self::Ordered => "Bestellt",
+            Self::Cancelling => "Stornierung offen",
+            Self::SoldOut => "Ausgebucht",
+        }
+    }
+}
+
+/// The one status word for a row, or `None` past the cutoff.
+pub fn mobile_menu_status(state: &MenuCardState) -> Option<MenuStatus> {
+    Some(if state.pending_cancel {
+        MenuStatus::Cancelling
     } else if state.ordered {
-        Some("Bestellt")
+        MenuStatus::Ordered
+    } else if state.selected {
+        MenuStatus::Reserved
     } else if !state.available {
-        Some("Ausverkauft")
+        MenuStatus::SoldOut
     } else if state.cutoff {
-        Some("Geschlossen")
+        return None;
     } else {
-        None
+        MenuStatus::Open
+    })
+}
+
+/// The chip's `(surface, ink, boundary)` in the flat palette: neutral for the
+/// ordinary state, tinted for the semantic ones, with a readable word on it.
+pub fn mobile_status_tones(status: MenuStatus, theme: &AppTheme) -> (Hsla, Hsla, Hsla) {
+    match status {
+        MenuStatus::Open => (theme.surface_alt, theme.text_secondary, theme.border),
+        // The accent on its own tint reaches only 4.44:1 in light, so the word
+        // takes the primary text role and the boundary keeps the accent.
+        MenuStatus::Reserved => (theme.accent_surface, theme.text_primary, theme.accent),
+        MenuStatus::Ordered => (theme.success_surface, theme.success, theme.success),
+        MenuStatus::Cancelling => (theme.warning_surface, theme.warning, theme.warning),
+        MenuStatus::SoldOut => (theme.error_surface, theme.error, theme.error),
     }
 }
 
-/// How many lines the compact card's dish may occupy: the fourth is the last,
-/// so a longer dish is clipped instead of pushing the price out of the card.
-pub const MOBILE_DISH_LINES: usize = 4;
+/// The trailing pending check: a 24 px Lucide glyph in a reserved slot, so a
+/// long dish never slides under it and a saved status never reads as a check.
+pub const MOBILE_CHECK: f32 = 24.;
+/// The status chip's one height.
+pub const MOBILE_CHIP_HEIGHT: f32 = 24.;
 
-/// The height cap the dish row is painted with (four body lines).
-pub fn mobile_dish_max_height(theme: &AppTheme) -> f32 {
-    theme.mobile.body_line * MOBILE_DISH_LINES as f32
-}
-
-/// One slot of the compact card's name row, in paint order. The check slot is
-/// inline and reserved (never floated over the text), so the dish starts after
-/// it while pending and at the same edge otherwise.
+/// One slot of the compact row's name line, in paint order: the dish and, only
+/// while pending, the trailing check. The price lives on the meta row, so a
+/// wrapped two-line dish never crowds it.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MobileNameSlot {
-    /// The reserved inline `Check` slot, in px.
-    Check(f32),
-    /// The dish itself.
+pub enum MobileRowSlot {
     Dish,
+    Check(f32),
 }
 
-/// The name row's slots for one state.
-pub fn mobile_card_name_slots(selected: bool) -> Vec<MobileNameSlot> {
+pub fn mobile_row_slots(selected: bool) -> Vec<MobileRowSlot> {
     if selected {
-        vec![MobileNameSlot::Check(24.), MobileNameSlot::Dish]
+        vec![MobileRowSlot::Dish, MobileRowSlot::Check(MOBILE_CHECK)]
     } else {
-        vec![MobileNameSlot::Dish]
+        vec![MobileRowSlot::Dish]
     }
 }
 
-/// One part of the compact card's footer, in paint order. Allergens come first
-/// and wrap on the left; the unchanged price string follows, right-aligned and
-/// never wrapped, so a long allergen list never eats its letters.
+/// One part of the compact row's meta row, in paint order: the wrapping
+/// allergen line on the left and the price at the trailing edge.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MobileFooterPart {
-    /// `Allergene: …` on the readable metadata ink.
     Allergens(String),
-    /// The domain's own price string, right-aligned.
     Price(String),
 }
 
-/// The footer parts for one dish.
 pub fn mobile_card_footer(item: &MenuItem) -> Vec<MobileFooterPart> {
-    let mut parts = Vec::with_capacity(2);
+    let mut parts = Vec::new();
     if !item.allergens.is_empty() {
         parts.push(MobileFooterPart::Allergens(format!(
             "Allergene: {}",
@@ -107,253 +135,187 @@ pub fn mobile_card_footer(item: &MenuItem) -> Vec<MobileFooterPart> {
     parts
 }
 
-/// The compact card's resting treatment, as data the builder paints: which
-/// surface and boundary the card takes and whether its dish is struck through.
-/// Pending cancellation is dashed and struck on readable ink — never a blanket
-/// opacity, so the dish and its price stay readable.
+/// The row's resting treatment: plain surface, the accent selection tint, or
+/// the warning boundary with a struck dish for a queued cancellation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MobileCardTreatment {
-    /// Not pending: the plain card surface, no boundary.
     Plain,
-    /// Pending order: the accent selection tint and the resolved boundary.
     Selected,
-    /// Pending cancellation: a dashed warning boundary and a struck dish.
     PendingCancel,
-    /// Placed order: the success tint and its boundary.
-    Ordered,
 }
 
 impl MobileCardTreatment {
-    /// Whether the dish text is struck through.
     pub fn struck(self) -> bool {
         self == Self::PendingCancel
     }
 
-    /// Whether the card paints a dashed boundary.
     pub fn dashed(self) -> bool {
         self == Self::PendingCancel
     }
 }
 
-/// The one treatment per state, in the design's precedence
-/// pending-cancel → selected → ordered → plain.
 pub fn mobile_card_treatment(state: &MenuCardState) -> MobileCardTreatment {
     if state.pending_cancel {
         MobileCardTreatment::PendingCancel
     } else if state.selected {
         MobileCardTreatment::Selected
-    } else if state.ordered {
-        MobileCardTreatment::Ordered
     } else {
         MobileCardTreatment::Plain
     }
 }
 
-/// Whether a compact card is one selection target, exactly as the incumbent
+/// Whether a compact row is one selection target, exactly as the incumbent
 /// model gate: an ordered item stays tappable so its cancellation can be
-/// queued, an unavailable or cutoff new item cannot be added. Appearance never
-/// changes this, and neither does a pending selection: a dish that became
-/// unavailable or closed after it was picked is not made tappable by its tint.
+/// queued, an unavailable or cutoff new item cannot be added.
 pub fn mobile_menu_tappable(state: &MenuCardState) -> bool {
     state.ordered || (state.available && !state.cutoff)
 }
 
-fn badge(state: &MenuCardState, theme: &AppTheme) -> Option<(&'static str, Hsla, Hsla, Hsla)> {
-    // (label, background, border, text) in the §4.5 order.
-    let label = mobile_badge_label(state)?;
-    let (bg, border, text) = if state.pending_cancel {
-        let bg = if theme.flat {
-            theme.warning_surface
-        } else {
-            theme.glass_warning
-        };
-        (bg, theme.warning, theme.warning_text)
-    } else if state.ordered {
-        let bg = if theme.flat {
-            theme.success_surface
-        } else {
-            theme.glass_success
-        };
-        (bg, theme.success, theme.success_text)
-    } else if !state.available {
-        (theme.error_surface, theme.error, theme.error_text)
-    } else {
-        let bg = if theme.flat {
-            theme.warning_surface
-        } else {
-            theme.glass_warning
-        };
-        (bg, theme.warning, theme.warning_text)
-    };
-    Some((label, bg, border, text))
+/// The status chip: a 24 px tag in the metadata role on its toned surface,
+/// always with its word.
+fn status_chip(status: MenuStatus, theme: &AppTheme) -> Div {
+    let (fill, ink, border) = mobile_status_tones(status, theme);
+    div()
+        .h(px(MOBILE_CHIP_HEIGHT))
+        .flex_shrink_0()
+        .px(px(theme.scale.space_2))
+        .rounded(px(theme.scale.radius_chip))
+        .border(px(1.))
+        .border_color(border)
+        .bg(fill)
+        .flex()
+        .items_center()
+        .child(
+            div()
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(ink)
+                .child(status.label()),
+        )
 }
 
-/// One compact §4.5 card, dish-first (task 1.3): 16 px padding, 8 px gaps and
-/// 8 px after the card, the pinned card radii, the dish in the body role up to
-/// four lines, a status badge on its semantic surface, a wrapping allergen line
-/// above the right-aligned unchanged price, and — when pending — the accent
-/// selection tint, the 1 px resolved boundary and an inline 24 px check slot.
-/// Tappability comes from [`mobile_menu_tappable`]; no state dims readable text.
-/// @req REQ-SCR-01 @req REQ-UI-15
+/// One compact §4.5 row: surface, 1 px hairline, 12 radius, 16 padding and
+/// 8 gaps. Name strong, allergens quiet, price strong at the trailing edge and
+/// the 24 px check last while pending; below them the status chip. The pending
+/// cancellation keeps a struck dish and a dashed warning boundary; nothing
+/// dims readable text. Tappability comes from [`mobile_menu_tappable`].
+/// @req REQ-SCR-01 @req REQ-UI-15 @req REQ-UI-16
 pub fn menu_card(
     item: &MenuItem,
     state: MenuCardState,
     on_tap: Option<ClickHandler>,
     theme: &AppTheme,
 ) -> Stateful<Div> {
-    let selected = state.selected;
-    let card_fill = if selected {
-        theme.mobile.selection_fill
-    } else {
-        theme.mobile_card_fill()
-    };
-    let text = if selected {
-        theme.mobile.selection_ink
-    } else {
-        theme.text_primary
-    };
-    let meta = if selected {
-        theme.mobile.selection_ink
-    } else {
-        theme.mobile_secondary_on(card_fill)
-    };
-
-    let mut card = theme::apply(
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(theme.mobile.space_2))
-            .p(px(theme.mobile.space_4))
-            .mb(px(theme.mobile.space_2)),
-        &theme.card_surface(),
-    )
-    .id(SharedString::from(format!("menu-{}|{}", item.id, item.day)));
-
+    let m = &theme.scale;
     let treatment = mobile_card_treatment(&state);
-    match treatment {
-        MobileCardTreatment::Selected => {
-            // Pending selection is the accent tint plus the 1 px resolved
-            // boundary; it is not a saved status and not the old orange field.
-            card = card
-                .bg(theme.mobile.selection_fill)
-                .border_1()
-                .border_color(theme.mobile.selection_boundary);
-        }
-        MobileCardTreatment::PendingCancel => {
-            // Dashed and struck through, on readable ink rather than a blanket
-            // opacity reduction.
-            card = card.border_dashed().border_1().border_color(theme.warning);
-        }
-        MobileCardTreatment::Ordered => {
-            let bg = if theme.flat {
-                theme.success_surface
-            } else {
-                theme.glass_success
-            };
-            card = card.bg(bg).border_1().border_color(theme.success_border);
-        }
-        MobileCardTreatment::Plain => {}
+    let (fill, border) = match treatment {
+        MobileCardTreatment::Selected => (theme.accent_surface, theme.accent),
+        MobileCardTreatment::PendingCancel => (theme.surface, theme.warning),
+        MobileCardTreatment::Plain => (theme.surface, theme.border),
+    };
+    let pressed = theme.pressed(fill);
+
+    let mut card = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(px(m.space_2))
+        .p(px(m.space_4))
+        .mb(px(m.space_2))
+        .rounded(px(theme.scale.radius_card))
+        .bg(fill)
+        .border(px(1.))
+        .border_color(border)
+        .id(SharedString::from(format!("menu-{}|{}", item.id, item.day)));
+    if treatment.dashed() {
+        card = card.border_dashed();
     }
 
     if let Some(on_tap) = on_tap {
         card = card
             .tab_index(0)
-            .focus(crate::theme::desktop_focus(theme.mobile.focus))
             .cursor_pointer()
+            .hover(move |s| s.bg(pressed))
+            .focus(theme::desktop_focus(theme.accent))
             .on_click(move |_, window, cx| on_tap(window, cx));
     }
 
-    if let Some((label, bg, border, fg)) = badge(&state, theme) {
-        card = card.child(
-            div().flex().child(
-                div()
-                    .px(px(theme.mobile.space_2))
-                    .py(px(theme.mobile.space_1))
-                    .rounded(px(theme.mobile.radius_status))
-                    .border_1()
-                    .border_color(border)
-                    .bg(bg)
-                    .text_size(px(theme.mobile.meta))
-                    .line_height(px(theme.mobile.meta_line))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(fg)
-                    .child(label),
-            ),
-        );
-    }
-
-    let dish = div()
+    // Name line: the dish and, while pending, the reserved check at the right.
+    let dish_text = div()
         .flex_1()
         .min_w(px(0.))
-        .max_h(px(mobile_dish_max_height(theme)))
-        .overflow_hidden()
-        .text_size(px(theme.mobile.body))
-        .line_height(px(theme.mobile.body_line))
-        .text_color(text)
+        .text_size(px(m.body))
+        .line_height(px(m.body_line))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme.text_primary)
         .child(mobile_dish(item));
-    let dish = if treatment.struck() {
-        dish.line_through()
+    let dish_text = if treatment.struck() {
+        dish_text.line_through()
     } else {
-        dish
+        dish_text
     };
-    let mut dish_row = div().flex().items_start().gap(px(theme.mobile.space_2));
-    // The name row's slots, in paint order: a reserved inline check slot while
-    // pending (never floated over the text), then the dish.
-    let check_slot = mobile_card_name_slots(selected)
-        .into_iter()
-        .find_map(|slot| match slot {
-            MobileNameSlot::Check(size) => Some(size),
-            MobileNameSlot::Dish => None,
-        });
-    if let Some(slot) = check_slot {
-        dish_row = dish_row.child(
+    let mut name = div()
+        .flex()
+        .items_start()
+        .gap(px(m.space_2))
+        .child(dish_text);
+    if state.selected {
+        name = name.child(
             div()
-                .w(px(slot))
-                .h(px(slot))
+                .w(px(MOBILE_CHECK))
+                .h(px(MOBILE_CHECK))
                 .flex_shrink_0()
                 .flex()
                 .items_center()
                 .justify_center()
                 .child(
                     Icon::new(IconName::Check)
-                        .with_size(px(theme.mobile.space_5))
-                        .text_color(text),
+                        .with_size(px(MOBILE_CHECK))
+                        .text_color(theme.accent),
                 ),
         );
     }
-    card = card.child(dish_row.child(dish));
+    card = card.child(name);
 
-    // Allergens wrap on the left and the price keeps its exact string on the
-    // right; a long price drops to its own right-aligned line instead of
-    // squeezing the letters away.
-    let mut footer = div()
-        .flex()
-        .flex_wrap()
-        .items_end()
-        .gap(px(theme.mobile.space_2));
+    // Quiet meta row: the wrapping allergens on the left, the status word and
+    // the price at the trailing edge.
+    let mut footer = div().flex().items_start().gap(px(m.space_2));
+    let mut has_allergens = false;
+    let mut price = None;
     for part in mobile_card_footer(item) {
-        footer = match part {
-            MobileFooterPart::Allergens(allergens) => footer.child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .text_size(px(theme.mobile.meta))
-                    .line_height(px(theme.mobile.meta_line))
-                    .text_color(meta)
-                    .child(allergens),
-            ),
-            MobileFooterPart::Price(price) => footer.child(
-                div()
-                    .ml_auto()
-                    .flex_shrink_0()
-                    .whitespace_nowrap()
-                    .text_size(px(theme.mobile.body))
-                    .line_height(px(theme.mobile.body_line))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(text)
-                    .child(price),
-            ),
-        };
+        match part {
+            MobileFooterPart::Allergens(allergens) => {
+                has_allergens = true;
+                footer = footer.child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .text_size(px(m.meta))
+                        .line_height(px(m.meta_line))
+                        .text_color(theme.text_secondary)
+                        .child(allergens),
+                );
+            }
+            MobileFooterPart::Price(value) => price = Some(value),
+        }
+    }
+    if !has_allergens {
+        footer = footer.child(div().flex_1());
+    }
+    if let Some(status) = mobile_menu_status(&state) {
+        footer = footer.child(status_chip(status, theme));
+    }
+    if let Some(price) = price {
+        footer = footer.child(
+            div()
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .text_size(px(m.body))
+                .line_height(px(m.body_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.text_primary)
+                .child(price),
+        );
     }
     card.child(footer)
 }
@@ -361,11 +323,14 @@ pub fn menu_card(
 #[cfg(test)]
 mod tests {
     use super::{
-        mobile_badge_label, mobile_card_footer, mobile_card_name_slots, mobile_card_treatment,
-        mobile_dish, mobile_dish_max_height, mobile_menu_tappable, MenuCardState,
-        MobileCardTreatment, MobileFooterPart, MobileNameSlot, MOBILE_DISH_LINES,
+        mobile_card_footer, mobile_card_treatment, mobile_dish, mobile_menu_status,
+        mobile_menu_tappable, mobile_row_slots, mobile_status_tones, MenuCardState, MenuStatus,
+        MobileCardTreatment, MobileFooterPart, MobileRowSlot, MOBILE_CHECK, MOBILE_CHIP_HEIGHT,
     };
+    use crate::theme::{to_rgb, AppTheme};
     use snackpilot_core::domain::{MenuCategory, MenuItem};
+    use snackpilot_model::desktop::contrast_ratio;
+    use snackpilot_model::tokens;
 
     fn item(title: &str, subtitle: &str) -> MenuItem {
         MenuItem {
@@ -391,16 +356,15 @@ mod tests {
         }
     }
 
-    /// Sample M2's defect fix (REQ-SCR-01/REQ-UI-15): the compact card's main
+    /// Sample M2's defect fix (REQ-SCR-01/REQ-UI-15): the compact row's main
     /// text is the dish `subtitle`, and only an empty subtitle falls back to the
-    /// title. The category heading above the group stays the sole MENÜ label,
-    /// so the card never repeats `MENÜ I` over its own lunch.
+    /// title. Allergens and the price string are carried unchanged.
     /// @req REQ-SCR-01 @req REQ-UI-15
     #[test]
     fn mobile_menu_uses_subtitle_and_empty_fallback() {
-        let dish = "Rindsgulasch mit Serviettenknödel, Rahmsauce und Blattsalat mit Kürbiskernöl";
+        let dish = "Rindsgulasch mit Serviettenknödel, Rahmsauce und Blattsalat mit Kürbiskörnern";
         let full = item("MENÜ I", dish);
-        assert_eq!(mobile_dish(&full), dish, "the card shows the actual dish");
+        assert_eq!(mobile_dish(&full), dish, "the row shows the actual dish");
         assert_ne!(mobile_dish(&full), "MENÜ I", "the category is not the dish");
 
         for subtitle in ["", "   "] {
@@ -408,71 +372,152 @@ mod tests {
             assert_eq!(
                 mobile_dish(&empty),
                 "MENÜ II",
-                "an empty subtitle falls back to the title, never a blank card"
+                "an empty subtitle falls back to the title, never a blank row"
             );
         }
-        // Allergens and the price string are carried unchanged: nothing here
-        // rewrites the domain text.
         assert_eq!(full.allergens, vec!["A", "C", "G"]);
         assert_eq!(full.price, "6,40 €");
     }
 
-    /// The compact card's structure, as the builder paints it
-    /// (REQ-SCR-01/REQ-UI-15): a pending selection reserves the inline 24 px
-    /// check slot before the dish (never a floated check, and nothing at all
-    /// when not pending), and the footer keeps the allergens first and wrapping
-    /// above the unchanged right-aligned price string.
+    /// The flat row's meta row (REQ-SCR-01/REQ-UI-15): the 24 px pending check
+    /// is the last name-line slot and never shares it with the price. The
+    /// wrapping allergen line sits left and the price is the trailing meta-row
+    /// part, so a two-line dish cannot crowd it. The shared row recipe is the
+    /// one 12 radius / 16 padding / 1 px surface.
     /// @req REQ-SCR-01 @req REQ-UI-15
     #[test]
-    fn mobile_menu_card_check_slot_and_footer_order() {
-        // Selected: one reserved 24 px slot, then the dish.
+    fn mobile_menu_price_is_in_the_trailing_meta_row() {
         assert_eq!(
-            mobile_card_name_slots(true),
-            vec![MobileNameSlot::Check(24.), MobileNameSlot::Dish],
-            "the check is an inline slot before the dish"
+            mobile_row_slots(true),
+            vec![MobileRowSlot::Dish, MobileRowSlot::Check(MOBILE_CHECK)],
+            "the pending check is the trailing name-line slot"
         );
-        // Not selected: no slot, so the dish keeps the full row.
-        assert_eq!(mobile_card_name_slots(false), vec![MobileNameSlot::Dish]);
-
-        // Allergens first (left, wrapping), the price last (right, unchanged).
-        let full = item("MENÜ II", "Gemüse-Curry mit Basmatireis und Naan-Brot");
-        let footer = mobile_card_footer(&full);
+        assert_eq!(MOBILE_CHECK, 24.);
         assert_eq!(
-            footer,
+            mobile_row_slots(false),
+            vec![MobileRowSlot::Dish],
+            "no reserved check when the dish is not pending"
+        );
+
+        let full = item("MENÜ II", "Gemüse-Curry mit Basmatireis und Naan-Brot");
+        assert_eq!(
+            mobile_card_footer(&full),
             vec![
                 MobileFooterPart::Allergens("Allergene: A, C, G".into()),
-                MobileFooterPart::Price(full.price.clone()),
+                MobileFooterPart::Price("6,40 €".into()),
             ],
-            "allergens come above the right-aligned price"
+            "allergens stay left, the price is the trailing meta-row part"
         );
-        match &footer[1] {
-            MobileFooterPart::Price(price) => {
-                assert_eq!(price, "6,40 €", "the domain price string is unchanged")
-            }
-            other => panic!("the price is the trailing part, got {other:?}"),
-        }
-        // A dish without allergens keeps only the price line — no empty row.
         let plain = MenuItem {
             allergens: Vec::new(),
             ..full.clone()
         };
         assert_eq!(
             mobile_card_footer(&plain),
-            vec![MobileFooterPart::Price("6,40 €".into())]
+            vec![MobileFooterPart::Price("6,40 €".into())],
+            "the price is always present, even without allergens"
         );
+
+        let theme = AppTheme::build(false);
+        let row = theme.card_surface();
+        assert_eq!(row.radius, gpui_kit::px(tokens::RADIUS_CARD));
+        assert_eq!(row.border.map(|(w, _)| w), Some(gpui_kit::px(1.)));
+        assert_eq!(theme.scale.space_4, 16.);
+        assert_eq!(MOBILE_CHIP_HEIGHT, 24.);
     }
 
-    /// The pending-cancel treatment and the four-line cap (REQ-SCR-01/
-    /// REQ-UI-15): a queued cancellation is a dashed boundary with a struck
-    /// dish on readable ink (never a blanket opacity), it outranks the
-    /// selection tint, and the dish can never paint more than four body lines
-    /// before it clips.
+    /// The one status word per row (REQ-SCR-01/REQ-UI-15): pending
+    /// cancellation outranks ordered, ordered outranks the pending selection,
+    /// a pending selection outranks sold out, and a dish past the cutoff carries
+    /// no chip. Every toned surface keeps a readable word (never colour alone).
     /// @req REQ-SCR-01 @req REQ-UI-15
     #[test]
-    fn mobile_menu_card_pending_cancel_and_line_cap() {
-        use crate::theme::AppTheme;
-        use snackpilot_model::AccentColor;
+    fn mobile_menu_status_chip_words_and_readable_tones() {
+        assert_eq!(
+            mobile_menu_status(&MenuCardState {
+                pending_cancel: true,
+                ordered: true,
+                selected: true,
+                available: false,
+                cutoff: true,
+            })
+            .unwrap()
+            .label(),
+            "Stornierung offen"
+        );
+        let ordered = MenuCardState {
+            ordered: true,
+            ..state()
+        };
+        assert_eq!(mobile_menu_status(&ordered), Some(MenuStatus::Ordered));
+        assert_eq!(MenuStatus::Ordered.label(), "Bestellt");
+        let reserved = MenuCardState {
+            selected: true,
+            ..state()
+        };
+        assert_eq!(mobile_menu_status(&reserved), Some(MenuStatus::Reserved));
+        assert_eq!(MenuStatus::Reserved.label(), "Reserviert");
+        assert_eq!(
+            mobile_menu_status(&MenuCardState {
+                available: false,
+                ..state()
+            }),
+            Some(MenuStatus::SoldOut)
+        );
+        assert_eq!(MenuStatus::SoldOut.label(), "Ausgebucht");
+        assert_eq!(mobile_menu_status(&state()), Some(MenuStatus::Open));
+        assert_eq!(MenuStatus::Open.label(), "Geöffnet");
+        assert_eq!(
+            mobile_menu_status(&MenuCardState {
+                cutoff: true,
+                ..state()
+            }),
+            None,
+            "a closed dish is not a status word; it is simply not tappable"
+        );
 
+        // Each chip's word reads at 4.5:1 on its own toned surface.
+        for dark in [false, true] {
+            let theme = AppTheme::build(dark);
+            for status in [
+                MenuStatus::Open,
+                MenuStatus::Reserved,
+                MenuStatus::Ordered,
+                MenuStatus::Cancelling,
+                MenuStatus::SoldOut,
+            ] {
+                let (fill, ink, border) = mobile_status_tones(status, &theme);
+                let on_fill = to_rgb(fill, fill);
+                assert!(
+                    contrast_ratio(to_rgb(ink, fill), on_fill) >= tokens::TEXT_MIN_CONTRAST,
+                    "{} on its chip in {}",
+                    status.label(),
+                    if dark { "dark" } else { "light" }
+                );
+                if status == MenuStatus::Open {
+                    // The neutral chip is one flat surface: its hairline is
+                    // decorative, not a control boundary.
+                    assert_ne!(border, fill);
+                } else {
+                    assert!(
+                        contrast_ratio(to_rgb(border, fill), on_fill)
+                            >= tokens::CONTROL_MIN_CONTRAST,
+                        "{} boundary in {}",
+                        status.label(),
+                        if dark { "dark" } else { "light" }
+                    );
+                }
+            }
+        }
+    }
+
+    /// The pending-cancel treatment and eligibility (REQ-SCR-01): a queued
+    /// cancellation is the one struck, dashed row; a pending selection is not a
+    /// cancellation, and a pending selection never makes an unavailable or
+    /// closed dish tappable.
+    /// @req REQ-SCR-01
+    #[test]
+    fn mobile_menu_pending_cancel_and_eligibility() {
         let pending_cancel = MenuCardState {
             pending_cancel: true,
             selected: true,
@@ -492,113 +537,9 @@ mod tests {
             MobileCardTreatment::Selected,
             "the selection tint is not a cancellation"
         );
-        assert_eq!(
-            mobile_card_treatment(&MenuCardState {
-                ordered: true,
-                ..state()
-            }),
-            MobileCardTreatment::Ordered
-        );
         assert_eq!(mobile_card_treatment(&state()), MobileCardTreatment::Plain);
         assert!(!mobile_card_treatment(&state()).struck());
 
-        // Four body lines is the dish's whole height, so a fifth line clips
-        // instead of pushing the price and badge out of the card.
-        let theme = AppTheme::build(false, AccentColor::Orange, false);
-        assert_eq!(MOBILE_DISH_LINES, 4);
-        assert_eq!(mobile_dish_max_height(&theme), theme.mobile.body_line * 4.);
-        assert!(
-            mobile_dish_max_height(&theme) < theme.mobile.body_line * 5.,
-            "a fifth line cannot paint"
-        );
-    }
-
-    /// The badge and the pending check stay distinct (REQ-SCR-01): the badge is
-    /// one status word in the §4.5 precedence cancellation → ordered →
-    /// unavailable → cutoff, carries no check glyph, and eligibility is the
-    /// incumbent model gate `ordered || (available && !cutoff)` — a pending
-    /// selection never makes an unavailable or closed dish tappable.
-    /// @req REQ-SCR-01
-    #[test]
-    fn mobile_menu_badge_precedence_and_eligibility() {
-        // Precedence: every later flag loses to the earlier one.
-        let all = MenuCardState {
-            pending_cancel: true,
-            ordered: true,
-            available: false,
-            cutoff: true,
-            ..state()
-        };
-        assert_eq!(mobile_badge_label(&all), Some("Wird storniert"));
-        assert_eq!(
-            mobile_badge_label(&MenuCardState {
-                ordered: true,
-                available: false,
-                cutoff: true,
-                ..state()
-            }),
-            Some("Bestellt")
-        );
-        assert_eq!(
-            mobile_badge_label(&MenuCardState {
-                available: false,
-                cutoff: true,
-                ..state()
-            }),
-            Some("Ausverkauft")
-        );
-        assert_eq!(
-            mobile_badge_label(&MenuCardState {
-                cutoff: true,
-                ..state()
-            }),
-            Some("Geschlossen")
-        );
-        assert_eq!(
-            mobile_badge_label(&state()),
-            None,
-            "a plain dish has no badge"
-        );
-
-        // A badge is a status word, never a check mark: the pending check is
-        // the inline Lucide slot, and the two can coexist.
-        let badged = [
-            MenuCardState {
-                pending_cancel: true,
-                ..state()
-            },
-            MenuCardState {
-                ordered: true,
-                ..state()
-            },
-            MenuCardState {
-                available: false,
-                ..state()
-            },
-            MenuCardState {
-                cutoff: true,
-                ..state()
-            },
-        ];
-        for flags in badged {
-            let label = mobile_badge_label(&flags).unwrap();
-            assert!(
-                !label.contains('✓') && !label.contains("Vorgemerkt"),
-                "{label} must not read as the check"
-            );
-        }
-        let selected_and_badged = MenuCardState {
-            selected: true,
-            ordered: true,
-            ..state()
-        };
-        assert_eq!(mobile_badge_label(&selected_and_badged), Some("Bestellt"));
-
-        // Eligibility is the incumbent gate: ordered items stay tappable for
-        // their cancellation, available-and-open items are, an unavailable or
-        // closed new item is not — and a pending selection does not change
-        // that (the review's regression: `|| selected` made a picked dish that
-        // became unavailable tappable again).
         assert!(mobile_menu_tappable(&state()));
         assert!(mobile_menu_tappable(&MenuCardState {
             ordered: true,
@@ -621,12 +562,6 @@ mod tests {
             },
             MenuCardState {
                 selected: true,
-                cutoff: true,
-                ..state()
-            },
-            MenuCardState {
-                selected: true,
-                available: false,
                 cutoff: true,
                 ..state()
             },
@@ -660,23 +595,19 @@ pub fn desktop_menu_status(
     theme: &AppTheme,
 ) -> Option<(&'static str, Hsla, Hsla)> {
     if state.pending_cancel {
-        return Some(("Wird storniert", theme.warning_text, theme.warning_surface));
+        return Some(("Wird storniert", theme.warning, theme.warning_surface));
     }
     if state.pending_order {
-        return Some((
-            "✓ Vorgemerkt",
-            theme.desktop.accent_on_selection,
-            theme.primary_surface,
-        ));
+        return Some(("✓ Vorgemerkt", theme.accent, theme.accent_surface));
     }
     if state.ordered {
-        return Some(("Bestellt", theme.success_text, theme.success_surface));
+        return Some(("Bestellt", theme.success, theme.success_surface));
     }
     if !state.available {
-        return Some(("Ausverkauft", theme.error_text, theme.error_surface));
+        return Some(("Ausverkauft", theme.error, theme.error_surface));
     }
     if state.cutoff {
-        return Some(("Geschlossen", theme.warning_text, theme.warning_surface));
+        return Some(("Geschlossen", theme.warning, theme.warning_surface));
     }
     None
 }
@@ -696,134 +627,4 @@ pub fn desktop_menu_action(state: &DesktopMenuRowState) -> Option<(&'static str,
     } else {
         None
     }
-}
-
-/// One wide-desktop grouped menu row: min 88 px, 12/16 padding, category/title
-/// 14/20 Semibold, a two-line 14/20 excerpt and price plus one status 12/16.
-/// The 3 px accent rule is always present so selecting never shifts the row;
-/// picking it previews only, which the caller wires.
-/// @req REQ-SCR-01 @req REQ-UI-12
-pub fn desktop_menu_row(
-    item: &MenuItem,
-    state: DesktopMenuRowState,
-    on_click: ClickHandler,
-    focus: Option<&RowFocus>,
-    theme: &AppTheme,
-) -> AnyElement {
-    let selected = state.selected;
-    // Never fabricate a dish: an empty subtitle falls back to the title.
-    let excerpt = if item.subtitle.trim().is_empty() {
-        item.title.clone()
-    } else {
-        item.subtitle.clone()
-    };
-    let excerpt = div()
-        .max_h(px(40.))
-        .overflow_hidden()
-        .text_size(px(14.))
-        .line_height(px(20.))
-        .text_color(if state.pending_cancel {
-            theme.text_tertiary
-        } else {
-            theme.text_secondary
-        })
-        .child(excerpt);
-    let excerpt = if state.pending_cancel {
-        excerpt.line_through()
-    } else {
-        excerpt
-    };
-
-    let mut bottom = div()
-        .mt(px(4.))
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(8.))
-        .child(
-            div()
-                .text_size(px(12.))
-                .line_height(px(16.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_primary)
-                .child(item.price.clone()),
-        );
-    if let Some((label, ink, fill)) = desktop_menu_status(&state, theme) {
-        bottom = bottom.child(
-            div()
-                .px(px(8.))
-                .py(px(2.))
-                .rounded(px(4.))
-                .bg(fill)
-                .text_size(px(12.))
-                .line_height(px(16.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(ink)
-                .whitespace_nowrap()
-                .child(label),
-        );
-    }
-
-    let mut row = div()
-        .id(SharedString::from(format!(
-            "desktop-menu-{}",
-            menu_key(item)
-        )))
-        .min_h(px(88.))
-        .flex_shrink_0()
-        .flex()
-        .border_b_1()
-        .border_color(theme.border)
-        .bg(if selected {
-            theme.primary_surface
-        } else {
-            theme.surface
-        })
-        .hover(|s| s.bg(theme.surface_variant))
-        .focus(crate::theme::desktop_focus(theme.desktop.focus));
-    // Inside the wide list the list owns the one tab stop and this row is
-    // focused by its roving handle; a standalone row keeps its own tab stop.
-    row = match focus {
-        Some(focus) => row
-            .track_focus(&focus.handle)
-            .anchor_scroll(Some(focus.anchor.clone())),
-        None => row.tab_index(0),
-    };
-    row.cursor_pointer()
-        .on_click(move |_, window, cx| on_click(window, cx))
-        .child(
-            div()
-                .w(px(3.))
-                .self_stretch()
-                .flex_shrink_0()
-                .bg(if selected {
-                    theme.desktop.accent_boundary
-                } else {
-                    hsla(0., 0., 0., 0.)
-                }),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .justify_center()
-                .gap(px(2.))
-                .px(px(16.))
-                .py(px(12.))
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .line_height(px(20.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme.text_primary)
-                        .text_ellipsis()
-                        .whitespace_nowrap()
-                        .child(item.title.clone()),
-                )
-                .child(excerpt)
-                .child(bottom),
-        )
-        .into_any_element()
 }

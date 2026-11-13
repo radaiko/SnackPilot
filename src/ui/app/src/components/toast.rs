@@ -81,7 +81,7 @@ pub fn toast_top(base_top: f32, slide: f32, phase: ToastPhase, t: f32) -> f32 {
 }
 
 /// The toast box: `left/right 16`, `padding 12`, tinted banner in
-/// `glassPrimary`, text 14/600 in `primary`, top edge at `safeTop + 8`.
+/// the accent surface, semibold text, top edge at `safeTop + 8`.
 pub fn toast_overlay(toast: &Toast, safe_top: f32, theme: &AppTheme) -> AnyElement {
     toast_overlay_motion(toast, safe_top, SLIDE, theme)
 }
@@ -100,22 +100,22 @@ pub fn toast_overlay_for(
 
 fn toast_overlay_motion(toast: &Toast, safe_top: f32, slide: f32, theme: &AppTheme) -> AnyElement {
     let base_top = safe_top + 8.;
-    let recipe = theme.tinted_banner(theme.glass_primary);
+    let recipe = theme.tinted_banner(theme.accent_surface);
     let card = theme::apply(
         div()
             .absolute()
             .left(px(16.))
             .right(px(16.))
-            .rounded(px(16.))
+            .rounded(px(theme.scale.radius_card))
             .p(px(12.))
             .flex()
             .justify_center()
             .child(
                 div()
-                    .text_size(px(theme.mobile.meta))
-                    .line_height(px(theme.mobile.meta_line))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.primary)
+                    .text_color(theme.text_primary)
                     .child(toast.message.clone()),
             ),
         &recipe,
@@ -141,6 +141,51 @@ fn toast_overlay_motion(toast: &Toast, safe_top: f32, slide: f32, theme: &AppThe
                     el.top(px(toast_top(base_top, slide, ToastPhase::Out, t)))
                         .opacity(1.0 - t)
                 },
+            )
+            .into_any_element(),
+    }
+}
+
+/// Desktop toast: the same 300/4000/300 ms phases, 16 px inset and 8 px
+/// below the workspace top the shell passes, on a surface panel (radius 12,
+/// 1 px border, no shadow). The shell paints it over the workspace only, so
+/// it never covers the rail.
+/// @req REQ-UI-07 @req REQ-UI-13
+pub fn desktop_toast(toast: &Toast, top: f32, theme: &AppTheme) -> AnyElement {
+    let recipe = theme.workspace_panel();
+    let card = theme::apply(
+        div()
+            .absolute()
+            .left(px(16.))
+            .right(px(16.))
+            .p(px(12.))
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .text_size(px(theme.scale.body))
+                    .line_height(px(theme.scale.body_line))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.text_primary)
+                    .child(toast.message.clone()),
+            ),
+        &recipe,
+    );
+
+    match toast.phase {
+        ToastPhase::In => card
+            .with_animation(
+                "desktop-toast-in",
+                Animation::new(DESKTOP_SLIDE_DURATION).with_easing(ease_in_out),
+                move |el, t| el.top(px(top - SLIDE * (1.0 - t))).opacity(t),
+            )
+            .into_any_element(),
+        ToastPhase::Hold => card.top(px(top)).opacity(1.).into_any_element(),
+        ToastPhase::Out => card
+            .with_animation(
+                "desktop-toast-out",
+                Animation::new(DESKTOP_SLIDE_DURATION).with_easing(ease_in_out),
+                move |el, t| el.top(px(top - SLIDE * t)).opacity(1.0 - t),
             )
             .into_any_element(),
     }
@@ -204,51 +249,5 @@ mod tests {
                 base
             );
         }
-    }
-}
-
-/// Desktop toast (brief "Overlays"): the same 300/4000/300 ms phases, 16 px
-/// inset and 8 px below the workspace top the shell passes, on the opaque
-/// panel recipe (radius 12, 1 px border, no shadow) with `text_primary` ink.
-/// The shell paints it over the workspace only, so it never covers the rail
-/// and its arrival stays the one authored motion moment.
-/// @req REQ-UI-07 @req REQ-UI-13
-pub fn desktop_toast(toast: &Toast, top: f32, theme: &AppTheme) -> AnyElement {
-    let recipe = theme.workspace_panel();
-    let card = theme::apply(
-        div()
-            .absolute()
-            .left(px(16.))
-            .right(px(16.))
-            .p(px(12.))
-            .flex()
-            .justify_center()
-            .child(
-                div()
-                    .text_size(px(14.))
-                    .line_height(px(20.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.desktop.ink)
-                    .child(toast.message.clone()),
-            ),
-        &recipe,
-    );
-
-    match toast.phase {
-        ToastPhase::In => card
-            .with_animation(
-                "desktop-toast-in",
-                Animation::new(DESKTOP_SLIDE_DURATION).with_easing(ease_in_out),
-                move |el, t| el.top(px(top - SLIDE * (1.0 - t))).opacity(t),
-            )
-            .into_any_element(),
-        ToastPhase::Hold => card.top(px(top)).opacity(1.).into_any_element(),
-        ToastPhase::Out => card
-            .with_animation(
-                "desktop-toast-out",
-                Animation::new(DESKTOP_SLIDE_DURATION).with_easing(ease_in_out),
-                move |el, t| el.top(px(top - SLIDE * t)).opacity(1.0 - t),
-            )
-            .into_any_element(),
     }
 }

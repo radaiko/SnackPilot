@@ -12,16 +12,16 @@ use std::time::Duration;
 
 use snackpilot_core::domain::MenuCategory;
 use snackpilot_model::desktop::{
-    action_fill, action_hover_fill, action_pressed_fill, boundary_ink, command_allowed,
-    contrast_ratio, control_fill, control_ink, danger_fill, desktop_geometry, focus_ink,
-    layout_mode, mix_toward, nearest_surviving, on_fill, panel_fill, parse_color, rail_fill,
-    readable_ink, text_ink, ControlState, DesktopCommand, EscapeAction, HostKind, KeyScope,
-    LayoutMode, ACTION_HOVER_MIX, ACTION_PRESSED_MIX, CONTENT_MAX, CONTROL_MIN_CONTRAST,
-    DIVIDER_WIDTH, FOCUS_GAP, FOCUS_WIDTH, MASTER_COMPACT, OUTER_COMPACT, OUTER_EXPANDED,
-    PHONE_CONTENT_MAX, RAIL_WIDTH_COMPACT, RAIL_WIDTH_EXPANDED, TARGET_MIN, TEXT_MIN_CONTRAST,
+    command_allowed, contrast_ratio, control_fill, control_ink, desktop_geometry, layout_mode,
+    nearest_surviving, parse_color, text_ink, ControlState, DesktopCommand, EscapeAction, HostKind,
+    KeyScope, LayoutMode, CONTENT_MAX, DIVIDER_WIDTH, MASTER_COMPACT, OUTER_GUTTER, RAIL_WIDTH,
+    ROW_HEIGHT,
 };
 use snackpilot_model::navigation::{ListKind, Screen, SettingsDetail, Tab};
-use snackpilot_model::tokens::{ACCENTS, BACKGROUND, ERROR, SURFACE, TEXT_PRIMARY, TEXT_TERTIARY};
+use snackpilot_model::tokens::FOCUS_GAP;
+use snackpilot_model::tokens::FOCUS_WIDTH;
+use snackpilot_model::tokens::{ACCENT, BG, SURFACE, SURFACE_ALT, TEXT, TEXT_TERTIARY};
+use snackpilot_model::tokens::{CONTENT_MAX as PHONE_CONTENT_MAX, TARGET};
 use snackpilot_model::{
     menu_key, AppModel, BillingSource, FakePlatform, Platform, PlatformError, State,
 };
@@ -385,7 +385,7 @@ fn assert_tiles(
 #[test]
 /// @req REQ-UI-07
 fn desktop_geometry_at_boundaries() {
-    // 719: still the phone shell — no rail, no split, incumbent 480 cap.
+    // 719: still the flat phone shell — no rail, no split, 560 cap.
     let g = desktop_geometry(HostKind::Desktop, 719.0);
     assert_px(g.rail_width, 0., "719 rail");
     assert_px(g.outer_gutter, 0., "719 gutter");
@@ -393,10 +393,10 @@ fn desktop_geometry_at_boundaries() {
     assert_px(g.workspace_width, PHONE_CONTENT_MAX, "719 workspace");
     assert_px(
         g.workspace_width,
-        480.,
+        560.,
         "719 workspace equals the phone cap",
     );
-    assert_px(g.master_width, 480., "719 master");
+    assert_px(g.master_width, 560., "719 master");
     assert_px(g.detail_width, 0., "719 detail");
     assert_px(
         g.master_width + g.divider_width + g.detail_width,
@@ -417,22 +417,22 @@ fn desktop_geometry_at_boundaries() {
     );
     assert_px(
         desktop_geometry(HostKind::Phone, 1280.0).workspace_width,
-        480.,
+        560.,
         "phone workspace",
     );
 
-    // 720: 176 rail, 16 gutters, 512 workspace = 248 + 1 + 263.
+    // 720: one 240 px rail, 16 px gutters, 448 workspace = 248 + 1 + 199.
     let g = desktop_geometry(HostKind::Desktop, 720.0);
-    assert_px(g.rail_width, RAIL_WIDTH_COMPACT, "720 rail");
-    assert_px(g.rail_width, 176., "720 rail is the compact constant");
-    assert_px(g.outer_gutter, OUTER_COMPACT, "720 gutter");
-    assert_px(g.outer_gutter, 16., "720 gutter is the compact constant");
-    assert_px(g.workspace_width, 512., "720 workspace");
+    assert_px(g.rail_width, RAIL_WIDTH, "720 rail");
+    assert_px(g.rail_width, 240., "720 rail is the single rail width");
+    assert_px(g.outer_gutter, OUTER_GUTTER, "720 gutter");
+    assert_px(g.outer_gutter, 16., "720 gutter is the single outer gutter");
+    assert_px(g.workspace_width, 448., "720 workspace");
     assert_px(g.master_width, MASTER_COMPACT, "720 master");
     assert_px(g.master_width, 248., "720 master is the compact constant");
     assert_px(g.divider_width, DIVIDER_WIDTH, "720 divider");
     assert_px(g.divider_width, 1., "720 divider is one pixel");
-    assert_px(g.detail_width, 263., "720 detail");
+    assert_px(g.detail_width, 199., "720 detail");
     assert_tiles(
         g.rail_width,
         g.outer_gutter,
@@ -445,11 +445,11 @@ fn desktop_geometry_at_boundaries() {
 
     // 768: the evidence checkpoint, not a breakpoint — master stays 248.
     let g = desktop_geometry(HostKind::Desktop, 768.0);
-    assert_px(g.rail_width, 176., "768 rail");
+    assert_px(g.rail_width, 240., "768 rail");
     assert_px(g.outer_gutter, 16., "768 gutter");
-    assert_px(g.workspace_width, 560., "768 workspace");
+    assert_px(g.workspace_width, 496., "768 workspace");
     assert_px(g.master_width, 248., "768 master");
-    assert_px(g.detail_width, 311., "768 detail");
+    assert_px(g.detail_width, 247., "768 detail");
     assert_tiles(
         g.rail_width,
         g.outer_gutter,
@@ -462,13 +462,13 @@ fn desktop_geometry_at_boundaries() {
 
     // 1023: the last compact width; detail takes the whole remainder.
     let g = desktop_geometry(HostKind::Desktop, 1023.0);
-    assert_px(g.rail_width, 176., "1023 rail");
+    assert_px(g.rail_width, 240., "1023 rail");
     assert_px(g.outer_gutter, 16., "1023 gutter");
     assert_px(g.master_width, 248., "1023 master");
-    assert_px(g.workspace_width, 1023. - 176. - 32., "1023 workspace");
+    assert_px(g.workspace_width, 1023. - 240. - 32., "1023 workspace");
     assert_px(
         g.detail_width,
-        1023. - 176. - 32. - 248. - 1.,
+        1023. - 240. - 32. - 248. - 1.,
         "1023 detail",
     );
     assert_tiles(
@@ -481,15 +481,19 @@ fn desktop_geometry_at_boundaries() {
         1023.0,
     );
 
-    // 1024: expanded — 192 rail, 24 gutters, 56/44 of the interior width.
+    // 1024: expanded — same 240 rail, 56/44 of the interior width.
     let g = desktop_geometry(HostKind::Desktop, 1024.0);
-    assert_px(g.rail_width, RAIL_WIDTH_EXPANDED, "1024 rail");
-    assert_px(g.rail_width, 192., "1024 rail is the expanded constant");
-    assert_px(g.outer_gutter, OUTER_EXPANDED, "1024 gutter");
-    assert_px(g.outer_gutter, 24., "1024 gutter is the expanded minimum");
-    assert_px(g.workspace_width, 784., "1024 workspace");
-    assert_px(g.master_width, (784. - 1.) * 0.56, "1024 master");
-    assert_px(g.detail_width, (784. - 1.) * 0.44, "1024 detail");
+    assert_px(g.rail_width, RAIL_WIDTH, "1024 rail");
+    assert_px(g.rail_width, 240., "1024 rail is the single rail width");
+    assert_px(g.outer_gutter, OUTER_GUTTER, "1024 gutter");
+    assert_px(
+        g.outer_gutter,
+        16.,
+        "1024 gutter is the single outer gutter",
+    );
+    assert_px(g.workspace_width, 752., "1024 workspace");
+    assert_px(g.master_width, (752. - 1.) * 0.56, "1024 master");
+    assert_px(g.detail_width, (752. - 1.) * 0.44, "1024 detail");
     assert_tiles(
         g.rail_width,
         g.outer_gutter,
@@ -500,12 +504,12 @@ fn desktop_geometry_at_boundaries() {
         1024.0,
     );
 
-    // 1280: the workspace hits its 960 cap, so the gutters grow to 64 each.
+    // 1280: the workspace hits its 960 cap, so the gutters grow to 40 each.
     let g = desktop_geometry(HostKind::Desktop, 1280.0);
-    assert_px(g.rail_width, 192., "1280 rail");
+    assert_px(g.rail_width, 240., "1280 rail");
     assert_px(g.workspace_width, CONTENT_MAX, "1280 workspace");
     assert_px(g.workspace_width, 960., "1280 workspace is the content cap");
-    assert_px(g.outer_gutter, 64., "1280 gutters");
+    assert_px(g.outer_gutter, 40., "1280 gutters");
     assert_px(g.master_width, (960. - 1.) * 0.56, "1280 master");
     assert_px(g.detail_width, (960. - 1.) * 0.44, "1280 detail");
     assert_tiles(
@@ -521,7 +525,7 @@ fn desktop_geometry_at_boundaries() {
     // Past the cap the gutters absorb the extra width; the workspace holds.
     let g = desktop_geometry(HostKind::Desktop, 1600.0);
     assert_px(g.workspace_width, 960., "1600 workspace stays capped");
-    assert_px(g.outer_gutter, (1600. - 192. - 960.) / 2., "1600 gutters");
+    assert_px(g.outer_gutter, (1600. - 240. - 960.) / 2., "1600 gutters");
     assert_tiles(
         g.rail_width,
         g.outer_gutter,
@@ -532,8 +536,9 @@ fn desktop_geometry_at_boundaries() {
         1600.0,
     );
 
-    // Every desktop target is at least 44 px, whatever the width.
-    assert_px(TARGET_MIN, 44., "desktop target floor");
+    // Every desktop target is at least 44 px and every list row is 40 px.
+    assert_px(TARGET, 44., "desktop target floor");
+    assert_px(ROW_HEIGHT, 40., "desktop list row");
 
     // The shell reads the same numbers through the model, on every resize.
     let (model, _fake) = demo_model("geometry");
@@ -541,269 +546,17 @@ fn desktop_geometry_at_boundaries() {
     model.set_content_width(720.0);
     assert_px(
         model.desktop_geometry().detail_width,
-        263.,
+        199.,
         "model 720 detail",
     );
     model.set_content_width(1280.0);
     assert_px(
         model.desktop_geometry().outer_gutter,
-        64.,
+        40.,
         "model 1280 gutter",
     );
     model.set_host_kind(HostKind::Phone);
     assert_px(model.desktop_geometry().rail_width, 0., "model phone rail");
-}
-
-#[test]
-/// @req REQ-UI-13
-fn desktop_contrast_all_accents() {
-    // The two inks a filled action may resolve to are the existing constants,
-    // not new hues: SURFACE.light (white) and BACKGROUND.dark (black).
-    let white = parse_color(SURFACE.light);
-    let black = parse_color(BACKGROUND.dark);
-
-    for accent in ACCENTS.iter() {
-        for dark in [false, true] {
-            let colors = if dark { &accent.dark } else { &accent.light };
-            let ink = text_ink(dark);
-            let panel = panel_fill(dark);
-            let rail = rail_fill(dark);
-
-            let rest = action_fill(colors, dark);
-            let hover = action_hover_fill(rest, ink);
-            let pressed = action_pressed_fill(rest, ink);
-            let danger = danger_fill(dark);
-
-            // Hover and press are the brief's 8 % / 14 % linear-sRGB mixes of
-            // the actual fill with text_primary, and really differ.
-            assert_eq!(
-                hover,
-                mix_toward(rest, ink, ACTION_HOVER_MIX),
-                "{} hover mix",
-                accent.id
-            );
-            assert_eq!(
-                pressed,
-                mix_toward(rest, ink, ACTION_PRESSED_MIX),
-                "{} pressed mix",
-                accent.id
-            );
-            assert_ne!(hover, rest, "{} hover must differ", accent.id);
-            assert_ne!(
-                pressed, hover,
-                "{} pressed must differ from hover",
-                accent.id
-            );
-
-            for (state, fill) in [
-                ("action rest", rest),
-                ("action hover", hover),
-                ("action pressed", pressed),
-                ("danger rest", danger),
-                ("danger hover", action_hover_fill(danger, ink)),
-                ("danger pressed", action_pressed_fill(danger, ink)),
-            ] {
-                // Text on the actual fill: the higher-contrast of the two
-                // constants, chosen independently per fill, at 4.5:1 or better.
-                let on = on_fill(fill);
-                let ratio = contrast_ratio(on, fill);
-                assert!(
-                    ratio >= TEXT_MIN_CONTRAST,
-                    "{} {state}: ink {on:?} only reaches {ratio:.2}:1",
-                    accent.id
-                );
-                let preferred = if contrast_ratio(white, fill) >= contrast_ratio(black, fill) {
-                    white
-                } else {
-                    black
-                };
-                assert_eq!(
-                    on, preferred,
-                    "{} {state}: ink is not the higher-contrast constant",
-                    accent.id
-                );
-
-                // The fill is a control boundary: 3:1 against both containers.
-                let on_panel = contrast_ratio(fill, panel);
-                let on_rail = contrast_ratio(fill, rail);
-                assert!(
-                    on_panel >= CONTROL_MIN_CONTRAST && on_rail >= CONTROL_MIN_CONTRAST,
-                    "{} {state}: fill {fill:?} reaches only {on_panel:.2}:1 / {on_rail:.2}:1",
-                    accent.id
-                );
-            }
-
-            // Accent as text (active rail row, selected desktop chip) is
-            // resolved against the fill it really sits on: the accent stays
-            // only where it clears 4.5:1, otherwise `text_primary` takes over.
-            let accent_ink = parse_color(colors.primary);
-            for (name, fill) in [
-                ("panel", panel),
-                ("rail", rail),
-                ("selection", control_fill(ControlState::Selected, dark)),
-            ] {
-                let accent_text = readable_ink(fill, accent_ink);
-                let ratio = contrast_ratio(accent_text, fill);
-                assert!(
-                    ratio >= TEXT_MIN_CONTRAST,
-                    "{}: accent text on {name} is {ratio:.2}:1",
-                    accent.id
-                );
-                let want = if contrast_ratio(accent_ink, fill) >= TEXT_MIN_CONTRAST {
-                    accent_ink
-                } else {
-                    ink
-                };
-                assert_eq!(
-                    accent_text, want,
-                    "{}: accent text on {name} resolves against that fill",
-                    accent.id
-                );
-            }
-
-            // The selected desktop chip paints the accent on the selection fill
-            // (not the panel), so that pair resolves there and must clear 4.5:1.
-            let selected = control_fill(ControlState::Selected, dark);
-            let chip_text = readable_ink(selected, accent_ink);
-            let chip_ratio = contrast_ratio(chip_text, selected);
-            assert!(
-                chip_ratio >= TEXT_MIN_CONTRAST,
-                "{}: selected chip text is {chip_ratio:.2}:1",
-                accent.id
-            );
-            // Every desktop accent *edge* sits on that same selection fill, so
-            // all three share one resolution at the 3:1 control floor: the
-            // selected card's 1 px border (card.rs), the selected chip's 1 px
-            // border (chip.rs) and the record table's 3 px selected-row rule
-            // (record_table.rs) all paint `theme.desktop.accent_boundary`.
-            // Light golden's accent misses 3:1 here, so a raw `theme.primary`
-            // would be a real contrast defect, not a cosmetic one.
-            let edge_ink = boundary_ink(selected, accent_ink);
-            let edge = contrast_ratio(edge_ink, selected);
-            assert!(
-                edge >= CONTROL_MIN_CONTRAST,
-                "{}: selected card/chip/table edge on its fill is {edge:.2}:1",
-                accent.id
-            );
-            assert_eq!(
-                edge_ink,
-                if contrast_ratio(accent_ink, selected) >= CONTROL_MIN_CONTRAST {
-                    accent_ink
-                } else {
-                    ink
-                },
-                "{}: selected card/chip/table edge resolves against its fill",
-                accent.id
-            );
-
-            // Focus ring and body text against the containers they sit on.
-            let focus = focus_ink(dark);
-            let want_focus = if dark {
-                TEXT_PRIMARY.dark
-            } else {
-                TEXT_PRIMARY.light
-            };
-            assert_eq!(focus, parse_color(want_focus), "focus ink is text_primary");
-            for (name, container) in [("panel", panel), ("rail", rail)] {
-                let ring = contrast_ratio(focus, container);
-                assert!(
-                    ring >= CONTROL_MIN_CONTRAST,
-                    "{}: focus ring on {name} is {ring:.2}:1",
-                    accent.id
-                );
-                let body = contrast_ratio(ink, container);
-                assert!(
-                    body >= TEXT_MIN_CONTRAST,
-                    "{}: body ink on {name} is {body:.2}:1",
-                    accent.id
-                );
-            }
-        }
-    }
-
-    // readable_ink keeps the preferred ink only when it actually clears 4.5:1.
-    use snackpilot_model::tokens::{TEXT_SECONDARY, TEXT_TERTIARY};
-    let panel = panel_fill(false);
-    let ink = text_ink(false);
-    let secondary = parse_color(TEXT_SECONDARY.light);
-    assert!(
-        contrast_ratio(secondary, panel) >= TEXT_MIN_CONTRAST,
-        "the pinned secondary ink is meant to stay readable"
-    );
-    assert_eq!(
-        readable_ink(panel, secondary),
-        secondary,
-        "a readable preferred ink is kept"
-    );
-    let tertiary = parse_color(TEXT_TERTIARY.light);
-    assert!(
-        contrast_ratio(tertiary, panel) < TEXT_MIN_CONTRAST,
-        "this test needs an ink that really fails 4.5:1"
-    );
-    assert_eq!(
-        readable_ink(panel, tertiary),
-        ink,
-        "an unreadable preferred ink falls back to text_primary"
-    );
-
-    // The danger fill is the incumbent error token, not a new hue.
-    assert_eq!(danger_fill(false), parse_color(ERROR.light));
-    assert_eq!(danger_fill(true), parse_color(ERROR.dark));
-}
-
-/// A desktop component's accent edge is a control boundary on the selection
-/// fill, so it paints `theme.desktop.accent_boundary` (`boundary_ink`), never
-/// the raw `theme.primary`: light golden's accent misses 3:1 there. This is a
-/// source guard because the app crate cannot be compiled on this host; it
-/// reads the three component files as text and fails on a raw accent edge.
-/// @req REQ-UI-13
-#[test]
-fn desktop_accent_edges_use_the_resolved_boundary_ink() {
-    // Whitespace runs collapsed, so an edge written across lines still reads
-    // as one expression.
-    let squeeze = |src: &str| src.split_whitespace().collect::<Vec<_>>().join(" ");
-    let selection = control_fill(ControlState::Selected, false);
-
-    for (name, src) in [
-        ("card.rs", include_str!("../../app/src/components/card.rs")),
-        ("chip.rs", include_str!("../../app/src/components/chip.rs")),
-        (
-            "record_table.rs",
-            include_str!("../../app/src/components/record_table.rs"),
-        ),
-    ] {
-        let src = squeeze(src);
-        assert!(
-            src.contains("theme.desktop.accent_boundary"),
-            "{name}: the accent edge must resolve through accent_boundary"
-        );
-        for raw in [
-            ".border_color(if selected { theme.primary }",
-            ".border_color(if state == ControlState::Selected { theme.primary }",
-            ".bg(if selected { theme.primary }",
-        ] {
-            assert!(
-                !src.contains(raw),
-                "{name}: `{raw}` paints the raw accent; use theme.desktop.accent_boundary"
-            );
-        }
-    }
-
-    // The resolution is not a no-op for the accent that misses the floor.
-    let golden = ACCENTS
-        .iter()
-        .find(|a| a.id == "golden")
-        .expect("the golden accent exists");
-    let golden_accent = parse_color(golden.light.primary);
-    assert!(
-        contrast_ratio(golden_accent, selection) < CONTROL_MIN_CONTRAST,
-        "this guard needs an accent that really fails 3:1 on the selection fill"
-    );
-    assert_ne!(
-        boundary_ink(selection, golden_accent),
-        golden_accent,
-        "light golden's accent cannot carry a selected edge; it falls back to ink"
-    );
 }
 
 #[test]
@@ -1640,10 +1393,10 @@ fn host_layout_wiring_drives_geometry() {
     model.set_host_kind(HostKind::Desktop);
     model.set_content_width(1024.0);
     let wide = model.desktop_geometry();
-    assert_eq!(wide.rail_width, RAIL_WIDTH_EXPANDED, "wide desktop rail");
-    assert_eq!(wide.outer_gutter, OUTER_EXPANDED, "wide desktop gutter");
+    assert_eq!(wide.rail_width, RAIL_WIDTH, "wide desktop rail");
+    assert_eq!(wide.outer_gutter, OUTER_GUTTER, "wide desktop gutter");
     assert_eq!(
-        wide.workspace_width, 784.0,
+        wide.workspace_width, 752.0,
         "1024 workspace is rail-and-gutter remainder"
     );
     assert_eq!(wide.divider_width, DIVIDER_WIDTH, "wide desktop divider");
@@ -1659,13 +1412,13 @@ fn host_layout_wiring_drives_geometry() {
         "wide window hits the content cap"
     );
     assert_eq!(
-        capped.outer_gutter, 64.0,
+        capped.outer_gutter, 40.0,
         "past the cap the gutters absorb the rest"
     );
 
     model.set_content_width(768.0);
     let mid = model.desktop_geometry();
-    assert_eq!(mid.rail_width, RAIL_WIDTH_COMPACT, "compact desktop rail");
+    assert_eq!(mid.rail_width, RAIL_WIDTH, "compact desktop rail");
     assert_eq!(
         mid.master_width, MASTER_COMPACT,
         "compact desktop master is pinned"
@@ -1744,81 +1497,41 @@ fn app_model_is_send_and_sync() {
 /// @req REQ-UI-13
 #[test]
 fn desktop_control_states_resolve_from_tokens() {
-    assert_eq!(TARGET_MIN, 44.0, "target floor");
+    assert_eq!(TARGET, 44.0, "target floor");
     assert_eq!(FOCUS_WIDTH, 2.0, "focus ring width");
     assert_eq!(FOCUS_GAP, 2.0, "focus ring gap");
 
     for dark in [false, true] {
-        let surface = parse_color(if dark { SURFACE.dark } else { SURFACE.light });
-        let variant = parse_color(if dark {
-            snackpilot_model::tokens::SURFACE_VARIANT.dark
-        } else {
-            snackpilot_model::tokens::SURFACE_VARIANT.light
-        });
-        let selection = parse_color(if dark {
-            snackpilot_model::tokens::PRIMARY_SURFACE.dark
-        } else {
-            snackpilot_model::tokens::PRIMARY_SURFACE.light
-        });
-        let tertiary = parse_color(if dark {
-            TEXT_TERTIARY.dark
-        } else {
-            TEXT_TERTIARY.light
-        });
+        let pick = |t: snackpilot_model::tokens::ColorToken| {
+            parse_color(if dark { t.dark } else { t.light })
+        };
+        let surface = pick(SURFACE);
+        let variant = pick(SURFACE_ALT);
+        let selection = pick(snackpilot_model::tokens::ACCENT_SURFACE);
+        let tertiary = pick(TEXT_TERTIARY);
 
-        assert_eq!(
-            control_fill(ControlState::Rest, dark),
-            surface,
-            "rest is the surface fill"
-        );
-        assert_eq!(
-            control_fill(ControlState::Hover, dark),
-            variant,
-            "hover is surface_variant"
-        );
-        assert_eq!(
-            control_fill(ControlState::Selected, dark),
-            selection,
-            "selected is primary_surface"
-        );
-        assert_eq!(
-            control_fill(ControlState::Focus, dark),
-            surface,
-            "focus keeps the rest fill; the ring carries focus"
-        );
-        assert_eq!(
-            control_fill(ControlState::Disabled, dark),
-            surface,
-            "disabled keeps the rest fill"
-        );
+        assert_eq!(control_fill(ControlState::Rest, dark), surface);
+        assert_eq!(control_fill(ControlState::Hover, dark), variant);
+        assert_eq!(control_fill(ControlState::Selected, dark), selection);
+        assert_eq!(control_fill(ControlState::Focus, dark), surface);
+        assert_eq!(control_fill(ControlState::Disabled, dark), surface);
+        assert_eq!(control_ink(ControlState::Rest, dark), text_ink(dark));
+        assert_eq!(control_ink(ControlState::Selected, dark), text_ink(dark));
+        assert_eq!(control_ink(ControlState::Disabled, dark), tertiary);
 
-        assert_eq!(
-            control_ink(ControlState::Rest, dark),
-            text_ink(dark),
-            "rest ink is text_primary"
-        );
-        assert_eq!(
-            control_ink(ControlState::Selected, dark),
-            text_ink(dark),
-            "selected ink is text_primary"
-        );
-        assert_eq!(
-            control_ink(ControlState::Disabled, dark),
-            tertiary,
-            "disabled ink is text_tertiary"
-        );
-
-        // Focus is visible, distinct from rest and from selection, on both the
-        // panel and the rail at the 3:1 control floor.
         assert!(ControlState::Focus.ring_visible());
         assert!(!ControlState::Selected.ring_visible());
-        for (name, bg) in [("panel", panel_fill(dark)), ("rail", rail_fill(dark))] {
-            let ratio = contrast_ratio(focus_ink(dark), bg);
+        // The accent carries the focus ring at 3:1 on both containers.
+        for bg in [pick(SURFACE), pick(BG)] {
             assert!(
-                ratio >= CONTROL_MIN_CONTRAST,
-                "{name} focus ring only reaches {ratio:.2}:1"
+                contrast_ratio(pick(ACCENT), bg) >= snackpilot_model::tokens::CONTROL_MIN_CONTRAST,
+                "focus ring on {bg:?} (dark={dark})"
             );
         }
+        assert!(
+            contrast_ratio(text_ink(dark), surface) >= snackpilot_model::tokens::TEXT_MIN_CONTRAST
+        );
+        assert!(contrast_ratio(pick(TEXT), surface) >= snackpilot_model::tokens::TEXT_MIN_CONTRAST);
     }
 }
 
@@ -1828,13 +1541,13 @@ fn desktop_control_states_resolve_from_tokens() {
 /// @req REQ-UI-15
 #[test]
 fn day_tray_keeps_wide_ledger_geometry() {
-    use snackpilot_model::tokens::mobile;
+    use snackpilot_model::tokens;
 
     let cases = [
         // width, rail, gutter, workspace, master, detail
-        (720., 176., 16., 512., 248., 263.),
-        (768., 176., 16., 560., 248., 311.),
-        (1280., 192., 64., 960., 537.04, 421.96),
+        (720., 240., 16., 448., 248., 199.),
+        (768., 240., 16., 496., 248., 247.),
+        (1280., 240., 40., 960., 537.04, 421.96),
     ];
     for (width, rail, gutter, workspace, master, detail) in cases {
         let geometry = desktop_geometry(HostKind::Desktop, width);
@@ -1845,7 +1558,7 @@ fn day_tray_keeps_wide_ledger_geometry() {
         assert_eq!(geometry.detail_width, detail, "detail at {width}");
         assert_eq!(geometry.divider_width, DIVIDER_WIDTH, "divider at {width}");
         assert!(
-            mobile::geometry(HostKind::Desktop, width).is_none(),
+            tokens::geometry(HostKind::Desktop, width).is_none(),
             "the mobile projection never replaces the Ledger at {width}"
         );
     }
@@ -1863,7 +1576,7 @@ fn day_tray_keeps_wide_ledger_geometry() {
         "720 is the inclusive Ledger gate"
     );
     assert!(
-        mobile::geometry(HostKind::Desktop, 719.).is_some(),
+        tokens::geometry(HostKind::Desktop, 719.).is_some(),
         "the Day Tray column exists exactly below the Ledger gate"
     );
 }

@@ -15,22 +15,22 @@ pub fn broadcast_banner(
     on_dismiss: Rc<dyn Fn(&mut Window, &mut App)>,
     theme: &AppTheme,
 ) -> AnyElement {
-    let r = theme.tinted_banner(theme.glass_warning);
-    let ink = theme.mobile_status_on(theme.mobile_composited(r.bg), "warning");
+    let r = theme.tinted_banner(theme.warning_surface);
+    let ink = theme.warning;
     theme::apply(
         div()
-            .mx(px(theme.mobile.space_4))
-            .mt(px(theme.mobile.space_2))
-            .p(px(theme.mobile.space_3))
+            .mx(px(theme.scale.space_4))
+            .mt(px(theme.scale.space_2))
+            .p(px(theme.scale.space_3))
             .flex()
             .items_center()
             .justify_between()
-            .gap(px(theme.mobile.space_2))
+            .gap(px(theme.scale.space_2))
             .child(
                 div()
                     .flex_1()
-                    .text_size(px(theme.mobile.meta))
-                    .line_height(px(theme.mobile.meta_line))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .text_color(ink)
                     .child(message.to_string()),
             )
@@ -42,15 +42,15 @@ pub fn broadcast_banner(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .w(px(theme.mobile.target))
-                    .h(px(theme.mobile.target))
+                    .w(px(theme.scale.target))
+                    .h(px(theme.scale.target))
                     .tab_index(0)
-                    .focus(crate::theme::desktop_focus(theme.mobile.focus))
+                    .focus(crate::theme::desktop_focus(theme.accent))
                     .cursor_pointer()
                     .on_click(move |_, window, cx| on_dismiss(window, cx))
                     .child(
                         gpui_kit::component::Icon::new(gpui_kit::assets::IconName::X)
-                            .with_size(px(theme.mobile.space_5))
+                            .with_size(px(theme.scale.space_5))
                             .text_color(ink),
                     ),
             ),

@@ -36,24 +36,24 @@ pub fn time_chips(
     on_pick: Rc<dyn Fn(u8, u8, &mut Window, &mut App)>,
     theme: &AppTheme,
 ) -> Stateful<Div> {
-    let card = theme.mobile_card_fill();
+    let card = theme.surface;
     let mut row = div()
         .id("reminder-times")
         .flex()
-        .gap(px(theme.mobile.space_2))
+        .gap(px(theme.scale.space_2))
         .overflow_x_scroll();
     for (hour, minute) in times() {
         let is_selected = selected == Some((hour, minute));
         let handler = on_pick.clone();
         let fill = if is_selected {
-            theme.mobile.selection_fill
+            theme.accent_surface
         } else {
             card
         };
         let ink = if is_selected {
-            theme.mobile.selection_ink
+            theme.text_primary
         } else {
-            theme.mobile_secondary_on(fill)
+            theme.text_secondary
         };
         let mut chip = div()
             .id(SharedString::from(format!(
@@ -62,34 +62,34 @@ pub fn time_chips(
             )))
             .flex()
             .items_center()
-            .gap(px(theme.mobile.space_2))
-            .min_h(px(theme.mobile.target))
-            .px(px(theme.mobile.space_3))
-            .py(px(theme.mobile.space_3))
-            .rounded(px(theme.mobile.radius_option))
+            .gap(px(theme.scale.space_2))
+            .min_h(px(theme.scale.target))
+            .px(px(theme.scale.space_3))
+            .py(px(theme.scale.space_3))
+            .rounded(px(theme.scale.radius_chip))
             .bg(fill)
             .border_b_3()
             .border_color(if is_selected {
-                theme.mobile.selection_boundary
+                theme.accent
             } else {
                 hsla(0., 0., 0., 0.)
             })
             .tab_index(0)
-            .focus(crate::theme::desktop_focus(theme.mobile.focus))
+            .focus(crate::theme::desktop_focus(theme.accent))
             .cursor_pointer()
             .on_click(move |_, window, cx| handler(hour, minute, window, cx));
         if is_selected {
             chip = chip.child(
                 Icon::new(gpui_kit::assets::IconName::Check)
-                    .with_size(px(theme.mobile.space_5))
+                    .with_size(px(theme.scale.space_5))
                     .text_color(ink),
             );
         }
         row = row.child(
             chip.child(
                 div()
-                    .text_size(px(theme.mobile.meta))
-                    .line_height(px(theme.mobile.meta_line))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(ink)
                     .child(label(hour, minute)),

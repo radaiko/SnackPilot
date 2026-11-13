@@ -1,15 +1,16 @@
-//! Text field (04 §4), wrapping `gpui_kit::component::input::Input` with the
-//! §7 `inputField` recipe (surface fill, borderInput, radius 10).
+//! Text fields: 48 px high, 10 px radius, label above (drawn by the caller),
+//! surface fill, 1 px strong border and a 2 px accent focus ring at 2 px.
 
+use gpui::{hsla, Focusable};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, App, AppContext, Div, Entity, SharedString, Window};
-use snackpilot_model::desktop::{ControlState, TARGET_MIN};
+use snackpilot_model::desktop::ControlState;
+use snackpilot_model::tokens;
 
 use crate::theme::{self, AppTheme};
 
-/// A labelled text field. The caller keeps the returned `Entity<InputState>`
-/// to read the value back.
+/// A text field; the caller keeps the returned `Entity<InputState>`.
 pub fn text_field(
     placeholder: impl Into<SharedString>,
     value: Option<&str>,
@@ -24,15 +25,10 @@ pub fn text_field(
             None => state,
         }
     });
-    (state.clone(), field_with_state(&state, theme))
+    (state.clone(), field_with_state(&state, theme, cx))
 }
 
-/// Desktop text field (brief `desktop.inputField`): the same `InputState`,
-/// but a 44 px minimum target, 8 px radius, 12 px inner padding, `surface`
-/// fill and the input boundary from the pointer/focus state. The reserved
-/// 4 px ring room keeps focus from shifting or clipping. The mobile field
-/// keeps its incumbent recipe.
-/// @req REQ-UI-07 @req REQ-UI-13
+/// The desktop field: the same 48 px input, with the state's fill and border.
 pub fn desktop_field_with_state(
     state: &Entity<InputState>,
     control: ControlState,
@@ -41,43 +37,56 @@ pub fn desktop_field_with_state(
     let fill = theme.control_fill(control);
     let field = div()
         .w_full()
-        .min_h(px(TARGET_MIN))
+        .min_h(px(tokens::ACTION_HEIGHT))
         .flex()
         .items_center()
-        .px(px(12.))
-        .rounded(px(8.))
+        .px(px(tokens::SPACE_4))
+        .rounded(px(tokens::RADIUS_CONTROL))
         .bg(fill)
         .border(px(1.))
         .border_color(theme.control_border(control))
-        .hover(|s| s.bg(theme.control_fill(ControlState::Hover)))
-        .child(Input::new(state).bg(fill).rounded(px(8.)).bordered(false));
-    theme::focus_frame(field, control, 8., theme)
+        .child(
+            Input::new(state)
+                .bg(fill)
+                .rounded(px(tokens::RADIUS_CONTROL))
+                .bordered(false),
+        );
+    theme::focus_frame(field, control, tokens::RADIUS_CONTROL, theme)
 }
 
-/// Whether native copy/cut is available for a text field. The pinned gpui-kit
-/// input implements exactly this rule (`is_copyable = selection && !masked`),
-/// so a masked credential field can never place its text on the clipboard
-/// (brief "masked password copy/cut is disabled", REQ-UI-11).
+/// Whether native copy/cut is available for a text field.
 pub fn clipboard_copyable(masked: bool, has_selection: bool) -> bool {
     has_selection && !masked
 }
 
-/// Style an existing `InputState` with the compact input recipe (REQ-UI-15):
-/// 48 px minimum height, 12 px radius, 16 px horizontal / 12 px vertical inner
-/// padding, `input_field` fill and `borderInput` boundary. The kit's Input
-/// paints its own theme background and a 1 px `theme.input` border (a bright
-/// ring in dark mode), so it is switched off and the wrapper carries the recipe.
-pub fn field_with_state(state: &Entity<InputState>, theme: &AppTheme) -> Div {
-    let r = theme.input_field();
-    theme::apply(
-        div()
-            .w_full()
-            .min_h(px(theme.mobile.action_height))
-            .flex()
-            .items_center()
-            .px(px(theme.mobile.space_4))
-            .py(px(theme.mobile.space_2)),
-        &r,
-    )
-    .child(Input::new(state).bg(r.bg).rounded(r.radius).bordered(false))
+/// The 48 px field with a 2 px accent focus ring offset by 2 px.
+pub fn field_with_state(state: &Entity<InputState>, theme: &AppTheme, cx: &App) -> Div {
+    let focus = state.read(cx).focus_handle(cx);
+    let field = div()
+        .w_full()
+        .min_h(px(tokens::ACTION_HEIGHT))
+        .flex()
+        .items_center()
+        .px(px(tokens::SPACE_4))
+        .rounded(px(tokens::RADIUS_CONTROL))
+        .bg(theme.surface)
+        .border(px(1.))
+        .border_color(theme.text_tertiary)
+        .child(
+            Input::new(state)
+                .bg(theme.surface)
+                .rounded(px(tokens::RADIUS_CONTROL))
+                .bordered(false),
+        );
+    div()
+        .w_full()
+        .p(px(tokens::FOCUS_GAP))
+        .rounded(px(tokens::RADIUS_CONTROL
+            + tokens::FOCUS_GAP
+            + tokens::FOCUS_WIDTH))
+        .border(px(tokens::FOCUS_WIDTH))
+        .border_color(hsla(0., 0., 0., 0.))
+        .track_focus(&focus)
+        .focus(theme::desktop_focus(theme.accent))
+        .child(field)
 }

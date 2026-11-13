@@ -147,9 +147,9 @@ fn gallery_requested() -> Option<gallery::Section> {
     None
 }
 
-/// Which half of the gallery to show: `SNACKPILOT_GALLERY_PAGE=bottom` (or
-/// `--gallery-page=bottom`, or `debug.snackpilot.gallery.page`) shows only the
-/// "Bestellung & Status" sections, so one screenshot can capture them.
+/// Which board to show: `SNACKPILOT_GALLERY_PAGE=desktop|mobile|menus|orders|
+/// billing` (or `--gallery-page=…`, or `debug.snackpilot.gallery.page`)
+/// narrows the debug gallery to one board.
 #[cfg(debug_assertions)]
 fn gallery_page() -> Option<String> {
     let from = |s: String| {
@@ -401,8 +401,8 @@ pub(crate) fn compact_width(reported: f32, viewport: f32) -> f32 {
 pub(crate) fn compact_column(
     host: snackpilot_model::desktop::HostKind,
     width: f32,
-) -> Option<snackpilot_model::tokens::mobile::Geometry> {
-    snackpilot_model::tokens::mobile::geometry(host, width)
+) -> Option<snackpilot_model::tokens::Geometry> {
+    snackpilot_model::tokens::geometry(host, width)
 }
 
 #[cfg(all(test, not(any(target_os = "ios", target_os = "android"))))]

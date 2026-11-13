@@ -41,37 +41,22 @@ pub fn layout_mode(host: HostKind, width: f32) -> LayoutMode {
     }
 }
 
-/// Width of the navigation rail in compact desktop (brief "Responsive geometry").
-pub const RAIL_WIDTH_COMPACT: f32 = 176.0;
-/// Width of the navigation rail in expanded desktop.
-pub const RAIL_WIDTH_EXPANDED: f32 = 192.0;
-/// Outer gutter inside the workspace at the compact breakpoint.
-pub const OUTER_COMPACT: f32 = 16.0;
-/// Outer gutter inside the workspace in expanded desktop.
-pub const OUTER_EXPANDED: f32 = 24.0;
-/// Fixed master width of the compact two-pane workspace.
+/// Width of the navigation rail, compact and expanded.
+pub const RAIL_WIDTH: f32 = 240.0;
+/// Outer gutter inside the workspace.
+pub const OUTER_GUTTER: f32 = 16.0;
+/// Fixed master width of the two-pane workspace.
 pub const MASTER_COMPACT: f32 = 248.0;
 /// Divider between master and detail.
 pub const DIVIDER_WIDTH: f32 = 1.0;
-/// Minimum desktop touch target.
-pub const TARGET_MIN: f32 = 44.0;
-/// Maximum width of the centered content column.
+/// One desktop list row.
+pub const ROW_HEIGHT: f32 = 40.0;
+/// Maximum width of the centered desktop workspace.
 pub const CONTENT_MAX: f32 = 960.0;
-/// Maximum width of the centered phone content column.
-pub const PHONE_CONTENT_MAX: f32 = 480.0;
 /// Minimum contrast for text and meaningful content (WCAG AA).
 pub const TEXT_MIN_CONTRAST: f32 = 4.5;
 /// Minimum contrast for focus rings and controls.
 pub const CONTROL_MIN_CONTRAST: f32 = 3.0;
-/// Focus ring stroke width (brief `desktop.focusWidth`).
-pub const FOCUS_WIDTH: f32 = 2.0;
-/// Gap between the target and the focus ring (brief `desktop.focusGap`);
-/// target plus 2 × gap reserves the 4 px a ring may occupy.
-pub const FOCUS_GAP: f32 = 2.0;
-/// Hover fill is this much `text_primary` mixed into the rest fill.
-pub const ACTION_HOVER_MIX: f32 = 0.08;
-/// Pressed fill is this much `text_primary` mixed into the rest fill.
-pub const ACTION_PRESSED_MIX: f32 = 0.14;
 
 /// Tile widths the shell lays out at a given host and content width, so the
 /// numbers come from the brief's table and not from each screen (REQ-UI-07).
@@ -98,7 +83,7 @@ pub struct DesktopGeometry {
 pub fn desktop_geometry(host: HostKind, width: f32) -> DesktopGeometry {
     let mode = layout_mode(host, width);
     if mode == LayoutMode::Phone {
-        let workspace = width.min(PHONE_CONTENT_MAX);
+        let workspace = width.min(crate::tokens::CONTENT_MAX);
         return DesktopGeometry {
             rail_width: 0.0,
             outer_gutter: 0.0,
@@ -108,15 +93,10 @@ pub fn desktop_geometry(host: HostKind, width: f32) -> DesktopGeometry {
             detail_width: 0.0,
         };
     }
-    let (rail, outer) = if mode == LayoutMode::DesktopCompact {
-        (RAIL_WIDTH_COMPACT, OUTER_COMPACT)
-    } else {
-        (RAIL_WIDTH_EXPANDED, OUTER_EXPANDED)
-    };
-    // The gutters absorb everything past the content cap, which is why the
-    // 1280 window shows 64 px of gutter instead of a wider workspace.
-    let main = (width - rail).max(0.0);
-    let content = (main - 2.0 * outer).clamp(0.0, CONTENT_MAX);
+    // The gutters absorb everything past the content cap, which is why a
+    // 1280 window shows 40 px of gutter instead of a wider workspace.
+    let main = (width - RAIL_WIDTH).max(0.0);
+    let content = (main - 2.0 * OUTER_GUTTER).clamp(0.0, CONTENT_MAX);
     let gutter = (main - content) / 2.0;
     let interior = (content - DIVIDER_WIDTH).max(0.0);
     let (master_width, detail_width) = if mode == LayoutMode::DesktopCompact {
@@ -125,7 +105,7 @@ pub fn desktop_geometry(host: HostKind, width: f32) -> DesktopGeometry {
         (interior * 0.56, interior * 0.44)
     };
     DesktopGeometry {
-        rail_width: rail,
+        rail_width: RAIL_WIDTH,
         outer_gutter: gutter,
         workspace_width: content,
         master_width,
@@ -292,8 +272,8 @@ impl ControlState {
 /// ring carries it) and disabled keeps the fill while the ink changes.
 pub fn control_fill(state: ControlState, dark: bool) -> Rgb {
     match state {
-        ControlState::Hover => token(crate::tokens::SURFACE_VARIANT, dark),
-        ControlState::Selected => token(crate::tokens::PRIMARY_SURFACE, dark),
+        ControlState::Hover => token(crate::tokens::SURFACE_ALT, dark),
+        ControlState::Selected => token(crate::tokens::ACCENT_SURFACE, dark),
         ControlState::Rest | ControlState::Focus | ControlState::Disabled => {
             token(crate::tokens::SURFACE, dark)
         }
@@ -394,99 +374,13 @@ pub fn contrast_ratio(a: Rgb, b: Rgb) -> f32 {
     (hi + 0.05) / (lo + 0.05)
 }
 
-/// Linear mix of `fill` toward `toward` at `amount` (0.0..=1.0).
-pub fn mix_toward(fill: Rgb, toward: Rgb, amount: f32) -> Rgb {
-    let a = amount.clamp(0.0, 1.0);
-    let mix = |x: u8, y: u8| (x as f32 * (1.0 - a) + y as f32 * a).round() as u8;
-    Rgb::new(
-        mix(fill.r, toward.r),
-        mix(fill.g, toward.g),
-        mix(fill.b, toward.b),
-    )
-}
-
 fn token(token: crate::tokens::ColorToken, dark: bool) -> Rgb {
     parse_color(if dark { token.dark } else { token.light })
 }
 
 /// Primary text ink of an appearance.
 pub fn text_ink(dark: bool) -> Rgb {
-    token(crate::tokens::TEXT_PRIMARY, dark)
-}
-
-/// Rest fill of a filled primary action: the darker accent in light mode, the
-/// base accent in dark mode (brief "Action states").
-pub fn action_fill(accent: &crate::tokens::AccentColors, dark: bool) -> Rgb {
-    parse_color(if dark {
-        accent.primary
-    } else {
-        accent.primary_dark
-    })
-}
-
-/// Hover fill: 8 % `text_primary` mixed into the rest fill.
-pub fn action_hover_fill(fill: Rgb, ink: Rgb) -> Rgb {
-    mix_toward(fill, ink, ACTION_HOVER_MIX)
-}
-
-/// Pressed fill: 14 % `text_primary` mixed into the rest fill.
-pub fn action_pressed_fill(fill: Rgb, ink: Rgb) -> Rgb {
-    mix_toward(fill, ink, ACTION_PRESSED_MIX)
-}
-
-/// Rest fill of a destructive action: the incumbent error token.
-pub fn danger_fill(dark: bool) -> Rgb {
-    token(crate::tokens::ERROR, dark)
-}
-
-/// White or black, whichever reads better on this fill, chosen per fill.
-pub fn on_fill(fill: Rgb) -> Rgb {
-    let white = parse_color(crate::tokens::SURFACE.light);
-    let black = parse_color(crate::tokens::BACKGROUND.dark);
-    if contrast_ratio(white, fill) >= contrast_ratio(black, fill) {
-        white
-    } else {
-        black
-    }
-}
-
-/// `preferred` kept only if it reaches `min` on `fill`, else the appearance's
-/// primary text ink for that fill's lightness.
-fn ink_at_least(fill: Rgb, preferred: Rgb, min: f32) -> Rgb {
-    if contrast_ratio(preferred, fill) >= min {
-        preferred
-    } else {
-        text_ink(fill.luminance() <= 0.5)
-    }
-}
-
-/// `preferred` kept only if it reaches 4.5:1 on `fill`, else the appearance's
-/// primary text ink (REQ-UI-13).
-pub fn readable_ink(fill: Rgb, preferred: Rgb) -> Rgb {
-    ink_at_least(fill, preferred, TEXT_MIN_CONTRAST)
-}
-
-/// `preferred` kept only if it reaches 3:1 on `fill`, else the appearance's
-/// primary text ink: an accent that cannot carry a control boundary falls
-/// back to the ink that can (REQ-UI-13).
-pub fn boundary_ink(fill: Rgb, preferred: Rgb) -> Rgb {
-    ink_at_least(fill, preferred, CONTROL_MIN_CONTRAST)
-}
-
-/// Workspace panel fill.
-pub fn panel_fill(dark: bool) -> Rgb {
-    token(crate::tokens::SURFACE, dark)
-}
-
-/// Navigation rail fill.
-pub fn rail_fill(dark: bool) -> Rgb {
-    token(crate::tokens::BACKGROUND, dark)
-}
-
-/// Focus ring ink: `text_primary`, which clears 3:1 on both the workspace
-/// panel and the rail in either appearance (REQ-UI-13).
-pub fn focus_ink(dark: bool) -> Rgb {
-    text_ink(dark)
+    token(crate::tokens::TEXT, dark)
 }
 
 impl AppModel {
