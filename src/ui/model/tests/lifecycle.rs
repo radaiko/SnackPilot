@@ -337,7 +337,8 @@ fn mobile_evidence_never_touches_normal_credentials_or_live_hosts() {
 
     // Every synthetic scenario stays synthetic: no credential access, no
     // provider call, no analytics (including the permission result and the
-    // pending/progress fixtures).
+    // pending/progress fixtures). The entry is absent from a release build.
+    #[cfg(debug_assertions)]
     for scenario in [
         "populated",
         "empty",

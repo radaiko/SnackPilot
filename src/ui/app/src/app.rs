@@ -2250,7 +2250,9 @@ mod evidence_tests {
     /// The isolated fixture entry renders every required synthetic state, and
     /// a normal store ignores it. The wrapper host records zero normal-slot
     /// accesses, notifications, permissions or analytics for the whole run.
+    /// The entry itself is absent from a release build, so this is debug-only.
     /// @req REQ-UI-16
+    #[cfg(debug_assertions)]
     #[test]
     fn evidence_fixture_states_apply_only_to_an_isolated_store() {
         // A normal launch: the entry is inert, so fixture state cannot leak

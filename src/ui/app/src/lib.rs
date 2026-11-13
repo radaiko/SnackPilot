@@ -302,10 +302,15 @@ pub mod evidence {
 
     /// Reports the selected evidence viewport to the model before `bootstrap`:
     /// an isolated run always stays a phone (single-column) surface, whatever
-    /// pixel width the simulator reports. Inert in a release build.
+    /// pixel width the simulator reports. A viewport knob is never a
+    /// production layout override, so a normal credential-backed store is left
+    /// exactly as its platform reported it. Inert in a release build.
     pub fn install_viewport(model: &AppModel, viewport: Viewport) {
         #[cfg(debug_assertions)]
         {
+            if !model.evidence_mode() {
+                return;
+            }
             model.set_host_kind(snackpilot_model::desktop::HostKind::Phone);
             model.set_content_width(viewport.logical_width());
         }
@@ -447,6 +452,45 @@ mod tests {
             evidence::scenario(),
             None,
             "no synthetic scenario unless a knob selects one"
+        );
+    }
+
+    /// A viewport knob is never a production layout override: the same call on
+    /// a normal credential-backed store leaves the host and content width the
+    /// platform reported untouched.
+    /// @req REQ-UI-16
+    #[test]
+    fn evidence_viewport_never_overrides_a_normal_store() {
+        use crate::evidence;
+        use snackpilot_model::desktop::HostKind;
+        use snackpilot_model::{AppModel, FakePlatform};
+        use std::sync::Arc;
+
+        let dir = std::env::temp_dir().join(format!(
+            "snackpilot-app-viewport-normal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = AppModel::new(dir, Arc::new(FakePlatform::new())).unwrap();
+        assert!(!model.evidence_mode(), "a normal launch is not isolated");
+        model.set_host_kind(HostKind::Desktop);
+        model.set_content_width(1280.);
+
+        evidence::install_viewport(&model, evidence::Viewport::parse("390x844").unwrap());
+
+        assert_eq!(
+            model.state().host_kind,
+            HostKind::Desktop,
+            "the reported host stays as it was"
+        );
+        assert_eq!(
+            model.state().content_width,
+            1280.,
+            "no fixed capture width on a normal store"
         );
     }
 }
