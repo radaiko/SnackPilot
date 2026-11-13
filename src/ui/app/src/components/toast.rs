@@ -68,6 +68,18 @@ pub fn slide_distance(reduce_motion: bool) -> f32 {
     }
 }
 
+/// The toast's top offset for one animation sample. `toast_overlay_for` feeds
+/// this with `slide_distance(reduce_motion)`, so the test below checks the
+/// painted offsets: reduced motion starts and ends at the resting top instead of
+/// travelling 100 px, while every phase keeps its duration.
+pub fn toast_top(base_top: f32, slide: f32, phase: ToastPhase, t: f32) -> f32 {
+    match phase {
+        ToastPhase::In => base_top - slide * (1.0 - t),
+        ToastPhase::Hold => base_top,
+        ToastPhase::Out => base_top - slide * t,
+    }
+}
+
 /// The toast box: `left/right 16`, `padding 12`, tinted banner in
 /// `glassPrimary`, text 14/600 in `primary`, top edge at `safeTop + 8`.
 pub fn toast_overlay(toast: &Toast, safe_top: f32, theme: &AppTheme) -> AnyElement {
@@ -114,7 +126,10 @@ fn toast_overlay_motion(toast: &Toast, safe_top: f32, slide: f32, theme: &AppThe
             .with_animation(
                 "toast-in",
                 Animation::new(SLIDE_DURATION).with_easing(ease_in_out),
-                move |el, t| el.top(px(base_top - slide * (1.0 - t))).opacity(t),
+                move |el, t| {
+                    el.top(px(toast_top(base_top, slide, ToastPhase::In, t)))
+                        .opacity(t)
+                },
             )
             .into_any_element(),
         ToastPhase::Hold => card.top(px(base_top)).opacity(1.).into_any_element(),
@@ -122,7 +137,10 @@ fn toast_overlay_motion(toast: &Toast, safe_top: f32, slide: f32, theme: &AppThe
             .with_animation(
                 "toast-out",
                 Animation::new(SLIDE_DURATION).with_easing(ease_in_out),
-                move |el, t| el.top(px(base_top - slide * t)).opacity(1.0 - t),
+                move |el, t| {
+                    el.top(px(toast_top(base_top, slide, ToastPhase::Out, t)))
+                        .opacity(1.0 - t)
+                },
             )
             .into_any_element(),
     }
@@ -131,15 +149,17 @@ fn toast_overlay_motion(toast: &Toast, safe_top: f32, slide: f32, theme: &AppThe
 #[cfg(test)]
 mod tests {
     use super::{
-        slide_distance, DESKTOP_HOLD_DURATION, DESKTOP_SLIDE_DURATION, HOLD_DURATION,
-        NEW_MENU_MESSAGE, SLIDE_DURATION,
+        slide_distance, toast_top, ToastPhase, DESKTOP_HOLD_DURATION, DESKTOP_SLIDE_DURATION,
+        HOLD_DURATION, NEW_MENU_MESSAGE, SLIDE_DURATION,
     };
     use std::time::Duration;
 
     /// The approved in-app toast carries the exact C1 copy — no exclamation
     /// mark, nothing else changed — keeps the incumbent 300/4000/300 ms
-    /// lifetime, and reduced motion removes the travel without touching the
-    /// lifetime or inventing a new timing.
+    /// lifetime, and reduced motion removes the travel. The assertion is on the
+    /// offsets `toast_overlay_for` paints through `toast_top`, so a reduced
+    /// presentation starts and ends at the resting top instead of merely
+    /// returning a zero constant.
     /// @req REQ-UI-06 @req REQ-UI-16
     #[test]
     fn mobile_toast_copy_timing_and_reduced_motion() {
@@ -154,10 +174,36 @@ mod tests {
         assert_eq!(SLIDE_DURATION, Duration::from_millis(300));
         assert_eq!(DESKTOP_SLIDE_DURATION, SLIDE_DURATION);
         assert_eq!(DESKTOP_HOLD_DURATION, HOLD_DURATION);
-        // Reduced motion: no travel, same lifetime, no new timing constant.
-        assert_eq!(slide_distance(false), 100.);
-        assert_eq!(slide_distance(true), 0.);
-        assert_eq!(HOLD_DURATION, Duration::from_millis(4000));
+
+        // Exactly the offsets the overlay paints: full travel when motion is
+        // allowed, no travel at all under reduced motion, same resting top.
+        let base = 59. + 8.;
+        for (t, expected) in [(0., base - 100.), (0.5, base - 50.), (1., base)] {
+            assert_eq!(
+                toast_top(base, slide_distance(false), ToastPhase::In, t),
+                expected
+            );
+            assert_eq!(
+                toast_top(base, slide_distance(true), ToastPhase::In, t),
+                base,
+                "reduced motion never travels"
+            );
+        }
+        for t in [0., 0.5, 1.] {
+            assert_eq!(
+                toast_top(base, slide_distance(false), ToastPhase::Out, t),
+                base - 100. * t
+            );
+            assert_eq!(
+                toast_top(base, slide_distance(true), ToastPhase::Out, t),
+                base,
+                "the out phase does not move either"
+            );
+            assert_eq!(
+                toast_top(base, slide_distance(true), ToastPhase::Hold, t),
+                base
+            );
+        }
     }
 }
 

@@ -51,43 +51,19 @@ pub fn mobile_action_metrics(kind: ButtonKind, flat: bool) -> (f32, f32) {
 }
 
 /// Whether a compact control really meets the two-axis 44×44 target floor.
+/// Production `mobile_action` applies the same floor as `min_w`/`min_h`, so the
+/// helper is what the control paints, not a detached calculator.
 pub fn meets_target(width: f32, height: f32) -> bool {
     width >= snackpilot_model::tokens::mobile::TARGET
         && height >= snackpilot_model::tokens::mobile::TARGET
 }
 
-/// What one press releases into (REQ-UI-16). Press changes the fill only: the
-/// activation runs on release *inside* the control, a release outside cancels,
-/// a scroll claim cancels, and a disabled control never activates at all — so
-/// styling is never the duplicate-submit protection and a disabled action has
-/// no callback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PressOutcome {
-    /// Not pressed: nothing to release.
-    Idle,
-    /// The press was cancelled by an outside release or a scroll claim.
-    Cancelled,
-    /// The pointer is down on the control (fill-only feedback).
-    Pressed,
-    /// Release inside an enabled control: the one activation.
-    Activated,
-}
-
-pub fn mobile_press(
-    pressed: bool,
-    released_inside: bool,
-    scroll_claimed: bool,
-    enabled: bool,
-) -> PressOutcome {
-    if !pressed {
-        return PressOutcome::Idle;
-    }
-    if !enabled || scroll_claimed || !released_inside {
-        return PressOutcome::Cancelled;
-    }
-    PressOutcome::Activated
-}
-
+/// What one press releases into (REQ-UI-16) is the platform's click rule: gpui
+/// fires a click only when the up lands on the same hovered hitbox as the down,
+/// so an outside release or a content move between them (a scroll claim) cancels
+/// the activation, and a disabled control is built without any callback at all.
+/// The compact builder therefore installs no press state machine of its own —
+/// styling is fill-only and never the duplicate-submit protection.
 /// One §4 button: German `label` in Inter, colours and radius from the §7
 /// recipe for `kind`.
 pub fn button(
@@ -113,30 +89,33 @@ pub fn mobile_action(
     cx: &App,
 ) -> Div {
     let (height, radius) = mobile_action_metrics(kind, theme.flat);
+    debug_assert!(meets_target(theme.mobile.target, height));
     let (fill, ink) = if !enabled {
         (theme.mobile.disabled_fill, theme.mobile.disabled_ink)
     } else {
         match kind {
             ButtonKind::Primary => (theme.mobile.action_fill, theme.mobile.action_ink),
-            ButtonKind::Danger => (theme.error, theme.on_primary),
-            ButtonKind::Secondary => (theme.mobile_card_fill(), theme.text_primary),
+            ButtonKind::Danger => (theme.mobile.danger_fill, theme.mobile.danger_action_ink),
+            ButtonKind::Secondary => (theme.mobile.secondary_fill, theme.mobile.secondary),
         }
     };
     let pressed = theme.mobile_pressed(fill);
     let frame = div()
         .flex()
+        .min_w(px(theme.mobile.target))
         .min_h(px(height))
         .rounded(px(radius))
         .bg(fill)
         .border(px(1.))
         .border_color(if kind == ButtonKind::Secondary {
-            theme.border
+            theme.mobile.secondary_boundary
         } else {
             fill
         });
     frame.child(
         Button::new(id)
             .label(label)
+            .min_w(px(theme.mobile.target))
             .min_h(px(height))
             .px(px(theme.mobile.space_4))
             .rounded(px(radius))
@@ -175,26 +154,29 @@ pub fn mobile_action_action(
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
     let (height, radius) = mobile_action_metrics(kind, theme.flat);
+    debug_assert!(meets_target(theme.mobile.target, height));
     let (fill, ink) = match kind {
         ButtonKind::Primary => (theme.mobile.action_fill, theme.mobile.action_ink),
-        ButtonKind::Danger => (theme.error, theme.on_primary),
-        ButtonKind::Secondary => (theme.mobile_card_fill(), theme.text_primary),
+        ButtonKind::Danger => (theme.mobile.danger_fill, theme.mobile.danger_action_ink),
+        ButtonKind::Secondary => (theme.mobile.secondary_fill, theme.mobile.secondary),
     };
     let pressed = theme.mobile_pressed(fill);
     let frame = div()
         .flex()
+        .min_w(px(theme.mobile.target))
         .min_h(px(height))
         .rounded(px(radius))
         .bg(fill)
         .border(px(1.))
         .border_color(if kind == ButtonKind::Secondary {
-            theme.border
+            theme.mobile.secondary_boundary
         } else {
             fill
         });
     frame.child(
         Button::new(id)
             .label(label)
+            .min_w(px(theme.mobile.target))
             .min_h(px(height))
             .px(px(theme.mobile.space_4))
             .rounded(px(radius))
@@ -338,52 +320,33 @@ pub fn desktop_action_state(
 
 #[cfg(test)]
 mod tests {
-    use super::{meets_target, mobile_action_metrics, mobile_press, ButtonKind, PressOutcome};
-    use crate::theme::AppTheme;
-    use snackpilot_model::desktop::HostKind;
+    use super::{meets_target, mobile_action_metrics, ButtonKind};
+    use crate::theme::{to_rgb, AppTheme};
+    use snackpilot_model::desktop::{contrast_ratio, HostKind};
     use snackpilot_model::tokens::mobile;
     use snackpilot_model::AccentColor;
 
     /// The shared compact controls keep the interaction contract (REQ-UI-16):
-    /// 44×44 two-axis targets that never overlap, primary actions 48 high, press
-    /// cancels on an outside release or a scroll claim, a disabled control never
-    /// activates (no callback), and focus is an independent reserved 2+2 ring
-    /// that does not change the rest box. The recipe fields the controls paint
-    /// are the tested projection.
+    /// 44×44 two-axis targets, primary actions 48 high, the disabled recipe
+    /// distinct from the actionable one (an inert `mobile_action` is built with
+    /// no callback), and an independent 2+2 focus ring. Dismissal on an outside
+    /// release or scroll claim is the platform's click rule: gpui only fires a
+    /// click when the up lands on the same hovered hitbox as the down, so the
+    /// control needs no second state machine. The recipe fields asserted here
+    /// are the same fields `mobile_action` paints.
     /// @req REQ-UI-16
     #[test]
-    fn mobile_focus_press_disabled_hit_bounds() {
-        // Press: fill feedback only, activation on release inside an enabled
-        // control, cancelled by an outside release or a scroll claim.
-        assert_eq!(mobile_press(false, true, false, true), PressOutcome::Idle);
-        assert_eq!(
-            mobile_press(true, true, false, true),
-            PressOutcome::Activated
-        );
-        assert_eq!(
-            mobile_press(true, false, false, true),
-            PressOutcome::Cancelled,
-            "a release outside cancels"
-        );
-        assert_eq!(
-            mobile_press(true, true, true, true),
-            PressOutcome::Cancelled,
-            "a scroll claim cancels the press"
-        );
-        for released_inside in [false, true] {
-            for scroll_claimed in [false, true] {
-                assert_ne!(
-                    mobile_press(true, released_inside, scroll_claimed, false),
-                    PressOutcome::Activated,
-                    "a disabled control never activates: no callback"
-                );
-            }
-        }
-
-        // Hit bounds: 44×44 on both axes, never smaller.
+    fn mobile_action_recipes_targets_and_disabled_context() {
+        // Hit bounds: 44×44 on both axes, never smaller. The builder applies
+        // the same floor as min_w/min_h on the control it returns.
         assert!(meets_target(44., 44.));
         assert!(!meets_target(43.9, 44.), "width below the floor");
         assert!(!meets_target(44., 43.9), "height below the floor");
+        let theme = AppTheme::build(false, AccentColor::Orange, true);
+        assert!(meets_target(
+            theme.mobile.target,
+            theme.mobile.action_height
+        ));
 
         // Action metrics: 48 high, option radius 8, primary 14 glass/12 flat.
         for flat in [false, true] {
@@ -407,7 +370,6 @@ mod tests {
         // The focus ring is independent of selection: a 2 px stroke in the
         // resolved focus ink with a 2 px gap, so the reserved room is 4 px and
         // the rest dimensions never move.
-        let theme = AppTheme::build(false, AccentColor::Orange, true);
         assert_eq!(
             (theme.mobile.focus_width, theme.mobile.focus_gap),
             (mobile::FOCUS_WIDTH, mobile::FOCUS_GAP)
@@ -428,8 +390,41 @@ mod tests {
             );
         }
 
+        // Danger and the outlined secondary paint their projected fill/ink and
+        // boundary pairs — not the unpainted `error`/`on_primary` or
+        // `border`/`text_primary` pair — and each pair keeps its floor on the
+        // fill the control really covers.
+        for dark in [false, true] {
+            for flat in [false, true] {
+                let theme = AppTheme::build(dark, AccentColor::Golden, flat);
+                let danger_fill = to_rgb(theme.mobile.danger_fill, theme.mobile.danger_fill);
+                assert!(
+                    contrast_ratio(
+                        to_rgb(theme.mobile.danger_action_ink, theme.mobile.danger_fill),
+                        danger_fill
+                    ) >= mobile::TEXT_MIN_CONTRAST,
+                    "danger ink reads on the projected error fill"
+                );
+                let secondary_fill =
+                    to_rgb(theme.mobile.secondary_fill, theme.mobile.secondary_fill);
+                assert!(
+                    contrast_ratio(
+                        to_rgb(theme.mobile.secondary, theme.mobile.secondary_fill),
+                        secondary_fill
+                    ) >= mobile::TEXT_MIN_CONTRAST
+                );
+                assert!(
+                    contrast_ratio(
+                        to_rgb(theme.mobile.secondary_boundary, theme.mobile.secondary_fill),
+                        secondary_fill
+                    ) >= mobile::CONTROL_MIN_CONTRAST
+                );
+            }
+        }
+
         // Disabled keeps readable context and never dims the whole content:
-        // it swaps to the pinned disabled fill + readable ink only.
+        // it swaps to the pinned disabled fill + readable ink only, so an
+        // inert control cannot be mistaken for an actionable primary.
         assert_eq!(
             theme.mobile.disabled_fill,
             crate::theme::from_rgb(mobile::disabled_fill(false))
@@ -439,6 +434,7 @@ mod tests {
             crate::theme::from_rgb(mobile::disabled_ink(false))
         );
         assert_ne!(theme.mobile.disabled_fill, theme.mobile.action_fill);
+        assert_ne!(theme.mobile.disabled_fill, theme.mobile.danger_fill);
 
         // The compact column is a host projection, never a desktop restyle.
         assert!(theme.mobile_geometry(HostKind::Desktop, 360.).is_some());

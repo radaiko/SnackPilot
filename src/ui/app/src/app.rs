@@ -399,6 +399,48 @@ pub(crate) fn obstruction_reservation(
     navigation + dock_height.max(0.) + SCROLL_END_GAP
 }
 
+/// Legacy screens that still paint their own bottom inset (`p(16)` + `pb(100)`
+/// on the list/detail roots). Tasks 1.3–1.6 move them onto the shell; until
+/// then the shell must not stack its measured reservation on top. This is the
+/// tracked contract gap, not a second layout owner: once a screen drops its
+/// padding it also drops out of this list and the measured value applies.
+pub(crate) fn legacy_screen_owns_bottom_inset(top: Screen) -> bool {
+    matches!(
+        top,
+        Screen::Menus
+            | Screen::Orders
+            | Screen::Billing
+            | Screen::Settings
+            | Screen::SettingsDetail
+    )
+}
+
+/// The inset a legacy screen already paints (`.pb(px(100.))`). The shell tops
+/// it up only when the measured clearance is larger, so the two never sum.
+pub(crate) const LEGACY_SCREEN_BOTTOM_INSET: f32 = 100.;
+
+/// The compact column's one bottom inset. A legacy screen already owns most of
+/// it, so the shell contributes only the shortfall up to the measured target;
+/// a migrated screen gets the measured reservation when the bar floats over it,
+/// or only the 16 px scroll-end gap when the bar is in normal flow and already
+/// owns its height.
+pub(crate) fn compact_content_bottom(
+    plan: &CompactShellPlan,
+    in_flow: bool,
+    screen_owns_inset: bool,
+) -> f32 {
+    let target = if in_flow {
+        SCROLL_END_GAP
+    } else {
+        plan.reservation
+    };
+    if screen_owns_inset {
+        (target - LEGACY_SCREEN_BOTTOM_INSET).max(0.)
+    } else {
+        target
+    }
+}
+
 /// One compact-shell presentation plan: exactly one heading, one centred
 /// content frame, one navigation surface and the incumbent active-tab identity,
 /// with the safe-area top applied once and a measured obstruction reservation.
@@ -1609,7 +1651,12 @@ impl Render for AppShell {
             if let Some(banner) = banner {
                 column = column.child(banner);
             }
-            let mut content = div()
+            let bottom = compact_content_bottom(
+                &plan,
+                theme.flat,
+                legacy_screen_owns_bottom_inset(nav.top()),
+            );
+            let content = div()
                 .w_full()
                 .flex_1()
                 .flex()
@@ -1617,11 +1664,13 @@ impl Render for AppShell {
                 .items_center()
                 .overflow_hidden()
                 .pt(px(plan.safe_top))
+                .pb(px(bottom))
                 .child(column.child(screen_content));
             if theme.flat {
                 // §2.2: in-flow bottom bar; the safe-area strip under it keeps
-                // the bar's surface colour (v1 paddingBottom insets.bottom). The bar
-                // owns its height in flow, so the reservation adds no second copy.
+                // the bar's surface colour (v1 paddingBottom insets.bottom). The
+                // bar owns its height in flow, so only the scroll-end gap is
+                // added above it, never the bar's own height a second time.
                 root = root.child(content).child(
                     div()
                         .w_full()
@@ -1632,7 +1681,6 @@ impl Render for AppShell {
             } else {
                 // §2.1: floating pill, painted over the content it reserves,
                 // with the measured obstruction + 16 px scroll-end gap.
-                content = content.pb(px(plan.reservation));
                 root = root.child(content).child(bar);
             }
         }
@@ -1666,6 +1714,7 @@ impl Render for AppShell {
                 });
             root = root.child(dialog_overlay(
                 dialog,
+                !desktop,
                 &theme,
                 self.dialog_focus,
                 &self.dialog_handles,
@@ -1679,12 +1728,13 @@ impl Render for AppShell {
 #[cfg(test)]
 mod tests {
     use super::{
-        compact_shell_plan, desktop_check_effect, desktop_mutation_blocked, detail_from_model,
-        dispatch_off_thread, focus_restore, keyboard_action, menu_row_action,
-        model_settings_detail, nearest_restore_cursor, obstruction_reservation, order_cancel_state,
-        order_row_effect, refresh_intent, shell_heading, should_create_inputs, Detail,
-        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
-        HEADING_GAP, HEADING_TOP, SCROLL_END_GAP,
+        compact_content_bottom, compact_shell_plan, desktop_check_effect, desktop_mutation_blocked,
+        detail_from_model, dispatch_off_thread, focus_restore, keyboard_action,
+        legacy_screen_owns_bottom_inset, menu_row_action, model_settings_detail,
+        nearest_restore_cursor, obstruction_reservation, order_cancel_state, order_row_effect,
+        refresh_intent, shell_heading, should_create_inputs, Detail, FocusRestore, MenuRowAction,
+        MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, HEADING_GAP, HEADING_TOP,
+        LEGACY_SCREEN_BOTTOM_INSET, SCROLL_END_GAP,
     };
     use snackpilot_model::desktop::LayoutMode;
     use snackpilot_model::navigation::{ListKind, SettingsDetail, Tab};
@@ -1875,6 +1925,74 @@ mod tests {
             obstruction_reservation(true, 34., true, 56.) < BAR_HEIGHT + 56.,
             "the in-flow bar's own height is not added again"
         );
+    }
+
+    /// The compact column owns one bottom inset (REQ-UI-03/15). A legacy screen
+    /// body still paints its own 16/100 px padding, so the shell must not add
+    /// its measured reservation on top of it (the double gutter the review
+    /// found); once a screen is migrated the shell supplies exactly one inset,
+    /// and the in-flow branch keeps its 16 px scroll-end gap. The real column
+    /// arithmetic is what `render` uses, and the test fails if the two insets
+    /// ever sum.
+    /// @req REQ-UI-03 @req REQ-UI-15
+    #[test]
+    fn compact_shell_does_not_stack_a_screen_bottom_inset() {
+        use snackpilot_model::desktop::HostKind;
+        use snackpilot_model::navigation::{Screen, Tab};
+
+        for width in [360., 390., 768., 1280.] {
+            let plan = compact_shell_plan(
+                HostKind::Phone,
+                width,
+                width,
+                Tab::Menus,
+                Screen::Menus,
+                false,
+                false,
+                59.,
+                34.,
+                0.,
+            );
+            // Every current screen body is still legacy and owns its inset, in
+            // both navigation modes; the shell only tops up any shortfall.
+            for top in [
+                Screen::Menus,
+                Screen::Orders,
+                Screen::Billing,
+                Screen::Settings,
+                Screen::SettingsDetail,
+            ] {
+                assert!(legacy_screen_owns_bottom_inset(top), "{top:?}");
+                assert_eq!(
+                    compact_content_bottom(&plan, false, true),
+                    (plan.reservation - LEGACY_SCREEN_BOTTOM_INSET).max(0.)
+                );
+                assert_eq!(
+                    compact_content_bottom(&plan, true, true),
+                    (SCROLL_END_GAP - LEGACY_SCREEN_BOTTOM_INSET).max(0.)
+                );
+            }
+            // A migrated screen gets exactly the measured reservation (floating
+            // pill) or the 16 px scroll-end gap (in-flow bar owns its height).
+            assert_eq!(
+                compact_content_bottom(&plan, false, false),
+                plan.reservation
+            );
+            assert_eq!(compact_content_bottom(&plan, true, false), SCROLL_END_GAP);
+
+            // The effective scroll-end clearance is one copy — the legacy inset
+            // topped up to the measured target — never the sum of both.
+            let total = LEGACY_SCREEN_BOTTOM_INSET + compact_content_bottom(&plan, false, true);
+            assert_eq!(total, plan.reservation.max(LEGACY_SCREEN_BOTTOM_INSET));
+            assert!(
+                total >= plan.reservation,
+                "the last content still clears the measured pill"
+            );
+            assert_ne!(total, LEGACY_SCREEN_BOTTOM_INSET + plan.reservation);
+            let migrated_total = compact_content_bottom(&plan, true, false);
+            assert_eq!(migrated_total, SCROLL_END_GAP);
+            assert_ne!(migrated_total, SCROLL_END_GAP + plan.reservation);
+        }
     }
 
     /// The workspace header dispatches the active tab's existing refresh and

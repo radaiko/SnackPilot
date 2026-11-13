@@ -162,8 +162,9 @@ pub enum DialogActionKind {
 
 /// The compact modal action recipe (REQ-SCR-04/REQ-UI-15): the primary action
 /// on the token-derived action fill with its readable ink, the destructive one
-/// on the pinned error fill, and cancel on the neutral outline. Every action is
-/// at least `mobile.target` (44 px) high with radius 8.
+/// on the projected error fill with the ink that reads on it, and cancel on the
+/// neutral outline with its resolved 3:1 boundary. Every action is at least
+/// `mobile.target` (44 px) high with radius 8.
 pub fn mobile_dialog_action(
     kind: DialogActionKind,
     theme: &AppTheme,
@@ -174,21 +175,105 @@ pub fn mobile_dialog_action(
             None,
             theme.mobile.action_ink,
         ),
-        DialogActionKind::Danger => (Some(theme.error), None, theme.on_primary),
-        DialogActionKind::Neutral => (None, Some(theme.border), theme.text_primary),
+        DialogActionKind::Danger => (
+            Some(theme.mobile.danger_fill),
+            None,
+            theme.mobile.danger_action_ink,
+        ),
+        DialogActionKind::Neutral => (
+            None,
+            Some(theme.mobile.secondary_boundary),
+            theme.mobile.secondary,
+        ),
     }
 }
 
-/// The compact modal's vertical split: the body is the flexible scroll region
-/// and the action row keeps its target height, so a long message scrolls while
-/// the actions stay visible (REQ-SCR-04).
-pub const MOBILE_DIALOG_BODY_MIN: f32 = 0.;
-
-pub fn mobile_dialog_action_height(theme: &AppTheme) -> f32 {
-    theme.mobile.target
+/// The dialog's geometry and type, resolved once per host so the mobile
+/// extension never restyles the wide Desktop Ledger (REQ-UI-07/REQ-UI-15).
+/// The desktop column is the incumbent §4.1 recipe; `compact` is the Day Tray
+/// projection. `body_max_height` is `Some` on desktop (the incumbent 320 px cap)
+/// and `None` on compact, where the body is the flexible scroll region below.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DialogRecipes {
+    pub box_radius: f32,
+    pub box_padding: f32,
+    pub box_max_width: f32,
+    pub box_border: f32,
+    pub title_size: f32,
+    pub title_line: f32,
+    pub body_size: f32,
+    pub body_line: f32,
+    pub body_top: f32,
+    pub body_max_height: Option<f32>,
+    pub action_top: f32,
+    pub action_gap: f32,
+    pub action_height: f32,
+    pub action_radius: f32,
+    pub action_text: f32,
 }
 
-/// A §4.1 dialog button: `py 10`, `radius 8`, fontSize 15 weight 600.
+impl DialogRecipes {
+    pub fn for_host(compact: bool, theme: &AppTheme) -> Self {
+        if compact {
+            Self {
+                box_radius: 14.,
+                box_padding: theme.mobile.space_6,
+                box_max_width: 340.,
+                box_border: 0.5,
+                title_size: theme.mobile.body,
+                title_line: theme.mobile.body_line,
+                body_size: theme.mobile.meta,
+                body_line: theme.mobile.meta_line,
+                body_top: theme.mobile.space_2,
+                body_max_height: None,
+                action_top: theme.mobile.space_5,
+                action_gap: theme.mobile.space_2,
+                action_height: theme.mobile.target,
+                action_radius: theme.mobile.radius_option,
+                action_text: theme.mobile.body,
+            }
+        } else {
+            // The pre-change §4.1 recipe, pinned; the wide Ledger never reads
+            // the mobile projection.
+            Self {
+                box_radius: 14.,
+                box_padding: 24.,
+                box_max_width: 340.,
+                box_border: 0.5,
+                title_size: 17.,
+                title_line: 22.,
+                body_size: 14.,
+                body_line: 20.,
+                body_top: 8.,
+                body_max_height: Some(320.),
+                action_top: 20.,
+                action_gap: 10.,
+                action_height: snackpilot_model::desktop::TARGET_MIN,
+                action_radius: 8.,
+                action_text: 15.,
+            }
+        }
+    }
+}
+
+/// The dialog action colours per host: the wide Ledger keeps the pinned §4.1
+/// primary/error/neutral recipes, the compact shell uses the projected pairs.
+pub fn dialog_action_style(
+    kind: DialogActionKind,
+    compact: bool,
+    theme: &AppTheme,
+) -> (Option<Hsla>, Option<Hsla>, Hsla) {
+    if compact {
+        return mobile_dialog_action(kind, theme);
+    }
+    match kind {
+        DialogActionKind::Primary => (Some(theme.primary), None, theme.on_primary),
+        DialogActionKind::Danger => (Some(theme.error), None, theme.on_primary),
+        DialogActionKind::Neutral => (None, Some(theme.border), theme.text_secondary),
+    }
+}
+
+/// A §4.1 dialog button, painted from the resolved host recipe.
 #[allow(clippy::too_many_arguments)]
 fn dialog_button(
     id: &'static str,
@@ -198,6 +283,8 @@ fn dialog_button(
     fg: Hsla,
     grow: bool,
     focus: &FocusHandle,
+    recipe: &DialogRecipes,
+    compact: bool,
     theme: &AppTheme,
     on_click: crate::navigation::ClickHandler,
 ) -> Stateful<Div> {
@@ -207,33 +294,40 @@ fn dialog_button(
         .items_center()
         .justify_center()
         .py(px(10.))
-        .min_h(px(mobile_dialog_action_height(theme)))
-        .rounded(px(theme.mobile.radius_option))
-        .text_size(px(theme.mobile.body))
+        .min_h(px(recipe.action_height))
+        .rounded(px(recipe.action_radius))
+        .text_size(px(recipe.action_text))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(fg)
         .cursor_pointer()
         .when_some(fill, |d, c| d.bg(c))
-        .when_some(border, |d, c| d.border_1().border_color(c))
+        .when_some(border, |d, c| d.border(px(1.)).border_color(c))
         .when(grow, |d| d.flex_1())
         .track_focus(focus)
-        .focus(theme::desktop_focus(theme.mobile.focus))
+        .focus(theme::desktop_focus(if compact {
+            theme.mobile.focus
+        } else {
+            theme.desktop.focus
+        }))
         .child(label)
         .on_click(move |_, window, cx| on_click(window, cx))
 }
 
-/// The §4.1 modal: `overlay` backdrop with padding 40, content box centered
-/// (surface, radius 14, padding 24, maxWidth 340, 0.5 `border`).
-/// Tapping the backdrop resolves action 0; tapping the box does nothing.
+/// The §4.1 modal on the host recipe: `overlay` backdrop with padding 40,
+/// content box centered. Tapping the backdrop resolves action 0; tapping the
+/// box does nothing. `compact` is the shell's host gate: the wide Ledger keeps
+/// the incumbent desktop geometry/type/colours, the Day Tray gets the projection.
 /// `on_activate` receives the button index and is the single resolution path
 /// for pointer, keyboard and backdrop.
 pub fn dialog_overlay(
     dialog: &Dialog,
+    compact: bool,
     theme: &AppTheme,
     focused: usize,
     focus: &[FocusHandle; 2],
     on_activate: DialogActivate,
 ) -> AnyElement {
+    let recipe = DialogRecipes::for_host(compact, theme);
     let mut buttons: Vec<AnyElement> = Vec::new();
     for index in 0..dialog.button_count() {
         let activate = on_activate.clone();
@@ -248,7 +342,7 @@ pub fn dialog_overlay(
             Dialog::Confirm { .. } if index == 0 => DialogActionKind::Neutral,
             Dialog::Confirm { .. } => DialogActionKind::Danger,
         };
-        let (fill, border, fg) = mobile_dialog_action(kind, theme);
+        let (fill, border, fg) = dialog_action_style(kind, compact, theme);
         buttons.push(
             dialog_button(
                 id,
@@ -258,6 +352,8 @@ pub fn dialog_overlay(
                 fg,
                 dialog.button_count() > 1,
                 &focus[index],
+                &recipe,
+                compact,
                 theme,
                 Rc::new(move |w, cx| activate(action_index, w, cx)),
             )
@@ -296,24 +392,30 @@ pub fn dialog_overlay(
             div()
                 .id("dialog-box")
                 .w_full()
-                .max_w(px(340.))
+                .max_w(px(recipe.box_max_width))
                 .max_h_full()
                 .flex()
                 .flex_col()
                 .items_center()
-                .rounded(px(14.))
-                .p(px(theme.mobile.space_6))
-                .pt(px(theme.mobile.space_6))
-                .pb(px(theme.mobile.space_6))
-                .bg(theme.surface)
-                .border(px(0.5))
-                .border_color(theme.border)
+                .rounded(px(recipe.box_radius))
+                .p(px(recipe.box_padding))
+                .bg(if compact {
+                    theme.mobile.dialog_fill
+                } else {
+                    theme.surface
+                })
+                .border(px(recipe.box_border))
+                .border_color(if compact {
+                    theme.mobile.dialog_boundary
+                } else {
+                    theme.border
+                })
                 // Tapping the dialog body must not dismiss (§4.1).
                 .on_click(|_, _, cx| cx.stop_propagation())
                 .child(
                     div()
-                        .text_size(px(theme.mobile.body))
-                        .line_height(px(theme.mobile.body_line))
+                        .text_size(px(recipe.title_size))
+                        .line_height(px(recipe.title_line))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.text_primary)
                         .text_center()
@@ -323,28 +425,33 @@ pub fn dialog_overlay(
                     d.child(
                         div()
                             .id("dialog-message")
-                            .mt(px(theme.mobile.space_2))
+                            .mt(px(recipe.body_top))
                             .w_full()
-                            .flex_1()
-                            .min_h(px(MOBILE_DIALOG_BODY_MIN))
-                            .text_size(px(theme.mobile.meta))
-                            .line_height(px(theme.mobile.meta_line))
-                            .text_color(theme.mobile_secondary_on(theme.surface))
+                            .when(compact, |d| d.flex_1().min_h(px(0.)))
+                            .text_size(px(recipe.body_size))
+                            .line_height(px(recipe.body_line))
+                            .text_color(if compact {
+                                theme.mobile_secondary_on(theme.mobile.dialog_fill)
+                            } else {
+                                theme.text_secondary
+                            })
                             .text_center()
-                            // The body owns the scroll region; the action row
-                            // below it keeps its targets visible however long
-                            // the message is (REQ-SCR-04).
+                            .when_some(recipe.body_max_height, |d, h| d.max_h(px(h)))
+                            // Compact: the body owns the scroll region and the
+                            // action row below keeps its targets visible however
+                            // long the message is (REQ-SCR-04). Desktop keeps
+                            // its incumbent 320 px cap.
                             .overflow_y_scroll()
                             .child(m),
                     )
                 })
                 .child(
                     div()
-                        .mt(px(theme.mobile.space_5))
+                        .mt(px(recipe.action_top))
                         .w_full()
                         .flex()
                         .flex_wrap()
-                        .gap(px(theme.mobile.space_2))
+                        .gap(px(recipe.action_gap))
                         .items_center()
                         .justify_center()
                         .children(buttons),
@@ -421,38 +528,60 @@ mod tests {
     /// dialog's one resolution owns it, so a second tap runs nothing.
     /// @req REQ-SCR-04
     #[test]
-    fn mobile_long_dialog_resolves_once_and_restores_focus() {
-        use super::{
-            mobile_dialog_action, mobile_dialog_action_height, DialogActionKind,
-            MOBILE_DIALOG_BODY_MIN,
-        };
-        use crate::theme::AppTheme;
+    fn mobile_long_dialog_keeps_actions_reachable_and_resolves_once() {
+        use super::{dialog_action_style, DialogActionKind, DialogRecipes};
+        use crate::theme::{to_rgb, AppTheme};
+        use snackpilot_model::desktop::contrast_ratio;
+        use snackpilot_model::tokens::mobile;
         use snackpilot_model::AccentColor;
 
-        // The body can shrink to nothing (scroll region) while the actions keep
-        // their target height, so a long message never pushes them out.
-        assert_eq!(MOBILE_DIALOG_BODY_MIN, 0.);
-        for flat in [false, true] {
-            let theme = AppTheme::build(false, AccentColor::Orange, flat);
-            assert_eq!(
-                mobile_dialog_action_height(&theme),
-                44.,
-                "modal actions meet the touch floor"
-            );
-            let (fill, border, ink) = mobile_dialog_action(DialogActionKind::Primary, &theme);
-            assert_eq!(fill, Some(theme.mobile.action_fill));
-            assert_eq!(border, None);
-            assert_eq!(ink, theme.mobile.action_ink);
-            let (_, border, ink) = mobile_dialog_action(DialogActionKind::Neutral, &theme);
-            assert!(border.is_some(), "cancel keeps its neutral outline");
-            assert_eq!(ink, theme.text_primary);
-            let (fill, _, ink) = mobile_dialog_action(DialogActionKind::Danger, &theme);
-            assert_eq!(fill, Some(theme.error), "destructive keeps the error fill");
-            assert_eq!(ink, theme.on_primary);
+        // The compact recipe the overlay paints: the body is the flexible
+        // scroll region (no fixed cap) while the action row keeps its 44 px
+        // targets, so a long message can only scroll and never pushes the
+        // actions out of the box. The desktop recipe keeps its incumbent cap.
+        for dark in [false, true] {
+            for flat in [false, true] {
+                let theme = AppTheme::build(dark, AccentColor::Berry, flat);
+                let compact = DialogRecipes::for_host(true, &theme);
+                assert_eq!(compact.body_max_height, None, "compact body scrolls");
+                assert_eq!(compact.action_height, mobile::TARGET);
+                assert_eq!(compact.action_height, theme.mobile.target);
+                assert_eq!(compact.box_max_width, 340.);
+                assert_eq!(compact.box_radius, 14.);
+                assert_eq!(compact.action_gap, theme.mobile.space_2);
+
+                // The danger and neutral actions paint the projected pair, and
+                // that pair carries its floor on the fill it really covers.
+                let (fill, border, ink) =
+                    dialog_action_style(DialogActionKind::Danger, true, &theme);
+                assert_eq!(fill, Some(theme.mobile.danger_fill));
+                assert_eq!(border, None);
+                assert_eq!(ink, theme.mobile.danger_action_ink);
+                let danger = to_rgb(theme.mobile.danger_fill, theme.mobile.danger_fill);
+                assert!(
+                    contrast_ratio(to_rgb(ink, theme.mobile.danger_fill), danger)
+                        >= mobile::TEXT_MIN_CONTRAST,
+                    "destructive ink reads on the projected error fill"
+                );
+                let (fill, border, ink) =
+                    dialog_action_style(DialogActionKind::Neutral, true, &theme);
+                assert_eq!(fill, None, "cancel keeps the neutral outline");
+                assert_eq!(border, Some(theme.mobile.secondary_boundary));
+                assert_eq!(ink, theme.mobile.secondary);
+                let secondary = to_rgb(theme.mobile.secondary_fill, theme.mobile.secondary_fill);
+                assert!(
+                    contrast_ratio(
+                        to_rgb(border.unwrap(), theme.mobile.secondary_fill),
+                        secondary
+                    ) >= mobile::CONTROL_MIN_CONTRAST,
+                    "the cancel boundary and fill separate as a control"
+                );
+            }
         }
 
-        // The confirm's cancel side is index 0, which is also what the backdrop
-        // and Esc resolve; one resolution claims it.
+        // The confirm's cancel side is index 0, which is exactly what the
+        // backdrop's single handler and Esc resolve. One claim owns it; a late
+        // confirm tap runs nothing.
         assert_eq!(confirm().label_at(0), "Behalten");
         assert_eq!(
             super::dialog_key("escape", false, false, 1, 2),
@@ -471,6 +600,58 @@ mod tests {
             crate::app::focus_restore(false, false, false),
             crate::app::FocusRestore::Origin
         );
+    }
+
+    /// The wide Desktop Ledger keeps its pre-change §4.1 dialog geometry, type
+    /// and colours at every desktop width: the compact projection never leaks
+    /// into the dialog at 720, 768 or 1280 (REQ-UI-07/REQ-UI-15).
+    /// @req REQ-UI-07 @req REQ-UI-15
+    #[test]
+    fn wide_desktop_dialog_recipes_unchanged() {
+        use super::{dialog_action_style, DialogActionKind, DialogRecipes};
+        use crate::theme::AppTheme;
+        use snackpilot_model::desktop::{layout_mode, HostKind, LayoutMode};
+        use snackpilot_model::AccentColor;
+
+        for width in [720., 768., 1280.] {
+            assert_ne!(
+                layout_mode(HostKind::Desktop, width),
+                LayoutMode::Phone,
+                "the wide Ledger owns {width}"
+            );
+            let compact = layout_mode(HostKind::Desktop, width) == LayoutMode::Phone;
+            for dark in [false, true] {
+                let theme = AppTheme::build(dark, AccentColor::Orange, true);
+                let recipe = DialogRecipes::for_host(compact, &theme);
+                // The incumbent §4.1 values, before the mobile extension.
+                assert_eq!(recipe.box_radius, 14.);
+                assert_eq!(recipe.box_padding, 24.);
+                assert_eq!(recipe.box_max_width, 340.);
+                assert_eq!(recipe.box_border, 0.5);
+                assert_eq!((recipe.title_size, recipe.title_line), (17., 22.));
+                assert_eq!((recipe.body_size, recipe.body_line), (14., 20.));
+                assert_eq!(recipe.body_top, 8.);
+                assert_eq!(recipe.body_max_height, Some(320.));
+                assert_eq!(recipe.action_top, 20.);
+                assert_eq!(recipe.action_gap, 10.);
+                assert_eq!(recipe.action_height, 44.);
+                assert_eq!(recipe.action_radius, 8.);
+                assert_eq!(recipe.action_text, 15.);
+                // Colours stay the pinned §4.1 recipes, not the projection.
+                assert_eq!(
+                    dialog_action_style(DialogActionKind::Primary, compact, &theme),
+                    (Some(theme.primary), None, theme.on_primary)
+                );
+                assert_eq!(
+                    dialog_action_style(DialogActionKind::Danger, compact, &theme),
+                    (Some(theme.error), None, theme.on_primary)
+                );
+                assert_eq!(
+                    dialog_action_style(DialogActionKind::Neutral, compact, &theme),
+                    (None, Some(theme.border), theme.text_secondary)
+                );
+            }
+        }
     }
 
     /// The alert focuses OK; a confirm focuses its visible confirm action,

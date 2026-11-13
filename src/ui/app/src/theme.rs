@@ -138,7 +138,20 @@ pub struct MobilePalette {
     pub action_fill: Hsla,
     pub action_pressed: Hsla,
     pub action_ink: Hsla,
-    /// `mobile.dangerInk` on the plain card fill.
+    /// The destructive action pair: the pinned `ERROR` fill composited over the
+    /// card and the white/black ink that reads best on it. Not `on_primary`,
+    /// which is only asserted white and fails 4.5:1 on the dark error fill.
+    pub danger_fill: Hsla,
+    pub danger_action_ink: Hsla,
+    /// The neutral outlined secondary: the card fill, the readable secondary
+    /// ink on it, and the accent boundary resolved to >=3:1 on that fill.
+    pub secondary_fill: Hsla,
+    pub secondary_boundary: Hsla,
+    /// The dialog box: the pinned `SURFACE` fill and a boundary resolved to
+    /// >=3:1 on it (the incumbent `border` does not reach it).
+    pub dialog_fill: Hsla,
+    pub dialog_boundary: Hsla,
+    /// `mobile.dangerInk` on the plain card fill (danger *text*, not a fill).
     pub danger_ink: Hsla,
     /// `mobile.disabledFill` / `mobile.disabledInk`.
     pub disabled_fill: Hsla,
@@ -638,7 +651,10 @@ impl AppTheme {
 
     /// `mobile.secondaryInk(fill)`: readable metadata on the actual fill.
     pub fn mobile_secondary_on(&self, fill: Hsla) -> Hsla {
-        from_rgb(mobile_tokens::secondary_ink(to_rgb(fill), self.dark))
+        from_rgb(mobile_tokens::secondary_ink(
+            to_rgb(fill, self.mobile_card_fill()),
+            self.dark,
+        ))
     }
 
     /// The fill a translucent token really paints: composited over the compact
@@ -662,8 +678,8 @@ impl AppTheme {
     /// (tinted info banners), never a new semantic colour.
     pub fn mobile_ink_on(&self, fill: Hsla, preferred: Hsla) -> Hsla {
         from_rgb(mobile_tokens::status_ink(
-            to_rgb(fill),
-            to_rgb(preferred),
+            to_rgb(fill, self.mobile_card_fill()),
+            to_rgb(preferred, self.mobile_card_fill()),
             self.dark,
         ))
     }
@@ -672,7 +688,7 @@ impl AppTheme {
     /// (`"success"` / `"warning"` / anything else = error).
     pub fn mobile_status_on(&self, fill: Hsla, kind: &str) -> Hsla {
         from_rgb(mobile_tokens::status_ink(
-            to_rgb(fill),
+            to_rgb(fill, self.mobile_card_fill()),
             mobile_tokens::semantic_status_ink(kind, self.dark),
             self.dark,
         ))
@@ -680,12 +696,18 @@ impl AppTheme {
 
     /// `mobile.dangerInk(fill)`: pinned error ink while it reads, else primary.
     pub fn mobile_danger_on(&self, fill: Hsla) -> Hsla {
-        from_rgb(mobile_tokens::danger_ink(to_rgb(fill), self.dark))
+        from_rgb(mobile_tokens::danger_ink(
+            to_rgb(fill, self.mobile_card_fill()),
+            self.dark,
+        ))
     }
 
     /// `mobile.pressedFill(fill)`: fill-only press feedback, 14 % ink mix.
     pub fn mobile_pressed(&self, fill: Hsla) -> Hsla {
-        from_rgb(mobile_tokens::pressed_fill(to_rgb(fill), self.dark))
+        from_rgb(mobile_tokens::pressed_fill(
+            to_rgb(fill, self.mobile_card_fill()),
+            self.dark,
+        ))
     }
 
     /// The plain card fill the compact content sits on: `surface` on the flat
@@ -707,17 +729,24 @@ impl AppTheme {
             } else {
                 surface.light
             },
-            to_rgb(background),
+            to_rgb(background, background),
         ))
     }
 }
 
-/// Byte-wise `Rgb` for a painted gpui colour, so the model's contrast helpers
-/// measure the fill that is really on screen.
-pub fn to_rgb(c: Hsla) -> Rgb {
-    let rgba: Rgba = c.into();
+/// Byte-wise `Rgb` for a painted gpui colour measured on `backdrop`: a
+/// translucent fill (iOS glass, the overlay) is composited first, because
+/// reading its raw channels would measure a fill the screen never paints.
+pub fn to_rgb(c: Hsla, backdrop: Hsla) -> Rgb {
+    let fill: Rgba = c.into();
+    let back: Rgba = backdrop.into();
+    let a = fill.a.clamp(0.0, 1.0);
     let q = |x: f32| (x * 255.0).round().clamp(0.0, 255.0) as u8;
-    Rgb::new(q(rgba.r), q(rgba.g), q(rgba.b))
+    Rgb::new(
+        q(fill.r * a + back.r * (1.0 - a)),
+        q(fill.g * a + back.g * (1.0 - a)),
+        q(fill.b * a + back.b * (1.0 - a)),
+    )
 }
 
 /// Derive the mobile presentation projection from the pinned tokens only
@@ -739,6 +768,19 @@ fn build_mobile_palette(dark: bool, flat: bool, accents: &tokens::AccentColors) 
     let card = m::composite_over(if dark { surface.dark } else { surface.light }, background);
     let action = m::action_fill(accents, dark);
     let pressed_surface = m::pressed_fill(card, dark);
+    let danger_fill = m::composite_over(
+        if dark {
+            tokens::ERROR.dark
+        } else {
+            tokens::ERROR.light
+        },
+        card,
+    );
+    let dialog_fill = desktop::parse_color(if dark {
+        tokens::SURFACE.dark
+    } else {
+        tokens::SURFACE.light
+    });
     MobilePalette {
         space_1: m::SPACE_1,
         space_2: m::SPACE_2,
@@ -767,6 +809,15 @@ fn build_mobile_palette(dark: bool, flat: bool, accents: &tokens::AccentColors) 
         action_fill: from_rgb(action),
         action_pressed: from_rgb(m::pressed_fill(action, dark)),
         action_ink: from_rgb(m::action_ink(action)),
+        danger_fill: from_rgb(danger_fill),
+        danger_action_ink: from_rgb(m::action_ink(danger_fill)),
+        secondary_fill: from_rgb(card),
+        secondary_boundary: from_rgb(m::selection_boundary(accents, dark, flat, card)),
+        dialog_fill: from_rgb(dialog_fill),
+        dialog_boundary: from_rgb(desktop::boundary_ink(
+            dialog_fill,
+            desktop::parse_color(accents.primary),
+        )),
         danger_ink: from_rgb(m::danger_ink(card, dark)),
         disabled_fill: from_rgb(m::disabled_fill(dark)),
         disabled_ink: from_rgb(m::disabled_ink(dark)),
@@ -1085,6 +1136,19 @@ mod tests {
                     );
                     let action = m::action_fill(colors, dark);
                     let pressed_surface = m::pressed_fill(card, dark);
+                    let danger = m::composite_over(
+                        if dark {
+                            tokens::ERROR.dark
+                        } else {
+                            tokens::ERROR.light
+                        },
+                        card,
+                    );
+                    let dialog = parse_color(if dark {
+                        tokens::SURFACE.dark
+                    } else {
+                        tokens::SURFACE.light
+                    });
                     let expected = crate::theme::MobilePalette {
                         space_1: m::SPACE_1,
                         space_2: m::SPACE_2,
@@ -1115,6 +1179,17 @@ mod tests {
                         action_fill: from_rgb(action),
                         action_pressed: from_rgb(m::pressed_fill(action, dark)),
                         action_ink: from_rgb(m::action_ink(action)),
+                        danger_fill: from_rgb(danger),
+                        danger_action_ink: from_rgb(m::action_ink(danger)),
+                        secondary_fill: from_rgb(card),
+                        secondary_boundary: from_rgb(m::selection_boundary(
+                            colors, dark, flat, card,
+                        )),
+                        dialog_fill: from_rgb(dialog),
+                        dialog_boundary: from_rgb(desktop::boundary_ink(
+                            dialog,
+                            parse_color(colors.primary),
+                        )),
                         danger_ink: from_rgb(m::danger_ink(card, dark)),
                         disabled_fill: from_rgb(m::disabled_fill(dark)),
                         disabled_ink: from_rgb(m::disabled_ink(dark)),
@@ -1168,6 +1243,12 @@ mod tests {
                     );
                     assert_eq!(got.action_pressed, expected.action_pressed);
                     assert_eq!(got.action_ink, expected.action_ink);
+                    assert_eq!(got.danger_fill, expected.danger_fill);
+                    assert_eq!(got.danger_action_ink, expected.danger_action_ink);
+                    assert_eq!(got.secondary_fill, expected.secondary_fill);
+                    assert_eq!(got.secondary_boundary, expected.secondary_boundary);
+                    assert_eq!(got.dialog_fill, expected.dialog_fill);
+                    assert_eq!(got.dialog_boundary, expected.dialog_boundary);
                     assert_eq!(got.danger_ink, expected.danger_ink);
                     assert_eq!(got.disabled_fill, expected.disabled_fill);
                     assert_eq!(got.disabled_ink, expected.disabled_ink);
@@ -1175,35 +1256,93 @@ mod tests {
                     assert_eq!(got.secondary_on_pressed, expected.secondary_on_pressed);
 
                     // The painted fields carry the brief's floors on that fill.
-                    let fill = to_rgb(got.selection_fill);
+                    let fill = to_rgb(got.selection_fill, got.selection_fill);
                     assert!(
-                        contrast_ratio(to_rgb(got.selection_ink), fill) >= m::TEXT_MIN_CONTRAST,
+                        contrast_ratio(to_rgb(got.selection_ink, got.selection_fill), fill)
+                            >= m::TEXT_MIN_CONTRAST,
                         "{} selection ink on the painted fill",
                         accent.id
                     );
                     assert!(
-                        contrast_ratio(to_rgb(got.selection_boundary), fill)
+                        contrast_ratio(to_rgb(got.selection_boundary, got.selection_fill), fill)
                             >= m::CONTROL_MIN_CONTRAST,
                         "{} selection boundary on the painted fill",
                         accent.id
                     );
                     assert!(
-                        contrast_ratio(to_rgb(got.action_ink), to_rgb(got.action_fill))
-                            >= m::TEXT_MIN_CONTRAST,
+                        contrast_ratio(
+                            to_rgb(got.action_ink, got.action_fill),
+                            to_rgb(got.action_fill, got.action_fill)
+                        ) >= m::TEXT_MIN_CONTRAST,
                         "{} action ink on the action fill",
+                        accent.id
+                    );
+                    // Danger and the outlined secondary paint their projected
+                    // pair: text at 4.5:1 and the boundary at 3:1, measured on
+                    // the fill the control really covers (card, dark={dark}).
+                    let danger_fill = to_rgb(got.danger_fill, got.danger_fill);
+                    assert!(
+                        contrast_ratio(to_rgb(got.danger_action_ink, got.danger_fill), danger_fill)
+                            >= m::TEXT_MIN_CONTRAST,
+                        "{} danger ink on the danger fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(danger_fill, card) >= m::CONTROL_MIN_CONTRAST,
+                        "{} danger fill reads as a control boundary on the card",
+                        accent.id
+                    );
+                    let secondary_fill = to_rgb(got.secondary_fill, got.secondary_fill);
+                    assert!(
+                        contrast_ratio(to_rgb(got.secondary, got.secondary_fill), secondary_fill)
+                            >= m::TEXT_MIN_CONTRAST,
+                        "{} secondary ink on the outlined fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(
+                            to_rgb(got.secondary_boundary, got.secondary_fill),
+                            secondary_fill
+                        ) >= m::CONTROL_MIN_CONTRAST,
+                        "{} secondary boundary on the outlined fill",
+                        accent.id
+                    );
+                    // The modal box carries readable copy and a boundary that
+                    // separates it from the backdrop at 3:1.
+                    let dialog_fill = to_rgb(got.dialog_fill, got.dialog_fill);
+                    assert!(
+                        contrast_ratio(to_rgb(theme.text_primary, got.dialog_fill), dialog_fill)
+                            >= m::TEXT_MIN_CONTRAST,
+                        "{} dialog title on the box fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(
+                            to_rgb(theme.mobile_secondary_on(got.dialog_fill), got.dialog_fill),
+                            dialog_fill
+                        ) >= m::TEXT_MIN_CONTRAST,
+                        "{} dialog body on the box fill",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(to_rgb(got.dialog_boundary, got.dialog_fill), dialog_fill)
+                            >= m::CONTROL_MIN_CONTRAST,
+                        "{} dialog box boundary",
                         accent.id
                     );
                     // Press changes the fill only: the same control keeps a
                     // readable ink on its 14 % pressed fill.
-                    let pressed = to_rgb(got.pressed_surface);
+                    let pressed = to_rgb(got.pressed_surface, got.pressed_surface);
                     assert!(
-                        contrast_ratio(to_rgb(got.secondary_on_pressed), pressed)
-                            >= m::TEXT_MIN_CONTRAST
+                        contrast_ratio(
+                            to_rgb(got.secondary_on_pressed, got.pressed_surface),
+                            pressed
+                        ) >= m::TEXT_MIN_CONTRAST
                     );
 
                     // The projection is a projection, not the desktop palette.
                     assert_eq!(
-                        to_rgb(got.action_fill),
+                        to_rgb(got.action_fill, got.action_fill),
                         parse_color(if dark {
                             accent.dark.primary
                         } else {
@@ -1295,10 +1434,36 @@ mod tests {
                 assert_eq!(t.desktop.panel, t.surface);
                 assert_eq!(t.desktop.rail, t.background);
                 // The compact projection never mutates a base recipe or the
-                // desktop palette: the wide Ledger keeps its own values.
+                // desktop palette: the wide Ledger keeps its own values, still
+                // derived from the pinned tokens (not a copy of itself).
                 let action_before = t.desktop.action.fill;
                 let card_before = t.card_surface();
-                assert_eq!(t.mobile_card_fill(), t.mobile_card_fill());
+                let surface = if flat {
+                    tokens::SURFACE
+                } else {
+                    tokens::GLASS_SURFACE
+                };
+                assert_eq!(
+                    t.mobile_card_fill(),
+                    from_rgb(snackpilot_model::tokens::mobile::composite_over(
+                        if dark { surface.dark } else { surface.light },
+                        desktop::parse_color(if dark {
+                            tokens::BACKGROUND.dark
+                        } else {
+                            tokens::BACKGROUND.light
+                        })
+                    )),
+                    "the compact card fill is the composited dialect projection"
+                );
+                let accents = tokens::accent(AccentColor::Orange);
+                assert_eq!(
+                    t.desktop.action.fill,
+                    from_rgb(desktop::action_fill(
+                        if dark { &accents.dark } else { &accents.light },
+                        dark
+                    )),
+                    "desktop action fill stays the pinned accent projection"
+                );
                 assert_eq!(t.desktop.action.fill, action_before);
                 assert_eq!(t.card_surface().bg, card_before.bg);
                 assert_eq!(t.card_surface().radius, card_before.radius);

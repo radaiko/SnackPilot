@@ -29,11 +29,11 @@
 
 | # | Item | Status | Evidence / command |
 | --- | --- | --- | --- |
-| 1 | `make check` (fmt, clippy, core tests, devops lib, spec validation, ui model tests) | **PASS** | `make-check-linux.log` (exit 0, 6/6 OpenSpec items valid, all model suites ok) |
+| 1 | `make check` (fmt, clippy, core tests, devops lib, spec validation, ui model tests) | **PASS** | `make-check-linux.log` (exit 0, 19 ok suites, 6/6 OpenSpec items valid) |
 | 2 | Model projection parity + geometry + contrast (`tokens.rs`) | **PASS** | `make-check-linux.log` — includes `mobile_rendered_projection_parity` @req REQ-UI-15 |
 | 3 | App crate type-checks, tests included (`cargo check -p snackpilot-app --all-targets`) | **PASS** | `app-crate-check.log` (exit 0, no warnings) |
-| 4 | App crate test execution (`cargo test --locked -p snackpilot-app --lib`) | **BLOCKED(host)** | `app-crate-test-link.log`: the linker cannot find `-lxcb -lfontconfig -lfreetype -lxkbcommon -lxkbcommon-x11`. Run on the Mac. Covers `mobile_recipes_consume_composited_projection`, `wide_desktop_recipes_unchanged`, `compact_projection_is_host_safe`, `mobile_shell_preserves_navigation_and_single_root`, `mobile_focus_press_disabled_hit_bounds`, `mobile_long_dialog_resolves_once_and_restores_focus`, `mobile_toast_copy_timing_and_reduced_motion`, `mobile_rendered_projection_parity` (model side already ran). |
-| 5 | Mac desktop workflow (app tests + GUI build/run, 360/390/719→720→719 trace) | **BLOCKED(host)** | needs the Mac; `mac-sync` then `cd src/ui && cargo test --locked -p snackpilot-app --lib` and `cargo run -p snackpilot-app --bin snackpilot-desktop` |
+| 4 | App crate test execution (`cargo test --locked -p snackpilot-app --lib`) | **PASS** | `app-crate-test-mac.log` (Mac, 115 passed, 0 failed). Covers `mobile_recipes_consume_composited_projection`, `wide_desktop_recipes_unchanged`, `compact_projection_is_host_safe`, `mobile_shell_preserves_navigation_and_single_root`, `mobile_action_recipes_targets_and_disabled_context`, `mobile_long_dialog_keeps_actions_reachable_and_resolves_once`, `wide_desktop_dialog_recipes_unchanged`, `compact_shell_does_not_stack_a_screen_bottom_inset`, `mobile_toast_copy_timing_and_reduced_motion`, `mobile_rendered_projection_parity` (model side already ran). |
+| 5 | Mac desktop workflow (app tests + GUI build/run, 360/390/719→720→719 trace) | **PARTIAL** | app tests PASS (`app-crate-test-mac.log`); the GUI run and the 719→720→719 input/containment trace remain `BLOCKED(host)` because no Mac GUI session was driven in this round |
 | 6 | iOS bootstrap/build/XCUITest (`DesktopRegressionTests`, `DialogOcclusionTests`) | **BLOCKED(host)** | needs the Mac + simulator; `src/ui/ios/bootstrap.sh` then `xcodebuild test -project SnackPilot.xcodeproj -scheme SnackPilot -destination 'platform=iOS Simulator,name=iPhone 17 Pro'` |
 | 7 | Android release check → debug rebuild → APK/run | **BLOCKED(host)** | needs a working emulator/device (the VM emulator segfaults) |
 | 8 | Shell/overlay/control-state boards before/after at all conventions widths/themes and all five accents | **BLOCKED(host)** | needs a rendered surface; the gallery board exists but no capture was produced |
@@ -50,7 +50,7 @@
 | Primary actions (form save, dock, confirm) | 48 high | `tokens::mobile::ACTION_HEIGHT`, `button::mobile_action_metrics` |
 | Broadcast dismissal | exactly 44×44 | `components/broadcast_banner.rs` |
 | Back row | ≥48 high, `ChevronLeft` 24 | `navigation::back_affordance` |
-| Dialog actions | ≥44 high, r8 | `dialog::mobile_dialog_action_height` |
+| Dialog actions | ≥44 high, r8 | `dialog::DialogRecipes::for_host` |
 | Focus | 2 px ring + 2 px reserved gap (4 px), never shifting rest | `tokens::mobile::FOCUS_*`, `theme.mobile.focus` |
 | Option/status radius | 8 | `tokens::mobile::RADIUS_OPTION/RADIUS_STATUS` |
 
@@ -99,7 +99,35 @@ selected date/clock/context/scroll, revision and the before/after pair.
   their own bodies; their Day Tray layouts, the pending dock and the day
   navigator are tasks 1.3–1.11. This task only supplies the shared projection,
   the shell frame and the shared controls.
+- **Contract gap (screen side, tasks 1.3–1.6):** `screens/{menus,orders,billing,settings}.rs`
+  (and the login/appearance/notifications details) still paint their own
+  `.p(px(16.))`/`.pb(px(100.))`. Horizontally that makes the visible gutter
+  32 px instead of the shell's 16, because the centred column is already
+  `width − 32`; vertically `compact_content_bottom` only tops the legacy 100 px
+  up to the measured target, so the two insets never sum. Tasks 1.3–1.6 must
+  delete the screen-side padding and their `legacy_screen_owns_bottom_inset`
+  entry (an `app.rs` purpose amendment the dispatcher owns) so the shell's
+  measured 16/560 column and reservation apply alone.
+- **Native test scope narrowed honestly:** GPUI exposes no accessibility tree,
+  so the Swift overlay/shell/toast tests assert the rendered window, the
+  bounded foreground state and the captures. Occlusion, single resolution,
+  toast copy/timings, the compact column and the absence of a rail are proven
+  by the Rust tests above plus visual review of the captures; the Swift tests
+  no longer claim them via `sleep` or a foreground-only check.
 - `loading_overlay` is unchanged (initial 36 px spinner card); the cached-refresh
   treatment is the neutral 16 px spinner row in `banner::refresh_banner`.
 - No claim is made that a gallery board proves a functioning screen, native
   input, or assistive traversal.
+- **Press cancellation scope:** the compact builders no longer carry a
+  `mobile_press`/`meets_target` calculator that nothing called. Activation is the
+  pinned gpui hitbox rule (up on the same hovered control as the down), and the
+  app crate cannot synthesize pointer gestures here because no `test-support`
+  feature is enabled for its gpui dependency (a manifest change this task's
+  `deps: none` does not allow). The app test asserts the painted recipes, the
+  44/48 target floor and the disabled recipe; outside-release/scroll-claim are
+  the same hitbox-cancellation path and stay a native-action-trace item.
+- **Updated review round:** the six 1.2 review findings were addressed in this
+  round (shell inset stacking, dialog host gate, projected danger/secondary and
+  alpha-composited measurement, the REQ-UI-16 test, dialog/toast behaviour
+  tests, and bounded Swift waits). `make check` and the Mac app tests were
+  rerun; see rows 1 and 4.

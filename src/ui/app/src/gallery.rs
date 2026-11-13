@@ -747,7 +747,7 @@ fn desktop_settings_dialog_demo(
         on_confirm: noop.clone(),
     };
     let activate: DialogActivate = Rc::new(|_, _, _| {});
-    let overlay = dialog_overlay(&dialog, theme, 1, &[f0, f1], activate);
+    let overlay = dialog_overlay(&dialog, false, theme, 1, &[f0, f1], activate);
 
     div()
         .flex()

@@ -50,6 +50,22 @@ final class DesktopRegressionTests: XCTestCase {
         return app
     }
 
+    /// Bounded wait for the next rendered frame (foreground + existing window).
+    /// It replaces the fixed `sleep(1)`; GPUI has no accessibility tree, so the
+    /// screenshots remain the evidence and this helper does not invent a label
+    /// assertion.
+    private func waitForSettledFrame(_ app: XCUIApplication, timeout: TimeInterval = 5) {
+        let foreground = expectation(
+            for: NSPredicate(
+                format: "state == %d",
+                XCUIApplication.State.runningForeground.rawValue),
+            evaluatedWith: app)
+        wait(for: [foreground], timeout: timeout)
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: timeout),
+            "no rendered window after the interaction")
+    }
+
     /// The Day Tray baseline runs on the isolated debug host and records the
     /// actual rendered window bounds for every destination at the selected
     /// logical viewport. It waits for the window rather than sleeping, and
@@ -97,10 +113,10 @@ final class DesktopRegressionTests: XCTestCase {
         let app = launch([])
         saveScreenshot("mobile-before-menus")
         app.coordinate(withNormalizedOffset: settingsTab).tap()
-        sleep(1)
+        waitForSettledFrame(app)
         saveScreenshot("mobile-settings")
         app.coordinate(withNormalizedOffset: menusTab).tap()
-        sleep(1)
+        waitForSettledFrame(app)
         saveScreenshot("mobile-after-menus")
         XCTAssertTrue(app.state == .runningForeground)
     }
@@ -113,17 +129,18 @@ final class DesktopRegressionTests: XCTestCase {
         let app = launch(["--tab=3"])
         saveScreenshot("mobile-settings-list")
         app.coordinate(withNormalizedOffset: firstSettingsRow).tap()
-        sleep(1)
+        waitForSettledFrame(app)
         saveScreenshot("mobile-settings-pushed-form")
         XCTAssertTrue(app.state == .runningForeground)
     }
 
     /// Mobile Day Tray 1.2 (REQ-UI-03/REQ-UI-04/REQ-UI-07/REQ-UI-15): the
     /// compact shell is one root with the platform navigation at360, 390, 768
-    /// and1280 — the wide widths show the same centred column, never a desktop
-    /// rail, table or split. Each launch records a real frame; GPUI has no
-    /// accessibility tree, so the rail's absence is a visual review fact and is
-    /// never asserted from coordinates.
+    /// and1280. Each launch records a real frame at the requested in-app
+    /// viewport; GPUI has no accessibility tree, so the only honest assertions
+    /// are the rendered window/screenshot and foreground state. The content cap,
+    /// single column and rail absence are visual-review facts in the 1.2 index,
+    /// backed by the Rust `compact_shell_plan` tests, not coordinate claims.
     /// @req REQ-UI-03 @req REQ-UI-04 @req REQ-UI-07
     func testDayTrayCompactShellAtEveryWidth() {
         for viewport in ["360x780", "390x844", "768x1024", "1280x1024"] {
