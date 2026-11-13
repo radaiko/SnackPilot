@@ -11,6 +11,8 @@
 //! @req REQ-UI-07 @req REQ-UI-11 @req REQ-UI-14
 
 pub mod macos;
+pub mod metadata;
+pub mod storage;
 
 use std::sync::Mutex;
 
@@ -182,49 +184,7 @@ pub fn window_options(cx: &App) -> WindowOptions {
     }
 }
 
-/// The common release inputs (iOS project settings are the shared semver
-/// source used by `make ship`). Embedded so About works from an installed
-/// bundle without a checkout; the packaging step can override them with the
-/// environment below when it generates the app metadata.
-const COMMON_RELEASE_INPUTS: &str = include_str!("../../../ios/project.yml");
-
-/// First `key: value` in a YAML fragment, quotes trimmed.
-pub fn yaml_value(yaml: &str, key: &str) -> Option<String> {
-    yaml.lines().find_map(|line| {
-        let value = line.trim().strip_prefix(key)?.trim_start();
-        let value = value.strip_prefix(':')?.trim();
-        (!value.is_empty()).then(|| value.trim_matches('"').to_string())
-    })
-}
-
-fn release_metadata(key: &str, env_value: Option<&'static str>) -> Option<String> {
-    if let Some(value) = env_value {
-        let value = value.trim();
-        if !value.is_empty() && value != "0.0.0" && value != "0" {
-            return Some(value.to_string());
-        }
-    }
-    yaml_value(COMMON_RELEASE_INPUTS, key).filter(|value| value != "0.0.0" && value != "0")
-}
-
-/// Runtime product version: the common release metadata from the shared
-/// inputs (or a packaging override), explicit debug metadata when it is
-/// missing. Never the app crate's placeholder `0.0.0` (REQ-UI-14).
-pub fn product_version() -> String {
-    release_metadata(
-        "MARKETING_VERSION",
-        option_env!("SNACKPILOT_PRODUCT_VERSION"),
-    )
-    .or_else(|| cfg!(debug_assertions).then(|| "Entwicklung".to_string()))
-    .unwrap_or_else(|| "unbekannt".to_string())
-}
-
-/// Runtime build metadata, same rules as [`product_version`].
-pub fn product_build() -> String {
-    release_metadata("CURRENT_PROJECT_VERSION", option_env!("SNACKPILOT_BUILD"))
-        .or_else(|| cfg!(debug_assertions).then(|| "debug".to_string()))
-        .unwrap_or_else(|| "unbekannt".to_string())
-}
+pub use metadata::{product_build, product_version};
 
 /// The themed About body lines (brief §9), with real version/build metadata
 /// and the retained GourmetClient credit.
@@ -519,12 +479,16 @@ mod tests {
         assert!(!version.is_empty());
         assert_ne!(build, "0");
         assert_eq!(
-            super::yaml_value("a: 1\nMARKETING_VERSION: \"2.1.0\"\n", "MARKETING_VERSION")
-                .as_deref(),
+            super::metadata::yaml_value(
+                "a: 1\nMARKETING_VERSION: \"2.1.0\"\n",
+                "MARKETING_VERSION"
+            )
+            .as_deref(),
             Some("2.1.0")
         );
         assert_eq!(
-            super::yaml_value("CURRENT_PROJECT_VERSION: 35", "CURRENT_PROJECT_VERSION").as_deref(),
+            super::metadata::yaml_value("CURRENT_PROJECT_VERSION: 35", "CURRENT_PROJECT_VERSION")
+                .as_deref(),
             Some("35")
         );
         let about = about_message("2.1.0", "35");

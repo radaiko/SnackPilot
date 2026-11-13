@@ -4,7 +4,7 @@ DEVOPS := tools/devops
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor clean check lint test test-lib spec-lint ui-check mac-sync ios-run ios-archive android-run android-keystore ship
+.PHONY: help doctor clean check lint test test-lib spec-lint ui-check mac-sync ios-run ios-archive android-run android-keystore package-macos ship
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -21,6 +21,7 @@ test: ## Core tests
 
 test-lib: ## Unit tests for the devops shell helpers
 	@bash $(DEVOPS)/test-lib.sh
+	@bash $(DEVOPS)/test-package-macos.sh
 
 spec-lint: ## OpenSpec validation
 	OPENSPEC_TELEMETRY=0 openspec validate --all --strict --no-interactive
@@ -46,6 +47,9 @@ ios-run: ## Build + install + launch on an iOS simulator (DEVICE= to override)
 
 ios-archive: ## Build a signed release archive + open Xcode Organizer (App Store/TestFlight upload)
 	@bash $(DEVOPS)/archive-ios.sh
+
+package-macos: ## Build, sign, notarize, staple + verify the macOS release .app (Mac host; identity/profile from env)
+	@bash $(DEVOPS)/package-macos.sh
 
 android-run: ## Build + install + launch on an Android emulator/device
 	@bash $(DEVOPS)/run-android.sh

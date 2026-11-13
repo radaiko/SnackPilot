@@ -185,6 +185,12 @@ impl Drop for ForegroundGuard {
 impl AppModel {
     /// Launch order of REQ-SCR-09.
     pub fn bootstrap(&self) {
+        // The host capabilities gate the OS-service steps below. Desktop
+        // declares notifications and geofence unavailable, so bootstrap must
+        // not call either service there; iOS/Android declare both and keep
+        // their existing order (REQ-PLT-07, REQ-DST-04).
+        let capabilities = self.platform.capabilities();
+
         // 1. Cached snapshots first, so the first frame shows data.
         self.core.load_cached_menus();
         self.core.load_cached_orders();
@@ -223,10 +229,11 @@ impl AppModel {
             self.evidence_mode() || std::env::args().any(|a| a == "--no-permission-prompt");
         #[cfg(not(debug_assertions))]
         let skip_prompt = false;
-        if !skip_prompt {
+        if !skip_prompt && capabilities.notifications {
             let _ = self.platform.request_notification_permission();
         }
-        if !self.evidence_mode() && self.state().company_location.is_some() {
+        if capabilities.geofence && !self.evidence_mode() && self.state().company_location.is_some()
+        {
             // Idempotent across launches: one start per installed app.
             let started =
                 self.kv.get("geofence_restored").ok().flatten().as_deref() == Some("true");

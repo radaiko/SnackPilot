@@ -197,3 +197,89 @@ fn evidence_harness_isolates_startup_and_normal_slots() {
     model.set_evidence_mode(false);
     assert!(!model.evidence_mode(), "the next launch is a normal one");
 }
+
+/// A desktop host declares notifications and geofence unavailable, so its
+/// bootstrap must not call either service. Cache-first loading, the
+/// `app.launched` event and the saved-credential session still run
+/// (REQ-PLT-07, REQ-DST-04).
+/// @req REQ-PLT-07
+/// @req REQ-DST-04
+#[test]
+fn bootstrap_gates_unavailable_desktop_capabilities() {
+    use snackpilot_model::LocationFix;
+
+    // `FakePlatform::default()` reports both capabilities off, like
+    // `DesktopPlatform`; `new()` reports both on, like the mobile bridges.
+    let platform = Arc::new(FakePlatform::default());
+    let model = AppModel::new(temp_dir("capability-gate"), platform.clone()).unwrap();
+    platform.set_location(Some(LocationFix {
+        latitude: 48.2,
+        longitude: 16.4,
+    }));
+    model.set_company_location_from_current_position();
+    let before_bootstrap = platform.calls().len();
+
+    model.bootstrap();
+
+    let calls: Vec<String> = platform
+        .calls()
+        .into_iter()
+        .skip(before_bootstrap)
+        .collect();
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call == "request_notification_permission"),
+        "desktop bootstrap must not request an unavailable notification service: {calls:?}"
+    );
+    assert!(
+        !calls.iter().any(|call| call == "start_geofence"),
+        "desktop bootstrap must not arm an unavailable geofence service: {calls:?}"
+    );
+    assert!(
+        calls.iter().any(|call| call == "track(app.launched)"),
+        "the launch event still runs on desktop: {calls:?}"
+    );
+    assert!(
+        !platform.tracks().is_empty(),
+        "the model still tracks app.launched; the desktop platform makes it a no-op"
+    );
+}
+
+/// Mobile hosts keep the documented startup order: `app.launched`, then the
+/// notification permission, then the geofence restore (REQ-SCR-09).
+/// @req REQ-SCR-09
+#[test]
+fn bootstrap_keeps_mobile_capability_order() {
+    use snackpilot_model::LocationFix;
+
+    let platform = Arc::new(FakePlatform::new());
+    let model = AppModel::new(temp_dir("capability-order"), platform.clone()).unwrap();
+    platform.set_location(Some(LocationFix {
+        latitude: 48.2,
+        longitude: 16.4,
+    }));
+    model.set_company_location_from_current_position();
+    let before_bootstrap = platform.calls().len();
+
+    model.bootstrap();
+
+    let calls: Vec<String> = platform
+        .calls()
+        .into_iter()
+        .skip(before_bootstrap)
+        .collect();
+    let position = |name: &str| {
+        calls
+            .iter()
+            .position(|call| call == name)
+            .unwrap_or_else(|| panic!("{name} missing from {calls:?}"))
+    };
+    let launched = position("track(app.launched)");
+    let permission = position("request_notification_permission");
+    let geofence = position("start_geofence");
+    assert!(
+        launched < permission && permission < geofence,
+        "unchanged mobile order: launched < notification < geofence, got {calls:?}"
+    );
+}
