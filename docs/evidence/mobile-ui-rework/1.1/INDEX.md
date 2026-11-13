@@ -160,6 +160,13 @@ numbers from `day_tray_keeps_wide_ledger_geometry`.
   in-memory dummy credentials, normal OS/keychain slots never read or written.
 - Evidence bootstrap/foreground suppresses the live broadcast, the system
   permission prompt, the geofence restore and analytics (`track`).
+- An isolated evidence run answers both permission shims denied inside the iOS
+  bridge (`IosPlatform::request_permission`), so no caller — including
+  `-DebugPlatformExercise` — can reach `UNUserNotificationCenter` or CoreLocation
+  and change a permission. Proven by
+  `platform::ios::tests::evidence_run_never_reaches_os_permissions` @req
+  REQ-UI-08/REQ-UI-16 and by the native log line
+  `notify_permission: denied, no system prompt in evidence mode`.
 - Evidence mode now also suppresses host `notify`, so a capture cannot deliver
   a system notification.
 - Failure/permission fixtures are synthetic state; no wrong credentials are
@@ -175,3 +182,31 @@ numbers from `day_tray_keeps_wide_ledger_geometry`.
 | --- | --- | --- | --- | --- |
 | `INDEX.md` | baseline/index honesty, status list, exact commands | PASS | Linux VM | revision `5cf31f9`; no image metadata (no image produced) |
 | `make-check-linux.log` | `make check` under the task's `check:` | PASS | Linux VM | revision `5cf31f9`, 503 lines, ends with the model test/doc-test summary |
+| `b1-menus-populated-light-390-evidence-no-prompt.png` | B1/B16 baseline readiness: evidence run shows Menüs with **no** system permission dialog, notification authorisation left undetermined (fresh install) | PASS | MacBook, iPhone 17 Pro simulator `C2994587-5046-4970-8DDE-3F003EB81D0D` (iOS 26.2), `xcrun simctl io … screenshot` | revision `380acde`; logical viewport 390×844 (`--viewport=390x844`), physical 1206×2622 px @3x; light theme, Orange accent, default safe insets; scenario `populated` (fixture `evidence.populated`), tab 0 Menüs, day 5/10, device clock 19:00; launch args `--evidence --scenario=populated --viewport=390x844 --tab=0` |
+
+## Captured baseline (dispatcher run, 2026-11-13)
+
+Host: MacBook, iPhone 17 Pro simulator (iOS 26), UDID `C2994587-5046-4970-8DDE-3F003EB81D0D`,
+`xcrun simctl` install of the debug build synced from branch `task/1.1-ios-evidence`, launched as
+`--evidence --scenario=populated --viewport=390x844 --tab=<0..3>`, simulator appearance switched with
+`xcrun simctl ui <udid> appearance <light|dark>`. Physical image size 920x2000 @ ~2.36x, logical width
+390, safe top inset 62 pt, tab bar floating pill. Revision: the baseline commit on this branch.
+
+These are the **pre-Day-Tray incumbent** screens, captured before any presentation edit. They stand in for
+the desktop-deferred mobile before-images: the historical ones are unavailable and are not recreated.
+
+| File | Surface | States observed |
+| --- | --- | --- |
+| `baseline-menus-populated-light-390.png` | Menüs | category headings, closed dishes, allergens, prices, floating tab bar |
+| `baseline-menus-populated-dark-390.png` | Menüs | same, dark |
+| `baseline-orders-populated-light-390.png` | Bestellungen | segments with counts, empty upcoming list, `Auswählen` action |
+| `baseline-orders-populated-dark-390.png` | Bestellungen | same, dark |
+| `baseline-billing-populated-light-390.png` | Abrechnung | month/source controls, summary, empty receipts |
+| `baseline-billing-populated-dark-390.png` | Abrechnung | same, dark |
+| `baseline-settings-populated-light-390.png` | Einstellungen | account rows, hints, chevrons |
+| `baseline-settings-populated-dark-390.png` | Einstellungen | same, dark |
+
+Observed in the captures and carried into the rework findings: a large dead band between the safe area and
+the first content (Orders/Billing), category headings in accent uppercase above the dish, and the
+`filled populated` fixture covering Menüs only — Orders/Billing lists render empty under this scenario.
+Remaining rows of the native table above (B5–B16, Android, desktop, 360/768/1280) stay `BLOCKED(host)`.
