@@ -11,6 +11,8 @@
 //! @req REQ-UI-07 @req REQ-UI-11 @req REQ-UI-14
 
 pub mod macos;
+pub mod metadata;
+pub mod storage;
 
 use std::sync::Mutex;
 
@@ -182,49 +184,7 @@ pub fn window_options(cx: &App) -> WindowOptions {
     }
 }
 
-/// The common release inputs (iOS project settings are the shared semver
-/// source used by `make ship`). Embedded so About works from an installed
-/// bundle without a checkout; the packaging step can override them with the
-/// environment below when it generates the app metadata.
-const COMMON_RELEASE_INPUTS: &str = include_str!("../../../ios/project.yml");
-
-/// First `key: value` in a YAML fragment, quotes trimmed.
-pub fn yaml_value(yaml: &str, key: &str) -> Option<String> {
-    yaml.lines().find_map(|line| {
-        let value = line.trim().strip_prefix(key)?.trim_start();
-        let value = value.strip_prefix(':')?.trim();
-        (!value.is_empty()).then(|| value.trim_matches('"').to_string())
-    })
-}
-
-fn release_metadata(key: &str, env_value: Option<&'static str>) -> Option<String> {
-    if let Some(value) = env_value {
-        let value = value.trim();
-        if !value.is_empty() && value != "0.0.0" && value != "0" {
-            return Some(value.to_string());
-        }
-    }
-    yaml_value(COMMON_RELEASE_INPUTS, key).filter(|value| value != "0.0.0" && value != "0")
-}
-
-/// Runtime product version: the common release metadata from the shared
-/// inputs (or a packaging override), explicit debug metadata when it is
-/// missing. Never the app crate's placeholder `0.0.0` (REQ-UI-14).
-pub fn product_version() -> String {
-    release_metadata(
-        "MARKETING_VERSION",
-        option_env!("SNACKPILOT_PRODUCT_VERSION"),
-    )
-    .or_else(|| cfg!(debug_assertions).then(|| "Entwicklung".to_string()))
-    .unwrap_or_else(|| "unbekannt".to_string())
-}
-
-/// Runtime build metadata, same rules as [`product_version`].
-pub fn product_build() -> String {
-    release_metadata("CURRENT_PROJECT_VERSION", option_env!("SNACKPILOT_BUILD"))
-        .or_else(|| cfg!(debug_assertions).then(|| "debug".to_string()))
-        .unwrap_or_else(|| "unbekannt".to_string())
-}
+pub use metadata::{product_build, product_version};
 
 /// The themed About body lines (brief §9), with real version/build metadata
 /// and the retained GourmetClient credit.
@@ -334,11 +294,18 @@ pub fn mount(cx: &mut App) {
     open_main_window(cx);
 }
 
+/// Whether a Dock activation has to open the main window. One main window:
+/// while any window exists the activation only re-activates it, and a closed
+/// one is reopened on the already-installed session (REQ-UI-07).
+fn reopen_needs_window(window_count: usize) -> bool {
+    window_count == 0
+}
+
 /// Open the single main window when none is visible. Dock reopen calls this
 /// with the process-wide model already installed, so the session and its
 /// navigation survive closing the window (REQ-UI-07).
 pub fn open_main_window(cx: &mut App) {
-    if !cx.windows().is_empty() {
+    if !reopen_needs_window(cx.windows().len()) {
         if let Some(window) = cx.active_window() {
             let _ = window.update(cx, |_, window, _| window.activate_window());
         }
@@ -358,9 +325,21 @@ pub fn open_main_window(cx: &mut App) {
 mod tests {
     use super::{
         about_message, clamp_window, key_bindings, privacy_message, product_build, product_version,
-        shortcut_command, PlatformModifier, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH,
+        reopen_needs_window, shortcut_command, PlatformModifier, WINDOW_MIN_HEIGHT,
+        WINDOW_MIN_WIDTH,
     };
     use snackpilot_model::desktop::DesktopCommand;
+    use snackpilot_model::{AppModel, FakePlatform};
+    use std::sync::Arc;
+
+    /// A model for the reopen rule: the same construction the hosts use, with
+    /// a temporary directory and the offline fake platform.
+    fn reopen_model(tag: &str) -> Arc<AppModel> {
+        let dir =
+            std::env::temp_dir().join(format!("snackpilot-reopen-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        Arc::new(AppModel::new(dir, Arc::new(FakePlatform::new())).unwrap())
+    }
 
     /// Cmd+1–4/comma/R map to the documented commands on macOS, the Ctrl
     /// equivalents on Windows, and every other modifier/repeat is rejected
@@ -507,6 +486,30 @@ mod tests {
         );
     }
 
+    /// A Dock activation after the window was closed reopens the one main
+    /// window on the already-installed model; an activation while a window is
+    /// open only re-activates it, so there is never a second session,
+    /// bootstrap or window (REQ-UI-07).
+    /// @req REQ-UI-07
+    #[test]
+    fn dock_reopen_keeps_one_model_and_one_window() {
+        assert!(reopen_needs_window(0), "a closed window is reopened");
+        assert!(
+            !reopen_needs_window(1),
+            "an open window is re-activated, never duplicated"
+        );
+        assert!(!reopen_needs_window(2));
+
+        let first = reopen_model("first");
+        crate::install_shell_model(Arc::clone(&first));
+        crate::install_shell_model(reopen_model("second"));
+        let installed = crate::shell_model().expect("the installed model");
+        assert!(
+            Arc::ptr_eq(&installed, &first),
+            "a Dock reopen renders the session installed with the first window, not a new one"
+        );
+    }
+
     /// About uses real metadata (never the app crate's 0.0.0) and keeps the
     /// GourmetClient credit; the desktop privacy paragraph is truthful and
     /// leaves the incumbent paragraph intact.
@@ -519,12 +522,16 @@ mod tests {
         assert!(!version.is_empty());
         assert_ne!(build, "0");
         assert_eq!(
-            super::yaml_value("a: 1\nMARKETING_VERSION: \"2.1.0\"\n", "MARKETING_VERSION")
-                .as_deref(),
+            super::metadata::yaml_value(
+                "a: 1\nMARKETING_VERSION: \"2.1.0\"\n",
+                "MARKETING_VERSION"
+            )
+            .as_deref(),
             Some("2.1.0")
         );
         assert_eq!(
-            super::yaml_value("CURRENT_PROJECT_VERSION: 35", "CURRENT_PROJECT_VERSION").as_deref(),
+            super::metadata::yaml_value("CURRENT_PROJECT_VERSION: 35", "CURRENT_PROJECT_VERSION")
+                .as_deref(),
             Some("35")
         );
         let about = about_message("2.1.0", "35");

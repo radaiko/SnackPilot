@@ -334,6 +334,44 @@ mod tests {
             .unwrap();
     }
 
+    /// @req REQ-DST-04 The dedicated non-production dummy entry survives a
+    /// relaunch and an app replacement: a fresh platform instance (new release
+    /// binary) reads the same entry from `app:no-auth`, and none of the four
+    /// real credential slots is involved.
+    #[test]
+    fn dummy_keyring_entry_survives_relaunch_and_update() {
+        let _lock = credential_lock();
+        fake_keychain();
+        const ACCOUNT: &str = "dev.radaiko.gourmetclient.desktop-evidence";
+
+        let installed = DesktopPlatform::new();
+        installed.save_credential(ACCOUNT, "dummy-user").unwrap();
+        installed.save_credential(ACCOUNT, "dummy-pass").unwrap();
+
+        // Relaunch: a new process builds a new platform over the same store.
+        let relaunched = DesktopPlatform::new();
+        assert_eq!(
+            relaunched.get_credential(ACCOUNT).unwrap().as_deref(),
+            Some("dummy-pass")
+        );
+        for key in KEYS {
+            assert_eq!(
+                relaunched.get_credential(key).unwrap(),
+                None,
+                "the dummy continuity check must never use the real slot {key}"
+            );
+        }
+
+        // Installer replacement: another binary, same service and slot.
+        let replaced = DesktopPlatform::new();
+        assert_eq!(
+            replaced.get_credential(ACCOUNT).unwrap().as_deref(),
+            Some("dummy-pass")
+        );
+        replaced.clear_credential(ACCOUNT).unwrap();
+        assert_eq!(replaced.get_credential(ACCOUNT).unwrap(), None);
+    }
+
     /// @req REQ-PLT-07 Desktop reports no notifications and no geofence, so
     /// the UI hides the Benachrichtigungen row and the location section.
     #[test]

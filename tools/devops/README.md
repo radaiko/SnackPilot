@@ -15,6 +15,8 @@ Both rerun the platform `bootstrap.sh` only when `src/core/src` changed since th
 - `bash tools/devops/test-sync-mac.sh` — unit tests for the sync script (dry-run against a temp tree, no Mac contact).
 
 ## Release (local)
+- `make package-macos` — build, sign, notarize, staple and verify the macOS
+  release `SnackPilot.app` (see **macOS release** below). Mac host only.
 - `make ios-archive` — build a signed release archive (auto-incrementing build number, team auto-detected from the keychain) and open it in **Xcode Organizer**. Then: *Distribute App → App Store Connect → Upload* → the build lands in **TestFlight**. `IOS_TEAM=<id>` overrides the team; `ORGANIZER_OPEN=0` skips opening Organizer (CI/tests). Organizer re-signs to the App Store *distribution* identity at the Distribute step.
 - `make android-keystore` — one-time: generate the signed-release keystore. Back up `src/ui/android/snackpilot-release.jks` + `keystore.properties`.
 - `make ship` — one command for the next release of both platforms. Prompts for a new semver
@@ -33,3 +35,55 @@ Both rerun the platform `bootstrap.sh` only when `src/core/src` changed since th
     the warning is non-blocking).
 
 See `docs/superpowers/specs/2026-07-17-v2-local-devops-design.md` for the design and the Play upload-key continuity caveat.
+
+## macOS release
+
+`make package-macos` is the macOS desktop release path (task 1.6). It runs only
+on the Mac host, produces the signed/stapled `SnackPilot.app` (no DMG and no
+public ZIP) and writes `dist/macos/native-build-receipt.json` for `make ship`.
+
+Prerequisites, all externally configured by the human:
+
+- macOS 26 Apple Silicon with Xcode command-line tools (`cargo`, `codesign`,
+  `xcrun notarytool`, `xcrun stapler`, `ditto`, `spctl`, `lipo`, `otool`).
+- The Rust target `aarch64-apple-darwin` in the pinned toolchain.
+- A **Developer ID Application** identity in the login keychain, exported as
+  `SNACKPILOT_SIGNING_IDENTITY` (the exact `codesign` identity string).
+- An existing notarytool keychain profile, exported as
+  `SNACKPILOT_NOTARY_PROFILE`. Create/update it once with
+  `xcrun notarytool store-credentials <profile> --apple-id ... --team-id ...`;
+  keep the Apple ID/password/team values in the password manager, never in this
+  repository, a shell history file or evidence.
+
+The script builds `--locked --release -p snackpilot-app --bin
+snackpilot-desktop --target aarch64-apple-darwin` with
+`MACOSX_DEPLOYMENT_TARGET=26.0`, fills `src/ui/desktop/macos/Info.plist.in`
+with the shared version/build and the stable `dev.radaiko.gourmetclient`
+identity, copies the `SnackPilot.icns` generated from the existing Orange icon,
+verifies the arm64 slice/minimum OS/plist/assets, signs nested code then the app
+with hardened runtime, submits a temporary ZIP to the notary service, requires
+`Accepted`, staples and validates `codesign --verify --deep --strict`,
+`stapler validate` and `spctl --assess --type execute`. A missing
+identity/profile, ad-hoc identity, rejected notarization or failed verification
+exits nonzero and writes no receipt; there is no dry-run or unsigned fallback.
+`SNACKPILOT_PACKAGE_OUT` and `CARGO_TARGET_DIR` only relocate build output.
+
+After packaging, install and relaunch the real artifact on macOS 26 arm64:
+
+```sh
+ditto dist/macos/SnackPilot.app /Applications/SnackPilot.app
+open /Applications/SnackPilot.app
+```
+
+Verify durable state and the dedicated non-production keyring entry across a
+relaunch (and after replacing `/Applications/SnackPilot.app` with a rebuilt
+bundle): appearance/cache must survive and the test credential must still read
+under service `app:no-auth`. Never record a real credential in evidence.
+
+`bash tools/devops/test-package-macos.sh` runs the same script offline with
+stubbed Apple/Rust tools (part of `make test-lib` and `make check`): wrong
+architecture/minimum OS/plist/version/assets, ad-hoc or missing identity,
+rejected notarization, failed signing/staple/Gatekeeper, changed bundle content
+and any dry-run flag all fail without a receipt. Actual signature/notary,
+install/relaunch and artifact-size/startup evidence are recorded under
+`docs/evidence/desktop-ui-redesign/1.6/`.
