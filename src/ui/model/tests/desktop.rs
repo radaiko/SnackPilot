@@ -1821,3 +1821,49 @@ fn desktop_control_states_resolve_from_tokens() {
         }
     }
 }
+
+/// The Day Tray extension must not move the wide Desktop Ledger: 720/768/1280
+/// keep their pinned rail, gutters, workspace, master and detail widths, and
+/// the mobile projection declines to supply geometry from 720 on.
+/// @req REQ-UI-15
+#[test]
+fn day_tray_keeps_wide_ledger_geometry() {
+    use snackpilot_model::tokens::mobile;
+
+    let cases = [
+        // width, rail, gutter, workspace, master, detail
+        (720., 176., 16., 512., 248., 263.),
+        (768., 176., 16., 560., 248., 311.),
+        (1280., 192., 64., 960., 537.04, 421.96),
+    ];
+    for (width, rail, gutter, workspace, master, detail) in cases {
+        let geometry = desktop_geometry(HostKind::Desktop, width);
+        assert_eq!(geometry.rail_width, rail, "rail at {width}");
+        assert_eq!(geometry.outer_gutter, gutter, "gutter at {width}");
+        assert_eq!(geometry.workspace_width, workspace, "workspace at {width}");
+        assert_eq!(geometry.master_width, master, "master at {width}");
+        assert_eq!(geometry.detail_width, detail, "detail at {width}");
+        assert_eq!(geometry.divider_width, DIVIDER_WIDTH, "divider at {width}");
+        assert!(
+            mobile::geometry(HostKind::Desktop, width).is_none(),
+            "the mobile projection never replaces the Ledger at {width}"
+        );
+    }
+
+    // The breakpoint itself is unchanged: 719 is still the flat Day Tray,
+    // 720 is the inclusive Ledger gate.
+    assert_eq!(
+        layout_mode(HostKind::Desktop, 719.),
+        LayoutMode::Phone,
+        "719 stays the flat Day Tray"
+    );
+    assert_eq!(
+        layout_mode(HostKind::Desktop, 720.),
+        LayoutMode::DesktopCompact,
+        "720 is the inclusive Ledger gate"
+    );
+    assert!(
+        mobile::geometry(HostKind::Desktop, 719.).is_some(),
+        "the Day Tray column exists exactly below the Ledger gate"
+    );
+}

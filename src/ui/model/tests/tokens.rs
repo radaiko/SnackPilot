@@ -334,3 +334,288 @@ fn desktop_extension_derives_from_pinned_tokens() {
         }
     }
 }
+
+/// Mobile Day Tray geometry (mobile-ui-rework design "Common mobile
+/// contract"): 16 px gutters up to the 560 px content cap, the 440 px form
+/// cap, and the model's host/layout selection deciding when the projection
+/// applies at all. Phone/tablet stay single-column at every width; a desktop
+/// host only gets it below the 720 px breakpoint.
+/// @req REQ-UI-15
+#[test]
+fn mobile_day_tray_geometry() {
+    use snackpilot_model::desktop::HostKind;
+    use snackpilot_model::tokens::mobile as m;
+
+    // (viewport, content, gutter, form)
+    let mobile_cases = [
+        (360., 328., 16., 328.),
+        (390., 358., 16., 358.),
+        (719., 560., 79.5, 440.),
+        (720., 560., 80., 440.),
+        (768., 560., 104., 440.),
+        (1280., 560., 360., 440.),
+    ];
+    for (width, content, gutter, form) in mobile_cases {
+        for host in [HostKind::Phone, HostKind::Tablet] {
+            let geometry = m::geometry(host, width)
+                .unwrap_or_else(|| panic!("{host:?} is always the mobile column at {width}"));
+            assert_eq!(geometry.content, content, "{host:?} content at {width}");
+            assert_eq!(geometry.gutter, gutter, "{host:?} gutter at {width}");
+            assert_eq!(geometry.form, form, "{host:?} form cap at {width}");
+        }
+    }
+
+    // A desktop host is the flat Day Tray only below 720; at the breakpoint
+    // it is the wide Desktop Ledger, whose geometry this extension never
+    // supplies (REQ-UI-07).
+    for width in [360., 390., 719.] {
+        let geometry = m::geometry(HostKind::Desktop, width)
+            .unwrap_or_else(|| panic!("desktop below 720 uses the Day Tray column at {width}"));
+        let phone = m::geometry(HostKind::Phone, width).expect("phone column");
+        assert_eq!(geometry, phone, "same column at {width}");
+    }
+    for width in [720., 768., 1280.] {
+        assert!(
+            m::geometry(HostKind::Desktop, width).is_none(),
+            "desktop at {width} keeps the wide Ledger, not the mobile projection"
+        );
+    }
+
+    // The named scale and caps are exactly the shared table.
+    assert_eq!(
+        [
+            m::SPACE_1,
+            m::SPACE_2,
+            m::SPACE_3,
+            m::SPACE_4,
+            m::SPACE_5,
+            m::SPACE_6,
+            m::SPACE_8
+        ],
+        [4., 8., 12., 16., 20., 24., 32.]
+    );
+    assert_eq!((m::CONTENT_MAX, m::FORM_MAX), (560., 440.));
+    assert_eq!((m::TARGET, m::ACTION_HEIGHT), (44., 48.));
+    assert_eq!(
+        (m::TYPE_HEADLINE.size, m::TYPE_HEADLINE.line_height),
+        (24., 32.)
+    );
+    assert_eq!((m::TYPE_BODY.size, m::TYPE_BODY.line_height), (16., 24.));
+    assert_eq!((m::TYPE_META.size, m::TYPE_META.line_height), (14., 20.));
+    assert_eq!((m::RADIUS_OPTION, m::RADIUS_STATUS), (8., 8.));
+    assert_eq!((m::FOCUS_WIDTH, m::FOCUS_GAP), (2., 2.));
+}
+
+/// Mobile ink and boundary projections for every shared role over the actual
+/// composited fills: all five accents, light/dark, glass/flat, rest and 14 %
+/// pressed, plus semantic status, danger, disabled and focus. The derived
+/// values are checked on the fill the screen really paints, so a translucent
+/// selection is measured over its backing surface.
+/// @req REQ-UI-15
+#[test]
+fn mobile_day_tray_contrast_all_accents_and_composited_fills() {
+    use snackpilot_model::desktop::{contrast_ratio, parse_color};
+    use snackpilot_model::tokens::mobile as m;
+    use snackpilot_model::tokens::{
+        BACKGROUND, ERROR, ERROR_SURFACE, ERROR_TEXT, GLASS_ERROR, GLASS_SUCCESS, GLASS_WARNING,
+        SUCCESS_SURFACE, SUCCESS_TEXT, SURFACE, SURFACE_VARIANT, TEXT_PRIMARY, TEXT_SECONDARY,
+        WARNING_SURFACE, WARNING_TEXT,
+    };
+
+    for dark in [false, true] {
+        let surface = parse_color(if dark { SURFACE.dark } else { SURFACE.light });
+        let background = parse_color(if dark {
+            BACKGROUND.dark
+        } else {
+            BACKGROUND.light
+        });
+        let variant = parse_color(if dark {
+            SURFACE_VARIANT.dark
+        } else {
+            SURFACE_VARIANT.light
+        });
+
+        // Readable secondary ink on every plain resting fill.
+        for fill in [surface, background, variant] {
+            assert!(
+                contrast_ratio(m::secondary_ink(fill, dark), fill) >= m::TEXT_MIN_CONTRAST,
+                "secondary ink on {fill:?} (dark={dark})"
+            );
+        }
+
+        for accent in ACCENTS.iter() {
+            let colors = if dark { &accent.dark } else { &accent.light };
+            for flat in [false, true] {
+                // Selection over both actual backings: the card surface and
+                // the screen background.
+                for backdrop in [surface, background] {
+                    let fill = m::selection_fill(colors, dark, flat, backdrop);
+                    assert!(
+                        contrast_ratio(m::selection_ink(dark), fill) >= m::TEXT_MIN_CONTRAST,
+                        "{} selection ink on composited fill (dark={dark}, flat={flat})",
+                        accent.id
+                    );
+                    let boundary = m::selection_boundary(colors, dark, flat, backdrop);
+                    assert!(
+                        contrast_ratio(boundary, fill) >= m::CONTROL_MIN_CONTRAST,
+                        "{} selection boundary on the fill (dark={dark}, flat={flat})",
+                        accent.id
+                    );
+                    assert!(
+                        contrast_ratio(boundary, backdrop) >= m::CONTROL_MIN_CONTRAST,
+                        "{} selection boundary on the neighbouring fill (dark={dark}, flat={flat})",
+                        accent.id
+                    );
+                }
+
+                // Filled primary action and its 14 % pressed fill.
+                let action = m::action_fill(colors, dark);
+                assert!(
+                    contrast_ratio(m::action_ink(action), action) >= m::TEXT_MIN_CONTRAST,
+                    "{} action ink on the rest fill (dark={dark})",
+                    accent.id
+                );
+                let pressed = m::pressed_fill(action, dark);
+                assert!(
+                    contrast_ratio(m::action_ink(pressed), pressed) >= m::TEXT_MIN_CONTRAST,
+                    "{} action ink on the pressed fill (dark={dark})",
+                    accent.id
+                );
+                // Secondary ink recomputed on the pressed surface fill.
+                let pressed_surface = m::pressed_fill(surface, dark);
+                assert!(
+                    contrast_ratio(m::secondary_ink(pressed_surface, dark), pressed_surface)
+                        >= m::TEXT_MIN_CONTRAST,
+                    "{} secondary ink on the pressed surface (dark={dark})",
+                    accent.id
+                );
+                // Focus ink stays independent of the accent at 3:1 on the
+                // surfaces the reserved ring is painted over (never inside a
+                // filled action: the 2 px gap keeps it off that fill).
+                for adjacent in [surface, background, variant] {
+                    assert!(
+                        contrast_ratio(m::focus_ink(dark), adjacent) >= m::CONTROL_MIN_CONTRAST,
+                        "{} focus ink on {adjacent:?} (dark={dark})",
+                        accent.id
+                    );
+                }
+            }
+        }
+
+        // Semantic status inks fall back to primary text when the pinned hue
+        // cannot carry 4.5:1 on the actual (glass-composited) status fill.
+        for (preferred, surface_token, glass) in [
+            (SUCCESS_TEXT, SUCCESS_SURFACE, GLASS_SUCCESS),
+            (WARNING_TEXT, WARNING_SURFACE, GLASS_WARNING),
+            (ERROR_TEXT, ERROR_SURFACE, GLASS_ERROR),
+        ] {
+            let surface_fill = parse_color(if dark {
+                surface_token.dark
+            } else {
+                surface_token.light
+            });
+            let composited =
+                m::composite_over(if dark { glass.dark } else { glass.light }, surface_fill);
+            for fill in [surface_fill, composited] {
+                let ink = m::status_ink(
+                    fill,
+                    parse_color(if dark {
+                        preferred.dark
+                    } else {
+                        preferred.light
+                    }),
+                    dark,
+                );
+                assert!(
+                    contrast_ratio(ink, fill) >= m::TEXT_MIN_CONTRAST,
+                    "status ink on {fill:?} (dark={dark})"
+                );
+            }
+        }
+
+        // Danger ink on the neutral/outline fills it is used on, and the
+        // disabled context staying readable.
+        let error_surface = parse_color(if dark {
+            ERROR_SURFACE.dark
+        } else {
+            ERROR_SURFACE.light
+        });
+        for fill in [surface, variant, error_surface] {
+            assert!(
+                contrast_ratio(m::danger_ink(fill, dark), fill) >= m::TEXT_MIN_CONTRAST,
+                "danger ink on a neutral or semantic surface (dark={dark})"
+            );
+        }
+        // The pinned error fill itself only ever carries white/black action
+        // ink; danger ink there falls back to primary text rather than
+        // inventing a hue.
+        let error = parse_color(if dark { ERROR.dark } else { ERROR.light });
+        assert_eq!(
+            m::danger_ink(error, dark),
+            parse_color(if dark {
+                TEXT_PRIMARY.dark
+            } else {
+                TEXT_PRIMARY.light
+            }),
+            "danger ink falls back to the pinned textPrimary, not a new hue"
+        );
+        let disabled = m::disabled_fill(dark);
+        assert!(
+            contrast_ratio(m::disabled_ink(dark), disabled) >= m::TEXT_MIN_CONTRAST,
+            "disabled ink stays readable on its fill (dark={dark})"
+        );
+    }
+
+    // The derived inks are projections of pinned tokens: no new colour value
+    // is introduced when the preferred ink cannot be used.
+    let dark = false;
+    let surface = parse_color(SURFACE.light);
+    assert_eq!(
+        m::secondary_ink(surface, dark),
+        parse_color(TEXT_SECONDARY.light),
+        "readable secondary ink is the pinned textSecondary"
+    );
+    assert_eq!(
+        m::focus_ink(dark),
+        parse_color(TEXT_PRIMARY.light),
+        "focus ink is the pinned textPrimary"
+    );
+    assert!(
+        contrast_ratio(m::focus_ink(dark), surface) >= m::CONTROL_MIN_CONTRAST,
+        "focus ink clears 3:1 on the resting surface"
+    );
+}
+
+/// The mobile extension is append-only: the base token table and the five
+/// accents above it stay byte-identical, so adding the Day Tray projection
+/// cannot move a pinned colour or the desktop palette.
+/// @req REQ-UI-15
+#[test]
+fn mobile_extension_preserves_base_values() {
+    let tokens = base_tokens();
+    for (name, light, dark) in BASE_TABLE {
+        let (_, token) = tokens
+            .iter()
+            .find(|(n, _)| *n == name)
+            .unwrap_or_else(|| panic!("token {name} missing after the mobile extension"));
+        assert_eq!(token.light, light, "token {name} light value");
+        assert_eq!(token.dark, dark, "token {name} dark value");
+    }
+    for (i, (id, label, values)) in ACCENT_TABLE.iter().enumerate() {
+        let accent = &ACCENTS[i];
+        assert_eq!(accent.id, *id, "accent {i} id");
+        assert_eq!(accent.label, *label, "accent {i} label");
+        let got = [
+            accent.light.primary,
+            accent.dark.primary,
+            accent.light.primary_dark,
+            accent.dark.primary_dark,
+            accent.light.primary_surface,
+            accent.dark.primary_surface,
+            accent.light.glass_primary,
+            accent.dark.glass_primary,
+        ];
+        assert_eq!(got, *values, "accent {id} colours");
+    }
+    assert_eq!(BASE_TABLE.len(), 31, "the pinned base table is unchanged");
+}

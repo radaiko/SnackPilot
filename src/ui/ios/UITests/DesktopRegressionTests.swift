@@ -50,6 +50,46 @@ final class DesktopRegressionTests: XCTestCase {
         return app
     }
 
+    /// The Day Tray baseline runs on the isolated debug host and records the
+    /// actual rendered window bounds for every destination at the selected
+    /// logical viewport. It waits for the window rather than sleeping, and
+    /// never enters a credential form or a real host.
+    /// @req REQ-UI-16
+    func testDayTrayBaselineIsolationAndViewport() {
+        let tabs = ["menus", "orders", "billing", "settings"]
+        for (index, tab) in tabs.enumerated() {
+            let app = XCUIApplication()
+            app.launchArguments = [
+                "--evidence",
+                "--viewport=390x844",
+                "--tab=\(index)",
+            ]
+            app.launchEnvironment["SNACKPILOT_EVIDENCE"] = "1"
+            app.launch()
+
+            let window = app.windows.firstMatch
+            XCTAssertTrue(
+                window.waitForExistence(timeout: 30),
+                "\(tab): the isolated shell did not render")
+            let bounds = window.frame
+            XCTAssertGreaterThan(bounds.width, 0, "\(tab): no rendered width")
+            XCTAssertGreaterThan(bounds.height, 0, "\(tab): no rendered height")
+            XCTAssertEqual(
+                app.state, .runningForeground,
+                "\(tab): baseline host is not foreground")
+
+            // An actual frame is the readiness proof; a zero-sized capture or
+            // a blank screen fails here instead of being indexed as baseline.
+            let shot = XCUIScreen.main.screenshot()
+            XCTAssertGreaterThan(
+                shot.image.size.width, 0, "\(tab): empty baseline capture")
+            XCTAssertGreaterThan(
+                shot.image.size.height, 0, "\(tab): empty baseline capture")
+            saveScreenshot("baseline-\(tab)-viewport-\(Int(bounds.width))x\(Int(bounds.height))")
+            app.terminate()
+        }
+    }
+
     /// The phone keeps the current shell: the floating pill switches tabs and
     /// no desktop rail appears (REQ-UI-04).
     /// @req REQ-UI-04

@@ -235,6 +235,98 @@ pub mod evidence {
         }
         Ok(Arc::new(model))
     }
+
+    /// A logical capture viewport in points, selected before bootstrap by
+    /// `--viewport=390x844`, `SNACKPILOT_VIEWPORT` or the Android debug
+    /// property `debug.snackpilot.viewport`. Never a production layout
+    /// override: only an isolated evidence run consumes it.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Viewport {
+        pub width: u32,
+        pub height: u32,
+    }
+
+    impl Viewport {
+        /// Parses `WIDTHxHEIGHT` in logical points; zero-sized and malformed
+        /// values select nothing.
+        pub fn parse(value: &str) -> Option<Self> {
+            let value = value.trim();
+            let (width, height) = value.split_once('x').or_else(|| value.split_once('X'))?;
+            let width = width.trim().parse::<u32>().ok()?;
+            let height = height.trim().parse::<u32>().ok()?;
+            (width > 0 && height > 0).then_some(Self { width, height })
+        }
+
+        /// The logical content width the evidence model reports.
+        pub fn logical_width(self) -> f32 {
+            self.width as f32
+        }
+    }
+
+    /// The selected capture viewport, or `None`. Debug builds only: a release
+    /// binary has no viewport knob at all.
+    #[cfg(debug_assertions)]
+    pub fn viewport() -> Option<Viewport> {
+        std::env::var("SNACKPILOT_VIEWPORT")
+            .ok()
+            .or_else(|| {
+                std::env::args().find_map(|a| a.strip_prefix("--viewport=").map(str::to_owned))
+            })
+            .or_else(|| crate::debug_prop("debug.snackpilot.viewport"))
+            .and_then(|value| Viewport::parse(&value))
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn viewport() -> Option<Viewport> {
+        None
+    }
+
+    /// The selected synthetic scenario, normalized to the model's names.
+    /// Debug builds only; a release binary has no scenario knob.
+    #[cfg(debug_assertions)]
+    pub fn scenario() -> Option<String> {
+        std::env::var("SNACKPILOT_SCENARIO")
+            .ok()
+            .or_else(|| {
+                std::env::args().find_map(|a| a.strip_prefix("--scenario=").map(str::to_owned))
+            })
+            .or_else(|| crate::debug_prop("debug.snackpilot.scenario"))
+            .map(|value| value.trim().to_ascii_lowercase().replace('_', "-"))
+            .filter(|value| !value.is_empty())
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn scenario() -> Option<String> {
+        None
+    }
+
+    /// Reports the selected evidence viewport to the model before `bootstrap`:
+    /// an isolated run always stays a phone (single-column) surface, whatever
+    /// pixel width the simulator reports. A viewport knob is never a
+    /// production layout override, so a normal credential-backed store is left
+    /// exactly as its platform reported it. Inert in a release build.
+    pub fn install_viewport(model: &AppModel, viewport: Viewport) {
+        #[cfg(debug_assertions)]
+        {
+            if !model.evidence_mode() {
+                return;
+            }
+            model.set_host_kind(snackpilot_model::desktop::HostKind::Phone);
+            model.set_content_width(viewport.logical_width());
+        }
+        #[cfg(not(debug_assertions))]
+        let _ = (model, viewport);
+    }
+
+    /// Applies the selected synthetic scenario after `bootstrap`. The model
+    /// ignores it unless the store is already isolated, and a release build
+    /// has no scenario to apply.
+    pub fn apply_scenario(model: &AppModel, scenario: &str) {
+        #[cfg(debug_assertions)]
+        model.apply_evidence_scenario(scenario);
+        #[cfg(not(debug_assertions))]
+        let _ = (model, scenario);
+    }
 }
 
 /// Mount the single spike Root: bundled Inter fonts, kit init, one window.
@@ -321,6 +413,84 @@ mod tests {
             desktop_content_width(1280.),
             1280.,
             "no cap above the breakpoint"
+        );
+    }
+
+    /// Evidence viewport/scenario selection is explicit and debug-only: it
+    /// parses only a well-formed `WxH`, and nothing is selected unless the
+    /// capture knob really asks for it.
+    /// @req REQ-UI-16
+    #[test]
+    fn evidence_viewport_and_scenario_selection_is_debug_only() {
+        use crate::evidence;
+
+        assert_eq!(
+            evidence::Viewport::parse("390x844"),
+            Some(evidence::Viewport {
+                width: 390,
+                height: 844
+            })
+        );
+        assert_eq!(
+            evidence::Viewport::parse(" 768x1024 ").map(|v| v.logical_width()),
+            Some(768.),
+            "surrounding whitespace is tolerated"
+        );
+        assert_eq!(evidence::Viewport::parse("390"), None, "height required");
+        assert_eq!(evidence::Viewport::parse("0x844"), None, "zero width");
+        assert_eq!(evidence::Viewport::parse("390x0"), None, "zero height");
+        assert_eq!(evidence::Viewport::parse("abcx844"), None, "numeric only");
+
+        // The test runner passes no capture knob: an ordinary run renders the
+        // normal shell, and a release build always returns `None` here.
+        assert_eq!(
+            evidence::viewport(),
+            None,
+            "no capture viewport unless a knob selects one"
+        );
+        assert_eq!(
+            evidence::scenario(),
+            None,
+            "no synthetic scenario unless a knob selects one"
+        );
+    }
+
+    /// A viewport knob is never a production layout override: the same call on
+    /// a normal credential-backed store leaves the host and content width the
+    /// platform reported untouched.
+    /// @req REQ-UI-16
+    #[test]
+    fn evidence_viewport_never_overrides_a_normal_store() {
+        use crate::evidence;
+        use snackpilot_model::desktop::HostKind;
+        use snackpilot_model::{AppModel, FakePlatform};
+        use std::sync::Arc;
+
+        let dir = std::env::temp_dir().join(format!(
+            "snackpilot-app-viewport-normal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = AppModel::new(dir, Arc::new(FakePlatform::new())).unwrap();
+        assert!(!model.evidence_mode(), "a normal launch is not isolated");
+        model.set_host_kind(HostKind::Desktop);
+        model.set_content_width(1280.);
+
+        evidence::install_viewport(&model, evidence::Viewport::parse("390x844").unwrap());
+
+        assert_eq!(
+            model.state().host_kind,
+            HostKind::Desktop,
+            "the reported host stays as it was"
+        );
+        assert_eq!(
+            model.state().content_width,
+            1280.,
+            "no fixed capture width on a normal store"
         );
     }
 }
