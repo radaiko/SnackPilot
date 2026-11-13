@@ -29,8 +29,8 @@ The app SHALL bundle/register Inter and Lucide without system-font glyph depende
 - **WHEN** a bill amount of1234.5 EUR is shown
 - **THEN** it uses the existing de-AT decimal comma and currency formatting
 
-#### Scenario: Exactly two proposed substitutions
-- **WHEN** the new-menu in-app toast or diagnostic log hint is shown after C1/C2 approval
+#### Scenario: Exactly two approved substitutions
+- **WHEN** the new-menu in-app toast or diagnostic log hint is shown under C1/C2 approval (human, 2026-11-13)
 - **THEN** only those exact two strings differ from incumbent German copy
 - **AND** OS notification strings, busy labels, dialog/error bodies, formatter output, source/category caps and external/operator text do not change
 

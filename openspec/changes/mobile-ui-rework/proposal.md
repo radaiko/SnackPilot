@@ -8,14 +8,14 @@ The audited mobile UI spends emphasis on category chrome instead of dishes, uses
 
 ## What Changes
 
-- Implement the **proposed** SnackPilot Mobile Day Tray extension in `docs/design/mobile-ui-rework.md`, operate lane: Menüs, Bestellungen, Abrechnung, Einstellungen, the two credential forms, existing Anmeldung gates, Darstellung and existing Benachrichtigungen settings. The per-screen contracts are copied into `design.md`; this proposal does not constitute their approval.
+- Implement the **approved** SnackPilot Mobile Day Tray extension in `docs/design/mobile-ui-rework.md`, operate lane: Menüs, Bestellungen, Abrechnung, Einstellungen, the two credential forms, existing Anmeldung gates, Darstellung and existing Benachrichtigungen settings. The per-screen contracts are copied into `design.md`; human approval dated 2026-11-13 is recorded below.
 - Add named mobile presentation/contrast projections over pinned palette values, shared control states, measured safe-area/scroll clearance and 560 px content / 440 px form caps. Keep one Rust UI and public component/data/intent boundaries.
-- Proposed host selection: iOS/Android use Day Tray at every width; desktop below 720 uses its compact flat presentation while retaining desktop input/dispatch/capabilities. Desktop Ledger at >=720 is unchanged. This requires human confirmation, not an inferred approval.
+- Approved host selection (human, 2026-11-13): iOS/Android use Day Tray at every width; desktop below 720 uses its compact flat presentation while retaining desktop input/dispatch/capabilities. Desktop Ledger at >=720 is unchanged.
 - **Own the mobile before/after evidence superseding `desktop-ui-redesign` tasks 1.2–1.5**, under their `DEFERRED-APPROVED` entry dated 2026-11-13. Capture this branch's isolated baseline before touching presentation, then matched after captures. The original earlier pre-rework state is explicitly unavailable; never reconstruct or relabel historical gallery images as that baseline. This does not close non-mobile evidence debt or grant new deferrals. Desktop change 1.8 audits this change's indexed comparisons instead of its original mobile items.
 
-## Required amendments awaiting human approval
+## Approved presentation amendments (human, 2026-11-13)
 
-**None of the following presentation amendments or German substitutions is approved.** These are proposed presentation overrides to the cited current text, not edits to `docs/requirements/`. The exact proposed replacement is the text in the right-hand column; the full affected per-screen presentation is fixed in `design.md`. Once approved, this change's deltas and copied contract are the narrowly scoped presentation addendum; historical requirements remain untouched. Approval must name amendment IDs. If declined, revise these artifacts/brief before dispatch; do not let the coder choose a mixed design. Existing behaviour, data, timings and all other strings prevail.
+**A1–A21 are approved (human, 2026-11-13) as one coherent presentation addendum. C1 and C2 are approved as written.** These are approved presentation overrides to the cited current text, not edits to `docs/requirements/`. The exact approved replacement remains in the right-hand “Exact proposed text” column; the full affected per-screen presentation is fixed in `design.md`. This change's deltas and copied contract are the narrowly scoped presentation addendum; historical requirements remain untouched. Keep the coherent design; do not let the coder choose a mixed alternative. Existing behaviour, data, timings and all other strings prevail.
 
 | ID / current authority | Exact current text | Exact proposed text |
 | --- | --- | --- |
@@ -60,17 +60,17 @@ None. Extend existing UI capabilities; no new destination or module boundary.
 
 Only `src/ui` shared app/screens/components and gpui-free presentation helpers/tests, plus inventory and evidence. No new dependency/tool; reuse pinned stack, bundled Inter/Lucide and existing harness/native tools. **No edits** to `docs/requirements/`, `openspec/specs/`, `src/core`, dependency manifests/locks or CI. No scraping/request, keyring/credential behaviour, de-AT formatter, midnight/cutoff, 200-entry log cap, package/bundle identity, GourmetClient credit, desktop packaging or release/distribution change. Evidence uses isolated synthetic fixtures, no normal credential slots, live hosts or response bodies.
 
-The desktop change is in flight: its deltas supersede stale main-spec desktop-only clauses. This draft composes with those deltas, preserves their complete desktop scenarios, and must be rebased against the accepted desktop deltas before sync/archive. Neither change may archive over the other's desktop or mobile amendments. Old promises of unchanged mobile presentation are scoped to the desktop change, not continuing vetoes once the human approves this separate rework.
+The desktop change is in flight: its deltas supersede stale main-spec desktop-only clauses. This change composes with those deltas, preserves their complete desktop scenarios, and must be rebased against the accepted desktop deltas before sync/archive. Neither change may archive over the other's desktop or mobile amendments. Old promises of unchanged mobile presentation are scoped to the desktop change, not continuing vetoes over this separately human-approved rework.
 
-## Assumptions and open questions (all awaiting human decision)
+## Resolved decisions (human, 2026-11-13)
 
-1. Approve A1–A21 as the coherent presentation addendum? Recommendation: yes; otherwise reconcile brief/deltas/tasks before coding. All presentation tasks are authorization-blocked until the applicable amendments are explicitly approved.
-2. Approve C1 and C2 separately? Recommendation: both; if declined retain their exact current strings and revise the affected done bars before dispatch. Task1.2 depends on C1; task1.11 depends on C2.
-3. Does Anmeldung cover only existing gates and both forms? Recommendation: yes, no standalone route. Task1.9 is blocked on this scope decision and A21.
-4. Does Mitteilungen mean existing Benachrichtigungen settings? Recommendation: yes, no rename or inbox. Task1.11 is blocked on this decision.
-5. No iPad distribution change? Recommendation: confirm; 768 is an Android/resizable mobile-host evidence width, iOS uses a viewport harness and keeps iPhone-only device family. Task1.2/evidence requires this confirmation.
-6. Narrow desktop adopts compact Day Tray below720, with Desktop Ledger unchanged at/above720? Recommendation: confirm explicit host-safe selection, desktop native keys/off-thread dispatch and hidden unsupported notifications at every width. Task1.1 onward is blocked on this decision.
-7. Authorize observational UI-model auth lifecycle projection only? `State` has auth booleans and broad busy flags, not a reliable pending/no-credentials discriminator. Recommendation: approve transient presentation status updated at existing bootstrap/login completion points, with no new reads, calls, validation or keyring changes. Task1.9 is blocked until this exact boundary is confirmed; any new auth API/module/concurrency design is outside this UI change and must stop for separate specification.
-8. Can isolated native capture access and the existing harness cover all states? Recommendation: supply Mac simulator and Android emulator/device access before first presentation edit. Task1.1 captures an honest current baseline; missing/uncapturable original history is recorded, never manufactured. Missing host evidence blocks completion rather than granting a new deferral.
+1. A1–A21 presentation amendments: approved (human, 2026-11-13) as one coherent presentation addendum.
+2. C1 and C2: approved as written — `Neue Menüs verfügbar`, and the diagnostic hint naming 12 or 24 hours: `Zeichnet für 12 oder 24 Stunden Diagnose-Daten auf, um Probleme mit Benachrichtigungen zu analysieren.`
+3. Anmeldung covers only the existing gates and both credential forms — confirmed, no standalone route.
+4. Mitteilungen means the existing Benachrichtigungen settings — confirmed, no rename or inbox.
+5. No iPad distribution change; 768 stays an evidence width, iOS keeps its iPhone-only device family — confirmed. Android/resizable mobile hosts and the iOS viewport harness retain their evidence roles.
+6. Narrow desktop adopts the compact Day Tray below 720 with desktop keys, off-thread dispatch and hidden unsupported notifications at every width; Desktop Ledger at or above 720 unchanged — confirmed.
+7. Observational UI-model auth-lifecycle projection only — approved, with no new reads, calls, validation, keyring or auth API/module work; anything beyond that stops for separate specification. `State`'s auth booleans and broad busy flags are not a reliable pending/no-credentials discriminator; transient presentation status observes existing bootstrap/login transitions only, without a new concurrency design.
+8. Native capture access (Mac simulator and Android emulator/device) will be supplied; task 1.1 captures the honest current baseline, and missing history is recorded rather than manufactured. Missing host evidence still blocks completion rather than granting a new deferral.
 
-This is a draft for human review, not approval, implementation readiness, a completed evidence audit or permission to sync protected specifications.
+No approval questions remain. Approval does not claim completed implementation, host access already supplied, a completed evidence audit or permission to sync protected specifications.
