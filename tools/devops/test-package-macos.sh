@@ -310,23 +310,34 @@ rm "$app/Contents/Resources/SnackPilot-legacy.icns"
 
 # A GNU host where the BSD probe does not fail: `stat -f` answers a
 # file-system query, which is constant no matter how the entry's mode changes.
-mkdir -p "$tmp/gnu-bin"
-real_stat="$(command -v stat)"
+# Both hosts are emulated, so the scenario says the same thing on Linux and
+# macOS: `$tmp/gnu-bin/stat` is the GNU stat and `$tmp/bsd-bin/stat` the BSD one
+# behind it. The GNU stub must answer `-c` itself from the entry's mode; passing
+# it through to the BSD stat fails, and the constant `-f` answer would then hide
+# every mode.
+mkdir -p "$tmp/gnu-bin" "$tmp/bsd-bin"
+cat > "$tmp/bsd-bin/stat" <<'STUB'
+#!/usr/bin/env bash
+[ "${1:-}" = "-f" ] || exit 1
+exec python3 -c 'import os,sys; print("%o" % (os.stat(sys.argv[1]).st_mode & 0o7777))' "$3"
+STUB
+chmod +x "$tmp/bsd-bin/stat"
 cat > "$tmp/gnu-bin/stat" <<STUB
 #!/usr/bin/env bash
-if [ "\$1" = "-c" ]; then
-    exec "$real_stat" "\$@"
-fi
 if [ "\$1" = "-f" ]; then
     echo "ext2/ext3"
     exit 0
 fi
-exec "$real_stat" "\$@"
+if [ "\$1" = "-c" ]; then
+    exec python3 -c 'import os,sys; print("%o" % (os.stat(sys.argv[1]).st_mode & 0o7777))' "\${!#}"
+fi
+exec "$tmp/bsd-bin/stat" "\$@"
 STUB
 chmod +x "$tmp/gnu-bin/stat"
-gnu_checksum="$(PATH="$tmp/gnu-bin:$PATH" "$SCRIPT" --bundle-checksum "$app")"
+gnu_path="$tmp/gnu-bin:$tmp/bsd-bin:$PATH"
+gnu_checksum="$(PATH="$gnu_path" "$SCRIPT" --bundle-checksum "$app")"
 chmod 0700 "$app/Contents/MacOS/SnackPilot"
-[ "$gnu_checksum" != "$(PATH="$tmp/gnu-bin:$PATH" "$SCRIPT" --bundle-checksum "$app")" ] \
+[ "$gnu_checksum" != "$(PATH="$gnu_path" "$SCRIPT" --bundle-checksum "$app")" ] \
     && pass "modes are read on a GNU host where the BSD probe does not fail" \
     || fail "modes are read on a GNU host where the BSD probe does not fail"
 chmod 0755 "$app/Contents/MacOS/SnackPilot"
