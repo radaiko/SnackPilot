@@ -367,9 +367,9 @@ fn safe_area() -> (f32, f32, f32, f32) {
 /// overlay and the new-menu toast.
 /// @req REQ-UI-04
 pub struct AppShell {
-    /// Fallback navigation for a host that has not installed a model yet
-    /// (the iOS spike host). With a model present the model's `Navigation` is
-    /// the only authority and this mirror is unused.
+    /// Fallback navigation for a host that installed no model. With a model
+    /// present the model's `Navigation` is the only authority and this mirror
+    /// is unused.
     nav: Navigation,
     dialog: Option<Dialog>,
     toast: Option<Toast>,
@@ -433,9 +433,9 @@ pub struct AppShell {
 }
 
 impl AppShell {
-    /// Wrap the model (or nothing, e.g. the iOS host before its session is
-    /// exposed) and subscribe to state changes: each notification wakes the
-    /// 50 ms poll loop, which repaints the shell.
+    /// Wrap the model (or nothing, when a host installed none) and subscribe
+    /// to state changes: each notification wakes the 50 ms poll loop, which
+    /// repaints the shell.
     pub fn new(model: Option<Arc<AppModel>>, cx: &mut Context<Self>) -> Self {
         if let Some(model) = model.as_ref() {
             // The subscriber must be Send + Sync, so it only flips a flag;
@@ -651,7 +651,7 @@ impl AppShell {
 
     /// The pushed settings screen shown: derived from the model's
     /// `settings_detail` so the model is the only authority. The local
-    /// fallback only serves a host without a model (the iOS spike host).
+    /// fallback only serves a host that installed no model.
     fn current_detail(&self) -> Detail {
         match &self.model {
             Some(model) => detail_from_model(model.settings_detail()),
@@ -2229,7 +2229,9 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+/// The synthetic evidence entry is absent from a release build, so its
+/// fixture coverage is debug-only.
+#[cfg(all(test, debug_assertions))]
 mod evidence_tests {
     use snackpilot_model::{AppModel, FakePlatform};
     use std::sync::Arc;
@@ -2250,9 +2252,7 @@ mod evidence_tests {
     /// The isolated fixture entry renders every required synthetic state, and
     /// a normal store ignores it. The wrapper host records zero normal-slot
     /// accesses, notifications, permissions or analytics for the whole run.
-    /// The entry itself is absent from a release build, so this is debug-only.
     /// @req REQ-UI-16
-    #[cfg(debug_assertions)]
     #[test]
     fn evidence_fixture_states_apply_only_to_an_isolated_store() {
         // A normal launch: the entry is inert, so fixture state cannot leak

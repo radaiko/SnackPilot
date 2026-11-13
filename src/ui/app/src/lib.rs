@@ -169,9 +169,9 @@ fn gallery_page() -> Option<String> {
 
 /// The `AppModel` the shell renders from. Installed by the hosts before the
 /// window opens (task 4.2): desktop in `bin/desktop.rs`, Android in
-/// `mobile.rs` (`android_main`). The iOS host (`mobile.rs`, `ios_host`) does
-/// not build a model yet — no host-side getter exists for it — so iOS
-/// renders the default state until a later task wires the model there.
+/// `mobile.rs` (`android_main`) and iOS in `platform/ios.rs`
+/// (`snackpilot_ios_register_shims`), which runs the iOS launch order there
+/// before the GPUI window exists.
 static SHELL_MODEL: std::sync::OnceLock<std::sync::Arc<snackpilot_model::AppModel>> =
     std::sync::OnceLock::new();
 
