@@ -27,7 +27,7 @@ use snackpilot_core::notify::NotificationCommand;
 use snackpilot_model::{Capabilities, LocationFix, Platform, PlatformError, SupportEmail};
 
 /// [`IosShimTable::size`]: number of function fields plus the size field.
-pub const TABLE_SIZE: u32 = 16;
+pub const TABLE_SIZE: u32 = 17;
 
 /// Command marshalled to the Swift `SnackPilotWireCommand`. `id` is the
 /// v1 `UNNotificationRequest` identifier (a string), `channel_id` is
@@ -67,6 +67,8 @@ pub struct IosShimTable {
     pub open_settings: Option<extern "C" fn() -> u8>,
     pub open_app_settings: Option<extern "C" fn() -> u8>,
     pub set_app_icon: Option<extern "C" fn(*const c_char) -> u8>,
+    /// Current UIKit interface style, read live by the Swift shim.
+    pub is_dark: Option<extern "C" fn() -> u8>,
 }
 
 // The C allocator the Swift side duplicates credential values with (`strdup`).
@@ -231,6 +233,7 @@ impl IosPlatform {
             ("open_settings", table.open_settings.is_some()),
             ("open_app_settings", table.open_app_settings.is_some()),
             ("set_app_icon", table.set_app_icon.is_some()),
+            ("is_dark", table.is_dark.is_some()),
         ];
         if let Some((name, _)) = required.iter().find(|(_, present)| !present) {
             return Err(PlatformError::System(format!("shim missing: {name}")));
@@ -242,6 +245,16 @@ impl IosPlatform {
             storage_dir,
             evidence: crate::evidence::requested(),
         })
+    }
+
+    /// The live iOS interface style from the registered shim (REQ-UI-05).
+    /// Read per call, never cached: the shell repaints continuously and a
+    /// system appearance change must land on the next frame.
+    pub fn is_dark(&self) -> bool {
+        match self.table.is_dark {
+            Some(shim) => shim() != 0,
+            None => false,
+        }
     }
 
     /// Wait for an async shim's completion, mapping a Swift-side failure to
@@ -519,6 +532,15 @@ static TABLE: Mutex<Option<Registered>> = Mutex::new(None);
 static ACTIVE_PENDING: Mutex<Option<&'static Pending>> = Mutex::new(None);
 
 static DEBUG_PLATFORM: OnceLock<Arc<IosPlatform>> = OnceLock::new();
+
+/// The registered iOS shell's live appearance (REQ-UI-05); false before
+/// registration. Reads the shim on every call, never a cached value.
+pub fn is_dark() -> bool {
+    DEBUG_PLATFORM
+        .get()
+        .is_some_and(|platform| platform.is_dark())
+}
+
 static DEBUG_SESSION: OnceLock<Arc<snackpilot_model::AppModel>> = OnceLock::new();
 
 /// Routes Rust `log` to stderr; `xcrun simctl launch --console-pty` shows it.
@@ -839,6 +861,7 @@ mod tests {
         monitoring: bool,
         calls: Vec<(String, Vec<String>)>,
         track_json: Option<String>,
+        dark: bool,
     }
 
     static STUB: Mutex<StubState> = Mutex::new(StubState {
@@ -851,6 +874,7 @@ mod tests {
         monitoring: false,
         calls: Vec::new(),
         track_json: None,
+        dark: false,
     });
 
     fn stub() -> MutexGuard<'static, StubState> {
@@ -1039,6 +1063,12 @@ mod tests {
         u8::from(stub.fail.take().is_none())
     }
 
+    extern "C" fn stub_is_dark() -> u8 {
+        let mut stub = stub();
+        stub.calls.push(("is_dark".into(), vec![]));
+        u8::from(stub.dark)
+    }
+
     fn stub_table() -> IosShimTable {
         IosShimTable {
             size: TABLE_SIZE,
@@ -1057,6 +1087,7 @@ mod tests {
             open_settings: Some(stub_open_settings),
             open_app_settings: Some(stub_open_app_settings),
             set_app_icon: Some(stub_set_app_icon),
+            is_dark: Some(stub_is_dark),
         }
     }
 
@@ -1571,6 +1602,46 @@ mod tests {
             methods(&take_calls()),
             vec!["notify_permission", "location_authorisation"]
         );
+    }
+
+    // ---- appearance -------------------------------------------------------------
+
+    /// @req REQ-UI-05 the iOS appearance shim is read live and drives the
+    /// System preference: a dark UIKit trait yields the dark palette, a light
+    /// trait the light palette, and a forced Hell/Dunkel still overrides the
+    /// OS value. Four reads, no cache.
+    #[test]
+    fn appearance_shim_drives_system_resolution() {
+        use crate::theme::AppTheme;
+        use snackpilot_model::ThemePreference;
+
+        let _guard = begin();
+        let p = platform_in(PathBuf::new());
+        let dark = AppTheme::build(true).background;
+        let light = AppTheme::build(false).background;
+
+        stub().dark = false;
+        assert_eq!(
+            AppTheme::resolve(ThemePreference::System, p.is_dark()).background,
+            light
+        );
+        stub().dark = true;
+        assert_eq!(
+            AppTheme::resolve(ThemePreference::System, p.is_dark()).background,
+            dark
+        );
+        assert_eq!(
+            AppTheme::resolve(ThemePreference::Light, p.is_dark()).background,
+            light,
+            "Hell overrides a dark system appearance"
+        );
+        stub().dark = false;
+        assert_eq!(
+            AppTheme::resolve(ThemePreference::Dark, p.is_dark()).background,
+            dark,
+            "Dunkel overrides a light system appearance"
+        );
+        assert_eq!(methods(&take_calls()), vec!["is_dark"; 4]);
     }
 
     // ---- debug exercise -------------------------------------------------------------

@@ -1407,6 +1407,13 @@ impl Render for AppShell {
             .as_ref()
             .map(|model| model.state())
             .unwrap_or_default();
+        // The OS appearance: iOS reads the live UIKit trait through its shim
+        // (the pinned gpui-mobile layer never reflects it in
+        // `window.appearance()`, so System always rendered light there);
+        // desktop and Android keep GPUI's value (REQ-UI-05).
+        #[cfg(target_os = "ios")]
+        let os_dark = crate::platform::ios::is_dark();
+        #[cfg(not(target_os = "ios"))]
         let os_dark = matches!(
             window.appearance(),
             WindowAppearance::Dark | WindowAppearance::VibrantDark
