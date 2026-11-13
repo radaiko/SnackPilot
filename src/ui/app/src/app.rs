@@ -435,7 +435,7 @@ pub(crate) fn cached_menu_refresh(
 pub(crate) fn legacy_screen_owns_bottom_inset(top: Screen) -> bool {
     matches!(
         top,
-        Screen::Orders | Screen::Billing | Screen::Settings | Screen::SettingsDetail
+        Screen::Billing | Screen::Settings | Screen::SettingsDetail
     )
 }
 
@@ -1271,12 +1271,14 @@ impl AppShell {
 
     /// Content of the active screen, including the §4.4 day navigator on the
     /// Menus tab and the §3.5 back affordance on pushed screens.
+    #[allow(clippy::too_many_arguments)]
     fn screen(
         &self,
         nav: &Navigation,
         state: &State,
         theme: &AppTheme,
         layout: LayoutMode,
+        viewport_width: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // Desktop containment (REQ-SCR-04): the model owns the projection, so
@@ -1393,7 +1395,14 @@ impl AppShell {
                 },
                 Screen::Orders => {
                     if layout == LayoutMode::Phone {
-                        orders_tab(state, self.model.as_ref(), state.orders_past, theme, cx)
+                        orders_tab(
+                            state,
+                            self.model.as_ref(),
+                            state.orders_past,
+                            viewport_width,
+                            theme,
+                            cx,
+                        )
                     } else {
                         desktop_orders_tab(
                             state,
@@ -1510,12 +1519,14 @@ impl Render for AppShell {
             });
             banner = Some(broadcast_banner(message, dismiss, &theme));
         }
-        let screen_content = self.screen(&nav, &state, &theme, layout, cx);
+        // The compact screens measure their own column from the same live
+        // viewport the shell centres; the wide Ledger never reads it.
+        let viewport_width = f32::from(window.viewport_size().width);
+        let screen_content = self.screen(&nav, &state, &theme, layout, viewport_width, cx);
         // Compact Day Tray shell plan (REQ-UI-03/04/15/16): one heading, one
         // centred column of min(viewport − 32, 560), the safe-area top applied
         // exactly once outside the column and a measured obstruction below the
         // scrolled content. The wide Ledger never reads this plan.
-        let viewport_width = f32::from(window.viewport_size().width);
         let credential_form = nav.top() == Screen::SettingsDetail
             && matches!(
                 self.current_detail(),
@@ -2087,11 +2098,13 @@ mod tests {
         assert_eq!(compact_frame(&pushed).heading, None);
     }
 
-    /// The compact column owns one bottom inset (REQ-UI-03/15). The Menüs
-    /// screen migrated in task 1.3, so the shell supplies exactly the measured
-    /// reservation there, while the screens still on the legacy inset get only
-    /// the shortfall topped up. The real column arithmetic is what `render`
-    /// uses, and the test fails if the two insets ever sum.
+    /// The compact column owns one bottom inset (REQ-UI-03/15). The Menüs and
+    /// Bestellungen screens migrated in tasks 1.3/1.4, so the shell supplies
+    /// exactly the measured reservation there — the Bestellungen selection
+    /// strip sits inside that measured content box, above navigation — while the
+    /// screens still on the legacy inset get only the shortfall topped up. The
+    /// real column arithmetic is what `render` uses, and the test fails if the
+    /// two insets ever sum.
     /// @req REQ-UI-03 @req REQ-UI-15
     #[test]
     fn compact_shell_does_not_stack_a_screen_bottom_inset() {
@@ -2111,21 +2124,18 @@ mod tests {
                 0.,
                 0.,
             );
-            // Menüs owns no inset of its own any more: the measured
-            // reservation alone clears the navigation and the dock.
-            assert!(
-                !legacy_screen_owns_bottom_inset(Screen::Menus),
-                "the Menüs screen dropped its legacy 16/100 px padding"
-            );
-            assert_eq!(compact_content_bottom(&plan, false), plan.reservation);
+            // The migrated screens own no inset of their own any more: the
+            // measured reservation alone clears the navigation.
+            for top in [Screen::Menus, Screen::Orders] {
+                assert!(
+                    !legacy_screen_owns_bottom_inset(top),
+                    "{top:?} dropped its legacy 16/100 px padding"
+                );
+                assert_eq!(compact_content_bottom(&plan, false), plan.reservation);
+            }
             // The screens still to migrate own their inset; the shell only tops
             // up any shortfall.
-            for top in [
-                Screen::Orders,
-                Screen::Billing,
-                Screen::Settings,
-                Screen::SettingsDetail,
-            ] {
+            for top in [Screen::Billing, Screen::Settings, Screen::SettingsDetail] {
                 assert!(legacy_screen_owns_bottom_inset(top), "{top:?}");
                 assert_eq!(
                     compact_content_bottom(&plan, true),

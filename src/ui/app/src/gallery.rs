@@ -27,8 +27,9 @@ use crate::components::menu_card::{
     desktop_menu_row, menu_card, DesktopMenuRowState, MenuCardState,
 };
 use crate::components::order_item::{
-    desktop_order_detail, desktop_order_header, desktop_order_row, DesktopOrderRowState,
+    desktop_order_detail, desktop_order_header, desktop_order_row, order_item, DesktopOrderRowState,
 };
+use crate::components::segment_tabs::{segment_tabs, Segment, SegmentHandler};
 use crate::components::tab_bar::TabSelect;
 use crate::components::{
     banner, button, card, chip, desktop_navigation, loading_overlay, record_table, spinner, switch,
@@ -37,6 +38,7 @@ use crate::components::{
 use crate::navigation::ClickHandler;
 use crate::screens::billing::desktop_summary_line;
 use crate::screens::menus::{desktop_menu_detail, desktop_submit_action};
+use crate::screens::orders::confirm_banner;
 use crate::theme::{self, use_flat_style, AppTheme};
 
 /// Which half of the gallery to show. Both stacked is the default; the debug
@@ -1663,6 +1665,7 @@ fn mobile_state_board(dark: bool, cx: &mut Context<GalleryRoot>) -> AnyElement {
     // 360 px content width, with the Orange appearance the loop ends on.
     let menus_theme = AppTheme::build(dark, AccentColor::Orange, use_flat_style());
     board = board.child(mobile_menus_case(328., &menus_theme));
+    board = board.child(mobile_orders_case(328., &menus_theme));
 
     board.into_any_element()
 }
@@ -1730,6 +1733,93 @@ fn mobile_menus_case(width: f32, theme: &AppTheme) -> AnyElement {
                 .text_color(theme.text_secondary)
                 .child(format!(
                     "Menüs · {width} px Inhalt · Karten, Allergene, Dock"
+                )),
+        )
+        .child(column)
+        .into_any_element()
+}
+
+/// Offline Bestellungen board for task 1.4 (order scenarios only): the real
+/// compact segment bar, confirm banner and cards over static orders, so the
+/// confirmed/unconfirmed/cancelling/cutoff/read-only states, the longest dish
+/// and the batch checks are visible without a host or a request. It is a
+/// component board, not proof of a running screen.
+/// @req REQ-SCR-02 @req REQ-UI-15
+fn mobile_orders_case(width: f32, theme: &AppTheme) -> AnyElement {
+    let noop: ClickHandler = Rc::new(|_, _| {});
+    let select: SegmentHandler = Rc::new(|_, _, _| {});
+    let order = |id: &str, title: &str, subtitle: &str, approved: bool| OrderedMenu {
+        position_id: id.to_string(),
+        eating_cycle_id: "cycle-2026-11-11".to_string(),
+        date_epoch_ms: 1_794_308_400_000,
+        title: title.to_string(),
+        subtitle: subtitle.to_string(),
+        approved,
+    };
+    let long = order(
+        "b-long",
+        "MENÜ I",
+        "Rindsgulasch mit Serviettenknödel, Rahmsauce, Blattsalat mit Kürbiskernöl",
+        false,
+    );
+    let confirmed = order("b-ok", "MENÜ II", "Pasta mit Tomatensugo", true);
+    let cancelling = order("b-cancel", "MENÜ III", "Gemüsecurry mit Basmatireis", true);
+    let cutoff = order("b-cutoff", "MENÜ I", "Rindsgulasch", false);
+    let past = order("b-past", "MENÜ II", "Pasta mit Tomatensugo", true);
+    let checked = order("b-checked", "MENÜ III", "Gemüsecurry mit Basmatireis", true);
+    let inner = width - 2. * theme.mobile.space_4;
+
+    let mut list = div().flex().flex_col();
+    // Confirmed, the longest dish unconfirmed, and the in-flight cancellation.
+    for (row, dish, can_cancel, in_flight, past_cutoff, select, selected, tap) in [
+        (&confirmed, None, true, false, false, false, false, false),
+        (&long, None, true, false, false, false, false, false),
+        (&cancelling, None, true, true, false, false, false, false),
+        (&cutoff, None, true, false, true, false, false, false),
+        (&past, None, false, false, false, false, false, false),
+        (&checked, None, true, false, false, true, true, true),
+    ] {
+        list = list.child(order_item(
+            row,
+            dish,
+            inner,
+            can_cancel,
+            in_flight,
+            past_cutoff,
+            select,
+            selected,
+            noop.clone(),
+            tap.then(|| noop.clone()),
+            theme,
+        ));
+    }
+
+    let column = div()
+        .w(px(width))
+        .flex()
+        .flex_col()
+        .bg(theme.background)
+        .child(segment_tabs(Segment::Upcoming, 12, 9, select, theme))
+        .child(confirm_banner(
+            "2 unbestätigte Bestellungen",
+            false,
+            noop.clone(),
+            theme,
+        ))
+        .child(list);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(theme.mobile.space_2))
+        .child(
+            div()
+                .text_size(px(theme.mobile.meta))
+                .line_height(px(theme.mobile.meta_line))
+                .font_semibold()
+                .text_color(theme.text_secondary)
+                .child(format!(
+                    "Bestellungen · {width} px Inhalt · Segmente, Banner, Karten"
                 )),
         )
         .child(column)
