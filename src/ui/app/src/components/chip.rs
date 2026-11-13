@@ -5,7 +5,8 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::{tag::Tag, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, Div, SharedString};
-use snackpilot_model::desktop::{ControlState, TARGET_MIN};
+use snackpilot_model::desktop::ControlState;
+use snackpilot_model::tokens;
 
 use crate::theme::{self, AppTheme};
 
@@ -34,36 +35,32 @@ fn chip_inner(
     // Compact option recipe (REQ-UI-15): `mobile.option` — 44 px two-axis
     // target, 12 px side padding, r8, and the accent tint plus an independent
     // 8 px check slot when selected. The colour cue is never the only one.
-    let radius = theme.mobile.radius_option;
+    let radius = theme.scale.radius_chip;
     let fill = if selected {
-        theme.mobile.selection_fill
+        theme.accent_surface
     } else {
-        theme.mobile_card_fill()
+        theme.surface
     };
     let fg = if selected {
-        theme.mobile.selection_ink
+        theme.text_primary
     } else {
-        theme.mobile_secondary_on(fill)
+        theme.text_secondary
     };
     let mut chip = div()
         .flex()
         .items_center()
-        .gap(px(theme.mobile.space_2))
-        .min_h(px(theme.mobile.target))
-        .px(px(theme.mobile.space_3))
-        .py(px(theme.mobile.space_1))
+        .gap(px(theme.scale.space_2))
+        .min_h(px(theme.scale.target))
+        .px(px(theme.scale.space_3))
+        .py(px(theme.scale.space_1))
         .rounded(px(radius))
         .bg(fill)
         .border(px(1.))
-        .border_color(if selected {
-            theme.mobile.selection_boundary
-        } else {
-            theme.border
-        });
+        .border_color(if selected { theme.accent } else { theme.border });
     if selected {
         chip = chip.child(
             Icon::new(IconName::Check)
-                .with_size(px(theme.mobile.space_5))
+                .with_size(px(theme.scale.space_5))
                 .text_color(fg),
         );
     }
@@ -72,8 +69,8 @@ fn chip_inner(
     }
     chip.child(
         div()
-            .text_size(px(theme.mobile.body))
-            .line_height(px(theme.mobile.body_line))
+            .text_size(px(theme.scale.body))
+            .line_height(px(theme.scale.body_line))
             .font_semibold()
             .text_color(fg)
             .child(label.into()),
@@ -95,26 +92,26 @@ pub fn desktop_chip(
 ) -> Div {
     let selected = state == ControlState::Selected;
     let fg = if selected {
-        theme.desktop.accent_on_selection
+        theme.accent
     } else {
         theme.control_ink(state)
     };
     let hover_fill = if selected {
         theme.control_fill(ControlState::Selected)
     } else {
-        theme.control_fill(ControlState::Hover)
+        theme.hover(theme.surface)
     };
     let chip = div()
         .flex()
         .items_center()
-        .min_h(px(TARGET_MIN))
-        .gap(px(6.))
-        .px(px(12.))
-        .rounded(px(8.))
+        .min_h(px(tokens::TARGET))
+        .gap(px(theme.scale.space_2))
+        .px(px(theme.scale.space_3))
+        .rounded(px(theme.scale.radius_chip))
         .bg(theme.control_fill(state))
         .border(px(1.))
         .border_color(if selected {
-            theme.desktop.accent_boundary
+            theme.accent
         } else {
             theme.control_border(state)
         })
@@ -131,13 +128,13 @@ pub fn desktop_chip(
     theme::focus_frame(
         chip.child(
             div()
-                .text_size(px(14.))
-                .line_height(px(20.))
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
                 .text_color(fg)
                 .child(label.into()),
         ),
         state,
-        8.,
+        theme.scale.radius_chip,
         theme,
     )
 }
@@ -148,7 +145,7 @@ pub fn chip_row(chips: impl IntoIterator<Item = Div>) -> Div {
         .flex()
         .flex_row()
         .flex_wrap()
-        .gap(px(snackpilot_model::tokens::mobile::SPACE_2))
+        .gap(px(snackpilot_model::tokens::SPACE_2))
         .children(chips)
 }
 
@@ -159,18 +156,14 @@ pub enum StatusTone {
     Error,
 }
 
-/// Small status tag (order/billing states): the §7 badge colours —
-/// glassSuccess/Warning/Error on iOS, the matching surface tokens on Android
-/// (already folded into `theme.glass_*`).
+/// Small status tag (order/billing states) on its toned semantic surface.
 pub fn status_tag(label: impl Into<SharedString>, tone: StatusTone, theme: &AppTheme) -> Tag {
     let (bg, fg, edge) = match tone {
-        StatusTone::Success => (theme.glass_success, theme.success_text, theme.success),
-        StatusTone::Warning => (theme.glass_warning, theme.warning_text, theme.warning),
-        StatusTone::Error => (theme.glass_error, theme.error_text, theme.error),
+        StatusTone::Success => (theme.success_surface, theme.success, theme.success),
+        StatusTone::Warning => (theme.warning_surface, theme.warning, theme.warning),
+        StatusTone::Error => (theme.error_surface, theme.error, theme.error),
     };
-    // Android: `{success,warning,error}Surface` + 1 px border in the tone
-    // colour (04 §7); iOS badges are plain glass fills, so the border
-    // (always 1 px on the kit Tag) matches the background there.
-    let border = if theme.flat { edge } else { bg };
+    // Every platform paints the toned surface with a 1 px tone border.
+    let border = edge;
     Tag::custom(bg, fg, border).child(div().text_size(px(12.)).text_color(fg).child(label.into()))
 }

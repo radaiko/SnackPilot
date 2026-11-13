@@ -6,11 +6,9 @@
 //! German copy verbatim from `docs/requirements/04-ui-ux.md` in the bundled
 //! Inter font; icons come from the gpui-kit asset bundle (Lucide).
 
-pub mod banner;
 pub mod bill_card;
 pub mod broadcast_banner;
 pub mod button;
-pub mod card;
 pub mod chip;
 pub mod day_navigator;
 pub mod desktop_navigation;
@@ -25,7 +23,6 @@ pub mod segment_tabs;
 pub mod settings_row;
 pub mod spinner;
 pub mod swipe;
-pub mod switch;
 pub mod tab_bar;
 pub mod text_field;
 pub mod time_chips;

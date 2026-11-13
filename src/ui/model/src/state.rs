@@ -90,43 +90,6 @@ impl std::str::FromStr for ThemePreference {
     }
 }
 
-/// Accent color, persisted under `accent_color`; drives the app icon (themes §6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AccentColor {
-    #[default]
-    Orange,
-    Emerald,
-    Berry,
-    Golden,
-    Ocean,
-}
-
-impl AccentColor {
-    pub fn raw_value(self) -> &'static str {
-        match self {
-            Self::Orange => "orange",
-            Self::Emerald => "emerald",
-            Self::Berry => "berry",
-            Self::Golden => "golden",
-            Self::Ocean => "ocean",
-        }
-    }
-}
-
-impl std::str::FromStr for AccentColor {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "orange" => Ok(Self::Orange),
-            "emerald" => Ok(Self::Emerald),
-            "berry" => Ok(Self::Berry),
-            "golden" => Ok(Self::Golden),
-            "ocean" => Ok(Self::Ocean),
-            _ => Err(()),
-        }
-    }
-}
-
 /// Daily-reminder time of day. There is no stored time until the feature is
 /// first enabled (notifications-daily-reminder.md:213-217); the settings picker
 /// starts at 11:00 (AppModel.swift:63, see `REMINDER_PICKER_DEFAULT_*`).
@@ -175,8 +138,6 @@ pub struct State {
     // ---- task 3.3: appearance, reminders, location, diagnostics ----
     /// Light/dark/system choice (themes §1.2); default System.
     pub theme: ThemePreference,
-    /// Accent color (themes §1.2/§6); default Orange.
-    pub accent: AccentColor,
     /// Daily reminder on/off (notifications-daily-reminder §9); default off.
     pub daily_reminder_enabled: bool,
     /// Daily reminder time of day; `None` until the feature is first enabled

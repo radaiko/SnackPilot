@@ -26,7 +26,9 @@ use crate::components::order_item::{
 use crate::components::record_table::{detail_entry, RecordListFocus};
 use crate::components::segment_tabs::{desktop_segment_toolbar, segment_tabs, Segment};
 use crate::components::spinner::spinner;
-use crate::components::workspace::{action_strip, detail_prompt, split_workspace_scrolled};
+use crate::components::workspace::{
+    action_strip, detail_prompt, loading_state, split_workspace_scrolled, state_message,
+};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::OrderedMenu;
@@ -44,7 +46,6 @@ pub fn orders_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     past: bool,
-    viewport_width: f32,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -61,7 +62,7 @@ pub fn orders_tab(
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(spinner(theme.primary, 36.))
+                .child(spinner(theme.accent, 36.))
                 .into_any_element()
         } else {
             gate(theme)
@@ -84,17 +85,6 @@ pub fn orders_tab(
     };
 
     let host = state.host_kind;
-    // The compact card moves its status/cancel column under the dish when the
-    // column cannot hold the readable dish measure. The shell hands its own
-    // viewport here (`state.content_width` is only reported by an evidence
-    // run), the shell owns the gutter and the card its own 16 px padding, so
-    // this is the one width the card really paints into.
-    let column_width = crate::compact_width(state.content_width, viewport_width);
-    let inner_width = crate::compact_column(state.host_kind, column_width)
-        .map(|geometry| geometry.content)
-        .unwrap_or(column_width);
-    let inner_width = (inner_width - 2. * theme.mobile.space_4).max(0.);
-
     // One flex child of the shell's column: it takes exactly the height left
     // under the shell heading, so the batch strip stays above navigation
     // instead of overflowing the heading's height.
@@ -127,6 +117,7 @@ pub fn orders_tab(
 
     let mut list = div()
         .id("orders-list")
+        .w_full()
         .flex_1()
         .flex()
         .flex_col()
@@ -148,7 +139,6 @@ pub fn orders_tab(
             list = list.child(order_item(
                 order,
                 dish,
-                inner_width,
                 can_cancel,
                 cancelling,
                 cutoff,
@@ -167,28 +157,20 @@ pub fn orders_tab(
     if state.order_selection_mode {
         column = column.child(selection_bar(state, host, cx, theme));
     } else if !past {
+        let (height, radius) = mobile_select_metrics(theme);
         let handler = begin_selection_handler(cx);
         column = column.child(
-            div().flex().justify_end().child(
-                div()
-                    .id("orders-select")
-                    .min_h(px(theme.mobile.action_height))
-                    .px(px(theme.mobile.space_2))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .cursor_pointer()
-                    .on_click(move |_, window, cx| handler(window, cx))
-                    .child(
-                        div()
-                            .text_size(px(theme.mobile.body))
-                            .line_height(px(theme.mobile.body_line))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(
-                                theme.mobile_ink_on(theme.mobile_card_fill(), theme.primary),
-                            )
-                            .child("Auswählen"),
-                    ),
+            div().w_full().flex().justify_end().child(
+                mobile_action_action(
+                    "orders-select",
+                    "Auswählen",
+                    ButtonKind::Secondary,
+                    theme,
+                    cx,
+                    move |_, window, cx| handler(window, cx),
+                )
+                .min_h(px(height))
+                .rounded(px(radius)),
             ),
         );
     }
@@ -204,13 +186,13 @@ fn empty_state(past: bool, theme: &AppTheme) -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .p(px(theme.mobile.space_4))
+        .p(px(theme.scale.space_4))
         .child(
             div()
-                .text_size(px(theme.mobile.body))
-                .line_height(px(theme.mobile.body_line))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_center()
-                .text_color(theme.mobile_secondary_on(theme.mobile_card_fill()))
+                .text_color(theme.text_secondary)
                 .child(if past {
                     "Keine vergangenen Bestellungen"
                 } else {
@@ -228,35 +210,34 @@ fn gate(theme: &AppTheme) -> AnyElement {
         .justify_center()
         .child(
             div()
-                .text_size(px(16.))
-                .text_color(theme.text_tertiary)
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
                 .child("Anmeldung erforderlich"),
         )
         .into_any_element()
 }
 
-/// The confirm banner's full-width action: the primary action fill and ink at
-/// the 48 px floor with the 14/12 radius, stretched across the banner's own
-/// width. A busy flow paints the disabled pair and installs no callback, so a
-/// second tap cannot confirm twice.
+/// The confirm banner's primary action: the accent fill and ink at the 48 px
+/// action floor. A busy flow paints the disabled pair and installs no callback,
+/// so a second tap cannot confirm twice.
 fn banner_action(
     label: &str,
     enabled: bool,
     on_click: ClickHandler,
     theme: &AppTheme,
 ) -> AnyElement {
-    let (height, radius) = mobile_action_metrics(ButtonKind::Primary, theme.flat);
+    let (height, radius) = mobile_action_metrics(ButtonKind::Primary);
     let (fill, ink) = if enabled {
-        (theme.mobile.action_fill, theme.mobile.action_ink)
+        (theme.accent, theme.on_accent)
     } else {
-        (theme.mobile.disabled_fill, theme.mobile.disabled_ink)
+        (theme.surface_alt, theme.text_tertiary)
     };
     let mut action = div()
         .id("orders-confirm")
-        .w_full()
+        .flex_shrink_0()
         .min_h(px(height))
-        .px(px(theme.mobile.space_4))
-        .py(px(theme.mobile.space_2))
+        .px(px(theme.scale.space_4))
         .rounded(px(radius))
         .bg(fill)
         .flex()
@@ -265,15 +246,16 @@ fn banner_action(
     if enabled {
         action = action
             .tab_index(0)
-            .focus(crate::theme::desktop_focus(theme.mobile.focus))
             .cursor_pointer()
+            .hover(move |s| s.bg(theme.pressed(theme.accent)))
+            .focus(crate::theme::desktop_focus(theme.accent))
             .on_click(move |_, window, cx| on_click(window, cx));
     }
     action
         .child(
             div()
-                .text_size(px(theme.mobile.body))
-                .line_height(px(theme.mobile.body_line))
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(ink)
                 .text_center()
@@ -282,36 +264,33 @@ fn banner_action(
         .into_any_element()
 }
 
-/// The unconfirmed banner, stacked as the text above a full-width action at
-/// 360/390 (and inside the 560 px column at 768). Copy and busy label are the
-/// incumbent ones.
+/// The unconfirmed banner: one row with the model's text and the 48 px primary
+/// `Bestätigen` at the trailing edge; it wraps instead of clipping. Copy and
+/// busy label are the incumbent ones.
+/// @req REQ-SCR-02 @req REQ-UI-15
 pub(crate) fn confirm_banner(
     text: &str,
     busy: bool,
     on_confirm: ClickHandler,
     theme: &AppTheme,
 ) -> AnyElement {
-    let fill = if theme.flat {
-        theme.warning_surface
-    } else {
-        theme.glass_warning
-    };
-    let ink = theme.mobile_status_on(fill, "warning");
-    let r = theme.tinted_banner(fill);
     theme::apply(
         div()
-            .mb(px(theme.mobile.space_2))
-            .p(px(theme.mobile.space_4))
+            .mb(px(theme.scale.space_2))
+            .p(px(theme.scale.space_4))
             .flex()
-            .flex_col()
-            .items_start()
-            .gap(px(theme.mobile.space_3))
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap(px(theme.scale.space_3))
             .child(
                 div()
-                    .text_size(px(theme.mobile.body))
-                    .line_height(px(theme.mobile.body_line))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(ink)
+                    .flex_1()
+                    .min_w(px(0.))
+                    .text_size(px(theme.scale.body))
+                    .line_height(px(theme.scale.body_line))
+                    .text_color(theme.text_primary)
                     .child(text.to_string()),
             )
             .child(banner_action(
@@ -320,31 +299,24 @@ pub(crate) fn confirm_banner(
                 on_confirm,
                 theme,
             )),
-        &r,
+        &theme.card_surface(),
     )
     .into_any_element()
 }
 
 fn error_banner(message: &str, theme: &AppTheme) -> AnyElement {
-    let fill = if theme.flat {
-        theme.error_surface
-    } else {
-        theme.glass_error
-    };
-    let ink = theme.mobile_status_on(fill, "error");
-    let r = theme.tinted_banner(fill);
     theme::apply(
         div()
-            .mb(px(theme.mobile.space_2))
-            .p(px(theme.mobile.space_3))
+            .mb(px(theme.scale.space_2))
+            .p(px(theme.scale.space_4))
             .child(
                 div()
-                    .text_size(px(theme.mobile.meta))
-                    .line_height(px(theme.mobile.meta_line))
-                    .text_color(ink)
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
+                    .text_color(theme.error)
                     .child(message.to_string()),
             ),
-        &r,
+        &theme.tinted_banner(theme.error_surface),
     )
     .into_any_element()
 }
@@ -359,6 +331,13 @@ fn batch_cancel_ready(state: &State) -> bool {
 /// The counted batch label, exactly as the model's selection reads it.
 pub(crate) fn mobile_batch_cancel_label(count: usize) -> String {
     format!("Stornieren ({count})")
+}
+
+/// The trailing `Auswählen` entry: a proper 48 px outlined control, aligned to
+/// the content's trailing edge, never loose accent text. It shares the action
+/// floor and control radius with every other button.
+pub(crate) fn mobile_select_metrics(theme: &AppTheme) -> (f32, f32) {
+    (theme.scale.action_height, theme.scale.radius_control)
 }
 
 /// The selection strip: the counted `Stornieren ({count})` danger action and
@@ -394,16 +373,13 @@ fn selection_bar(
         )
     };
     div()
+        .w_full()
         .flex()
         .flex_wrap()
         .items_center()
         .justify_between()
-        .gap(px(theme.mobile.space_2))
-        .px(px(theme.mobile.space_4))
-        .py(px(theme.mobile.space_3))
-        .bg(theme.surface)
-        .border_t_1()
-        .border_color(theme.border)
+        .gap(px(theme.scale.space_2))
+        .py(px(theme.scale.space_2))
         .child(danger)
         .child(mobile_action_action(
             "orders-selection-done",
@@ -440,7 +416,7 @@ fn desktop_confirm_banner(
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
-    let r = theme.tinted_banner(theme.glass_warning);
+    let r = theme.tinted_banner(theme.warning_surface);
     let state = if busy {
         ControlState::Disabled
     } else {
@@ -448,18 +424,19 @@ fn desktop_confirm_banner(
     };
     theme::apply(
         div()
-            .mx(px(16.))
-            .mt(px(8.))
-            .p(px(12.))
+            .mx(px(theme.scale.space_4))
+            .mt(px(theme.scale.space_2))
+            .p(px(theme.scale.space_3))
             .flex()
             .items_center()
             .justify_between()
-            .gap(px(8.))
+            .gap(px(theme.scale.space_2))
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.warning_text)
+                    .text_color(theme.warning)
                     .child(text.to_string()),
             )
             .child(desktop_action_state(
@@ -642,13 +619,7 @@ pub fn desktop_orders_tab(
     };
     let Some(split) = &state.orders_split else {
         return if state.busy {
-            div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(spinner(theme.primary, 36.))
-                .into_any_element()
+            loading_state(theme)
         } else {
             gate(theme)
         };
@@ -788,7 +759,7 @@ fn desktop_order_master(
         .flex_col()
         .tab_index(0)
         .track_focus(list_focus.container())
-        .focus(theme::desktop_focus(theme.desktop.focus))
+        .focus(theme::desktop_focus(theme.accent))
         .on_key_down(on_key)
         .child(desktop_order_header(
             compact,
@@ -807,7 +778,6 @@ fn desktop_order_master(
             checked: state.selected_order_ids.contains(&order.position_id),
             cancelling: state.cancelling_id.as_deref() == Some(order.position_id.as_str()),
         };
-        let description = order_description(model.dish(order), order);
         let preview = desktop_preview_handler(cx, order.position_id.clone());
         let check = state
             .order_selection_mode
@@ -815,7 +785,6 @@ fn desktop_order_master(
         let handle = list_focus.row(&order.position_id, cx);
         list = list.child(desktop_order_row(
             order,
-            &description,
             state_row,
             compact,
             preview,
@@ -828,25 +797,14 @@ fn desktop_order_master(
 }
 
 fn desktop_empty_master(past: bool, theme: &AppTheme) -> AnyElement {
-    div()
-        .w_full()
-        .p(px(16.))
-        .pt(px(32.))
-        .flex()
-        .justify_center()
-        .child(
-            div()
-                .text_size(px(14.))
-                .line_height(px(20.))
-                .text_color(theme.text_secondary)
-                .text_center()
-                .child(if past {
-                    "Keine vergangenen Bestellungen"
-                } else {
-                    "Keine kommenden Bestellungen"
-                }),
-        )
-        .into_any_element()
+    state_message(
+        if past {
+            "Keine vergangenen Bestellungen"
+        } else {
+            "Keine kommenden Bestellungen"
+        },
+        theme,
+    )
 }
 
 fn desktop_order_detail_pane(
@@ -1108,10 +1066,13 @@ fn desktop_segment_ids(state: &State) -> Vec<String> {
 
 #[cfg(test)]
 mod mobile_tests {
-    use super::{batch_cancel_ready, cancel_dialog, mobile_batch_cancel_label};
+    use super::{
+        batch_cancel_ready, cancel_dialog, mobile_batch_cancel_label, mobile_select_metrics,
+    };
     use crate::app::MutationGate;
     use crate::components::dialog::Dialog;
     use crate::navigation::ClickHandler;
+    use crate::theme::AppTheme;
     use snackpilot_core::domain::{MenuCategory, OrderedMenu};
     use snackpilot_model::{AppModel, FakePlatform};
     use std::rc::Rc;
@@ -1160,6 +1121,17 @@ mod mobile_tests {
             .orders_split
             .expect("orders reloaded after submit")
             .upcoming
+    }
+
+    /// `Auswählen` is a real trailing control (REQ-SCR-02/REQ-UI-15): the 48 px
+    /// action floor and the 10 px control radius, never loose accent text.
+    /// @req REQ-SCR-02 @req REQ-UI-15
+    #[test]
+    fn mobile_select_entry_is_a_48px_control() {
+        let theme = AppTheme::build(false);
+        let (height, radius) = mobile_select_metrics(&theme);
+        assert_eq!(height, 48.);
+        assert_eq!(radius, 10.);
     }
 
     /// The confirm banner and the counted batch strip act once

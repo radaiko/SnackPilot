@@ -8,11 +8,12 @@
 use gpui::*;
 
 use crate::components::record_table::{
-    record_cell_right, record_header_cells, record_header_fixed, record_header_flex,
-    record_header_right, record_row_focusable, table_date, RowFocus,
+    record_cell, record_cell_right, record_cell_right_body, record_header_cells,
+    record_header_fixed, record_header_flex, record_header_right, record_row_focusable, table_date,
+    RowFocus,
 };
 use crate::navigation::ClickHandler;
-use crate::theme::{self, AppTheme};
+use crate::theme::AppTheme;
 use snackpilot_model::format_time;
 use snackpilot_model::{format_date_long, format_eur, BillingEntry, BillingLine, EntrySource};
 
@@ -73,53 +74,50 @@ pub fn mobile_restaurant_line(entry: &BillingEntry) -> Option<&str> {
     }
 }
 
-/// One compact Gourmet receipt line: the `{count}x` quantity in its 28 px
+/// One compact Gourmet receipt line: the `{count}x` quantity in its quiet
 /// metadata column, the full wrapping description in the body role and the
 /// trailing formatted line amount in metadata.
-fn mobile_line_row(line: &BillingLine, ink: Hsla, meta: Hsla) -> Div {
+fn mobile_line_row(line: &BillingLine, theme: &AppTheme) -> Div {
     div()
         .flex()
         .items_start()
-        .gap(px(8.))
+        .gap(px(theme.scale.space_2))
         .child(
             div()
                 .w(px(BILL_LINE_QTY))
                 .flex_shrink_0()
-                .text_size(px(14.))
-                .line_height(px(20.))
-                .text_color(meta)
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
                 .child(format!("{}x", line.count)),
         )
         .child(
             div()
                 .flex_1()
-                .min_w_0()
-                .text_size(px(16.))
-                .line_height(px(24.))
-                .text_color(ink)
+                .min_w(px(0.))
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
+                .text_color(theme.text_primary)
                 .child(line.description.clone()),
         )
         .child(
             div()
                 .flex_shrink_0()
-                .text_size(px(14.))
-                .line_height(px(20.))
-                .text_color(meta)
+                .whitespace_nowrap()
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
                 .child(format_eur(line.total)),
         )
 }
 
-/// One compact §4.7 receipt card (mobile task 1.5): date in the body role,
-/// time/source in readable metadata, the amount trailing in the body role,
-/// then — after a neutral hairline — either the Kantine lines or the supplied
-/// Automaten restaurant. Padding16, gap8, `card_surface`; heights follow
-/// content and the card is never a button.
+/// One compact §4.7 receipt row: surface, 1 px hairline, 12 radius, 16 padding
+/// and 8 gaps. The date is strong with the time and source quiet beside it, the
+/// amount strong at the trailing edge, then either the Kantine lines or the
+/// supplied Automaten restaurant. Never a button.
 /// @req REQ-SCR-03 @req REQ-UI-15 @req REQ-UI-16
 pub fn bill_card(entry: &BillingEntry, theme: &AppTheme) -> Div {
-    let m = &theme.mobile;
-    let card_fill = theme.mobile_card_fill();
-    let meta = theme.mobile_secondary_on(card_fill);
-    let amount = format_eur(entry.amount);
+    let m = &theme.scale;
 
     let header = div()
         .flex()
@@ -129,10 +127,10 @@ pub fn bill_card(entry: &BillingEntry, theme: &AppTheme) -> Div {
         .child(
             div()
                 .flex_1()
-                .min_w_0()
+                .min_w(px(0.))
                 .flex()
                 .flex_col()
-                .gap(px(m.space_1))
+                .gap(px(m.space_2))
                 .child(
                     div()
                         .text_size(px(m.body))
@@ -151,14 +149,14 @@ pub fn bill_card(entry: &BillingEntry, theme: &AppTheme) -> Div {
                             div()
                                 .text_size(px(m.meta))
                                 .line_height(px(m.meta_line))
-                                .text_color(meta)
+                                .text_color(theme.text_secondary)
                                 .child(format_time(entry.epoch_ms)),
                         )
                         .child(
                             div()
                                 .text_size(px(m.meta))
                                 .line_height(px(m.meta_line))
-                                .text_color(meta)
+                                .text_color(theme.text_secondary)
                                 .child(mobile_source_label(entry.source)),
                         ),
                 ),
@@ -171,42 +169,34 @@ pub fn bill_card(entry: &BillingEntry, theme: &AppTheme) -> Div {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text_primary)
                 .whitespace_nowrap()
-                .child(amount),
+                .child(format_eur(entry.amount)),
         );
 
-    let mut card = theme::apply(
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(m.space_2))
-            .p(px(m.space_4))
-            .mb(px(m.space_2)),
-        &theme.card_surface(),
-    )
-    .child(header);
+    let mut card = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(px(m.space_2))
+        .p(px(m.space_4))
+        .mb(px(m.space_2))
+        .rounded(px(theme.scale.radius_card))
+        .bg(theme.surface)
+        .border(px(1.))
+        .border_color(theme.border)
+        .child(header);
 
     let lines = mobile_receipt_lines(entry);
-    if !lines.is_empty() {
-        card = card
-            .child(div().h(px(1.)).w_full().bg(theme.divider()))
-            .child(
-                div().flex().flex_col().gap(px(m.space_2)).children(
-                    lines
-                        .iter()
-                        .map(|line| mobile_line_row(line, theme.text_primary, meta)),
-                ),
-            );
+    for line in lines {
+        card = card.child(mobile_line_row(line, theme));
     }
     if let Some(restaurant) = mobile_restaurant_line(entry) {
-        card = card
-            .child(div().h(px(1.)).w_full().bg(theme.divider()))
-            .child(
-                div()
-                    .text_size(px(m.body))
-                    .line_height(px(m.body_line))
-                    .text_color(theme.text_primary)
-                    .child(restaurant.to_string()),
-            );
+        card = card.child(
+            div()
+                .text_size(px(m.body))
+                .line_height(px(m.body_line))
+                .text_color(theme.text_primary)
+                .child(restaurant.to_string()),
+        );
     }
 
     // Read-only content: no pointer affordance on either source.
@@ -252,7 +242,8 @@ pub fn desktop_bill_header(compact: bool, theme: &AppTheme) -> AnyElement {
 }
 
 /// One receipt table row: the body previews a receipt, the amount stays a
-/// passive, trailing, tabular value. Dates are de-AT `dd.MM.yyyy`.
+/// passive, trailing, tabular value. Dates are de-AT `dd.MM.yyyy`; the row is
+/// one `BODY` date with `META` source beside it, so it stays 40 px high.
 /// @req REQ-SCR-03 @req REQ-UI-12
 pub fn desktop_bill_row(
     entry: &BillingEntry,
@@ -262,71 +253,51 @@ pub fn desktop_bill_row(
     focus: Option<&RowFocus>,
     theme: &AppTheme,
 ) -> AnyElement {
-    let date = div()
-        .text_size(px(14.))
-        .line_height(px(20.))
-        .text_color(theme.text_primary)
-        .whitespace_nowrap()
-        .child(table_date(entry.epoch_ms));
-    let time = div()
-        .text_size(px(12.))
-        .line_height(px(16.))
-        .text_color(theme.text_secondary)
-        .whitespace_nowrap()
-        .child(format_time(entry.epoch_ms));
-    let mut cells = Vec::new();
-    if compact {
-        cells.push(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .justify_center()
-                .child(date)
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .line_height(px(16.))
-                        .text_color(theme.text_secondary)
-                        .text_ellipsis()
-                        .whitespace_nowrap()
-                        .child(bill_source_label(entry.source)),
-                )
-                .into_any_element(),
-        );
+    let income = if selected {
+        theme.accent
     } else {
-        cells.push(
-            div()
-                .w(px(BILL_DATE_EXPANDED))
-                .flex_shrink_0()
-                .flex()
-                .flex_col()
-                .justify_center()
-                .child(date)
-                .child(time)
-                .into_any_element(),
-        );
-        cells.push(
+        theme.text_primary
+    };
+    let date = |width: Option<f32>| {
+        let cell = div()
+            .text_size(px(theme.scale.body))
+            .line_height(px(theme.scale.body_line))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(income)
+            .whitespace_nowrap()
+            .child(table_date(entry.epoch_ms));
+        match width {
+            Some(width) => cell.w(px(width)).flex_shrink_0(),
+            None => cell,
+        }
+    };
+    let source = record_cell(bill_source_label(entry.source), theme);
+    let cells = if compact {
+        vec![
             div()
                 .flex_1()
                 .min_w_0()
                 .flex()
                 .items_center()
-                .text_size(px(14.))
-                .line_height(px(20.))
-                .text_color(theme.text_secondary)
-                .text_ellipsis()
-                .whitespace_nowrap()
-                .child(bill_source_label(entry.source))
+                .gap(px(theme.scale.space_2))
+                .child(date(None))
+                .child(source)
                 .into_any_element(),
-        );
-    }
-    cells.push(record_cell_right(
-        format_eur(entry.amount),
-        bill_amount_width(compact),
-        theme,
-    ));
+            record_cell_right_body(format_eur(entry.amount), bill_amount_width(compact), theme),
+        ]
+    } else {
+        vec![
+            date(Some(BILL_DATE_EXPANDED)).into_any_element(),
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .child(source)
+                .into_any_element(),
+            record_cell_right_body(format_eur(entry.amount), bill_amount_width(compact), theme),
+        ]
+    };
     record_row_focusable(
         SharedString::from(format!("desktop-bill-{}", entry.id)),
         cells,
@@ -341,19 +312,19 @@ pub fn desktop_bill_row(
 
 fn desktop_source_badge(source: EntrySource, theme: &AppTheme) -> AnyElement {
     let fill = match source {
-        EntrySource::Gourmet => theme.primary_surface,
+        EntrySource::Gourmet => theme.accent_surface,
         EntrySource::Ventopay => theme.success_surface,
     };
     div()
         .flex()
         .child(
             div()
-                .px(px(8.))
-                .py(px(4.))
-                .rounded(px(8.))
+                .px(px(theme.scale.space_2))
+                .py(px(theme.scale.space_1))
+                .rounded(px(theme.scale.radius_chip))
                 .bg(fill)
-                .text_size(px(12.))
-                .line_height(px(16.))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text_primary)
                 .child(bill_source_label(source)),
@@ -369,13 +340,13 @@ fn desktop_line_row(line: &BillingLine, theme: &AppTheme) -> AnyElement {
         .flex()
         .flex_wrap()
         .items_start()
-        .gap(px(8.))
+        .gap(px(theme.scale.space_2))
         .child(
             div()
                 .w(px(BILL_LINE_QTY))
                 .flex_shrink_0()
-                .text_size(px(14.))
-                .line_height(px(20.))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
                 .child(format!("{}x", line.count)),
         )
@@ -383,8 +354,8 @@ fn desktop_line_row(line: &BillingLine, theme: &AppTheme) -> AnyElement {
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(14.))
-                .line_height(px(20.))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
                 .child(line.description.clone()),
         )
@@ -402,22 +373,26 @@ fn desktop_line_row(line: &BillingLine, theme: &AppTheme) -> AnyElement {
 /// @req REQ-SCR-03 @req REQ-UI-08
 pub fn desktop_bill_detail(entry: &BillingEntry, compact: bool, theme: &AppTheme) -> AnyElement {
     let mut detail = div()
-        .p(px(if compact { 16. } else { 24. }))
+        .p(px(if compact {
+            theme.scale.space_4
+        } else {
+            theme.scale.space_5
+        }))
         .flex()
         .flex_col()
-        .gap(px(8.))
+        .gap(px(theme.scale.space_2))
         .child(
             div()
-                .text_size(px(20.))
-                .line_height(px(26.))
+                .text_size(px(theme.scale.headline))
+                .line_height(px(theme.scale.headline_line))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.desktop.ink)
+                .text_color(theme.text_primary)
                 .child("Beleg"),
         )
         .child(
             div()
-                .text_size(px(12.))
-                .line_height(px(16.))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
                 .child(format!(
                     "{} · {}",
@@ -428,16 +403,20 @@ pub fn desktop_bill_detail(entry: &BillingEntry, compact: bool, theme: &AppTheme
         .child(desktop_source_badge(entry.source, theme))
         .child(
             div()
-                .text_size(px(20.))
-                .line_height(px(26.))
+                .text_size(px(theme.scale.headline))
+                .line_height(px(theme.scale.headline_line))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.desktop.ink)
+                .text_color(theme.text_primary)
                 .child(format_eur(entry.amount)),
         );
 
     match entry.source {
         EntrySource::Gourmet => {
-            let mut rows = div().flex().flex_col().gap(px(8.)).mt(px(8.));
+            let mut rows = div()
+                .flex()
+                .flex_col()
+                .gap(px(theme.scale.space_2))
+                .mt(px(theme.scale.space_2));
             for line in &entry.items {
                 rows = rows.child(desktop_line_row(line, theme));
             }
@@ -447,8 +426,8 @@ pub fn desktop_bill_detail(entry: &BillingEntry, compact: bool, theme: &AppTheme
             if !entry.description.is_empty() {
                 detail = detail.child(
                     div()
-                        .text_size(px(14.))
-                        .line_height(px(20.))
+                        .text_size(px(theme.scale.meta))
+                        .line_height(px(theme.scale.meta_line))
                         .text_color(theme.text_secondary)
                         .child(entry.description.clone()),
                 );

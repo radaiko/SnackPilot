@@ -13,25 +13,30 @@ use std::sync::Arc;
 use gpui::*;
 
 use crate::app::{desktop_mutation_blocked, run_blocking, AppShell};
-use crate::components::banner::refresh_banner as mobile_refresh_row;
 use crate::components::button::desktop_action_state;
 use crate::components::day_navigator::mobile_day_navigator;
 use crate::components::fab::{dock_bottom, dock_height, dock_state, mobile_dock, DockState};
 use crate::components::menu_card::{
-    desktop_menu_action, desktop_menu_row, desktop_menu_status, menu_card, mobile_menu_tappable,
-    DesktopMenuRowState, MenuCardState,
+    desktop_menu_action, desktop_menu_status, menu_card, mobile_menu_tappable, DesktopMenuRowState,
+    MenuCardState,
 };
-use crate::components::record_table::{detail_entry, RecordListFocus};
+use crate::components::record_table::{
+    detail_entry, record_cell_right, record_row_focusable, record_status_cell, RecordListFocus,
+};
 use crate::components::spinner::spinner;
 use crate::components::swipe::{
     claims_horizontal, swipe_day, swipe_days, swipe_offset, SwipeHandlers,
 };
-use crate::components::workspace::{action_strip, detail_prompt, split_workspace_scrolled};
+use crate::components::workspace::{
+    action_strip, detail_prompt, loading_state as desktop_loading_state, section_label,
+    split_workspace_scrolled, state_message,
+};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::{MenuCategory, MenuItem};
-use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind, TARGET_MIN};
+use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
 use snackpilot_model::navigation::ListKind;
+use snackpilot_model::tokens;
 use snackpilot_model::{category_heading, format_day_short, menu_key, AppModel, State};
 
 /// The compact Menüs screen below the shell heading (task 1.3): the Day Tray
@@ -70,11 +75,7 @@ pub fn menus_tab(
     if state.order_progress.is_none() {
         if let Some(snapshot) = &state.menu_snapshot {
             if snapshot.refreshing {
-                column = column.child(
-                    div()
-                        .pb(px(theme.mobile.space_2))
-                        .child(mobile_refresh_row(theme)),
-                );
+                column = column.child(refresh_line(theme));
             }
         }
     }
@@ -101,12 +102,15 @@ pub fn menus_tab(
     };
     let reduce_motion = cx.reduce_motion();
 
-    column = column.child(swipe_days(
+    // The swipe surface takes only the height left under the day navigator and
+    // refresh line; a size_full child there pushed the list under the shell's
+    // bottom edge and clipped the last row.
+    column = column.child(div().flex_1().min_h_0().child(swipe_days(
         "menus-swipe",
         content,
         swipe_offset(offset, can_back, can_forward, reduce_motion),
         swipe_handlers(can_back, can_forward, reduce_motion, cx),
-    ));
+    )));
 
     column.into_any_element()
 }
@@ -226,13 +230,7 @@ fn menu_list(
             .as_ref()
             .is_some_and(|snapshot| !snapshot.items.is_empty());
         return if busy && !cached {
-            div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(spinner(theme.primary, 36.))
-                .into_any_element()
+            loading_state(theme)
         } else {
             empty_state(theme)
         };
@@ -246,10 +244,11 @@ fn menu_list(
 
     let mut list = div()
         .id("menus-list")
+        .w_full()
         .size_full()
         .flex()
         .flex_col()
-        .pt(px(theme.mobile.space_4))
+        .pt(px(theme.scale.space_4))
         .overflow_y_scroll();
 
     for (category, items) in groups {
@@ -266,9 +265,9 @@ fn menu_list(
     list.into_any_element()
 }
 
-/// One category group: a neutral body Semibold heading 8 px above its cards,
-/// 24 px after the group. The heading carries the MENÜ label, so the cards no
-/// longer repeat it (sample M2); SUPPE & SALAT stays suppressed by the model.
+/// One category group: the quiet metadata label 8 px above its rows and 16 px
+/// after the group. The heading carries the MENÜ label, so the rows never
+/// repeat it (sample M2); SUPPE & SALAT stays suppressed by the model.
 /// @req REQ-SCR-01 @req REQ-UI-15
 fn group(
     category: MenuCategory,
@@ -279,15 +278,14 @@ fn group(
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> Div {
-    let mut group = div().flex().flex_col().mb(px(theme.mobile.space_6));
+    let mut group = div().w_full().flex().flex_col().mb(px(theme.scale.space_4));
     if let Some(heading) = category_heading(category) {
         group = group.child(
             div()
-                .mb(px(theme.mobile.space_2))
-                .text_size(px(theme.mobile.body))
-                .line_height(px(theme.mobile.body_line))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_primary)
+                .mb(px(theme.scale.space_2))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
                 .child(heading),
         );
     }
@@ -306,21 +304,57 @@ fn group(
     group
 }
 
+/// One centred metadata line, no card.
 fn empty_state(theme: &AppTheme) -> AnyElement {
-    let fill = theme.background;
+    state_line("Keine Menüs verfügbar", theme)
+}
+
+/// The initial load: one quiet centred 20 px spinner and nothing else.
+fn loading_state(theme: &AppTheme) -> AnyElement {
     div()
         .size_full()
         .flex()
         .items_center()
         .justify_center()
-        .p(px(theme.mobile.space_4))
+        .p(px(theme.scale.space_4))
+        .child(spinner(theme.text_secondary, theme.scale.icon))
+        .into_any_element()
+}
+
+/// The cached refresh keeps the day and rows: one quiet 20 px spinner with the
+/// existing `Aktualisiere...` metadata line, never a decorative card.
+fn refresh_line(theme: &AppTheme) -> AnyElement {
+    div()
+        .py(px(theme.scale.space_2))
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(theme.scale.space_2))
+        .child(spinner(theme.text_secondary, theme.scale.icon))
         .child(
             div()
-                .text_size(px(theme.mobile.body))
-                .line_height(px(theme.mobile.body_line))
-                .text_color(theme.mobile_secondary_on(fill))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
+                .child("Aktualisiere..."),
+        )
+        .into_any_element()
+}
+
+fn state_line(text: &str, theme: &AppTheme) -> AnyElement {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(px(theme.scale.space_4))
+        .child(
+            div()
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
                 .text_center()
-                .child("Keine Menüs verfügbar"),
+                .child(text.to_string()),
         )
         .into_any_element()
 }
@@ -332,72 +366,72 @@ fn auth_gate(theme: &AppTheme) -> AnyElement {
         .flex_col()
         .items_center()
         .justify_center()
+        .gap(px(theme.scale.space_2))
+        .p(px(theme.scale.space_4))
         .child(
             div()
-                .text_size(px(18.))
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.error)
+                .text_color(theme.text_primary)
+                .text_center()
                 .child("Nicht angemeldet"),
         )
         .child(
             div()
-                .mt(px(8.))
-                .text_size(px(14.))
-                .text_color(theme.text_tertiary)
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
+                .text_center()
                 .child("Gehe zu Einstellungen, um Zugangsdaten einzugeben"),
         )
         .into_any_element()
 }
 
-/// The compact inline error: the exact model message on the error tint with
-/// the existing `Erneut versuchen` target at the 44 px floor and readable ink.
+/// The compact inline error: one centred metadata line with the exact store
+/// message, and the existing `Erneut versuchen` target at the 44 px floor.
 /// @req REQ-SCR-01 @req REQ-UI-16
 fn mobile_error_banner(message: &str, retry: ClickHandler, theme: &AppTheme) -> AnyElement {
-    let r = theme.tinted_banner(theme.glass_error);
-    let fill = theme.mobile_composited(r.bg);
-    let ink = theme.mobile_status_on(fill, "error");
-    theme::apply(
-        div()
-            .mb(px(theme.mobile.space_2))
-            .p(px(theme.mobile.space_3))
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(theme.mobile.space_2)),
-        &r,
-    )
-    .child(
-        div()
-            .flex_1()
-            .min_w(px(0.))
-            .text_size(px(theme.mobile.meta))
-            .line_height(px(theme.mobile.meta_line))
-            .text_color(ink)
-            .child(message.to_string()),
-    )
-    .child(
-        div()
-            .id("menus-retry")
-            .min_h(px(theme.mobile.target))
-            .flex()
-            .items_center()
-            .px(px(theme.mobile.space_2))
-            .cursor_pointer()
-            .on_click(move |_, window, cx| retry(window, cx))
-            .child(
-                div()
-                    .text_size(px(theme.mobile.meta))
-                    .line_height(px(theme.mobile.meta_line))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(ink)
-                    .child("Erneut versuchen"),
-            ),
-    )
-    .into_any_element()
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(px(theme.scale.space_2))
+        .p(px(theme.scale.space_4))
+        .child(
+            div()
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
+                .text_center()
+                .child(message.to_string()),
+        )
+        .child(
+            div()
+                .id("menus-retry")
+                .min_h(px(theme.scale.target))
+                .px(px(theme.scale.space_2))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .on_click(move |_, window, cx| retry(window, cx))
+                .child(
+                    div()
+                        .text_size(px(theme.scale.meta))
+                        .line_height(px(theme.scale.meta_line))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme.accent)
+                        .child("Erneut versuchen"),
+                ),
+        )
+        .into_any_element()
 }
 
 fn refresh_banner(theme: &AppTheme) -> AnyElement {
-    let r = theme.tinted_banner(theme.glass_primary);
+    let r = theme.tinted_banner(theme.accent_surface);
     theme::apply(
         div()
             .mx(px(16.))
@@ -407,12 +441,12 @@ fn refresh_banner(theme: &AppTheme) -> AnyElement {
             .items_center()
             .justify_center()
             .gap(px(8.))
-            .child(spinner(theme.primary, 12.))
+            .child(spinner(theme.accent, 12.))
             .child(
                 div()
                     .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.primary)
+                    .font_weight(FontWeight::NORMAL)
+                    .text_color(theme.accent)
                     .child("Aktualisiere..."),
             ),
         &r,
@@ -431,12 +465,13 @@ fn progress_banner(progress: &str, theme: &AppTheme) -> AnyElement {
             .items_center()
             .justify_center()
             .gap(px(8.))
-            .child(spinner(theme.on_primary, 12.))
+            .child(spinner(theme.on_accent, 12.))
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.on_primary)
+                    .text_color(theme.on_accent)
                     .child(progress.to_string()),
             ),
         &r,
@@ -445,7 +480,7 @@ fn progress_banner(progress: &str, theme: &AppTheme) -> AnyElement {
 }
 
 fn error_banner(message: &str, retry: ClickHandler, theme: &AppTheme) -> AnyElement {
-    let r = theme.tinted_banner(theme.glass_error);
+    let r = theme.tinted_banner(theme.error_surface);
     theme::apply(
         div()
             .mx(px(16.))
@@ -458,8 +493,9 @@ fn error_banner(message: &str, retry: ClickHandler, theme: &AppTheme) -> AnyElem
             .child(
                 div()
                     .flex_1()
-                    .text_size(px(13.))
-                    .text_color(theme.error_text)
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
+                    .text_color(theme.error)
                     .child(message.to_string()),
             )
             .child(
@@ -469,8 +505,9 @@ fn error_banner(message: &str, retry: ClickHandler, theme: &AppTheme) -> AnyElem
                     .on_click(move |_, window, cx| retry(window, cx))
                     .child(
                         div()
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::MEDIUM)
+                            .text_size(px(theme.scale.meta))
+                            .line_height(px(theme.scale.meta_line))
+                            .font_weight(FontWeight::NORMAL)
                             .text_color(theme.error)
                             .child("Erneut versuchen"),
                     ),
@@ -684,13 +721,7 @@ fn desktop_menu_master(
             .map_or(true, |snapshot| snapshot.items.is_empty())
             && (state.busy || state.menu_snapshot.as_ref().is_some_and(|s| s.loading));
         return if loading {
-            div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(spinner(theme.primary, 36.))
-                .into_any_element()
+            desktop_loading_state(theme)
         } else {
             desktop_empty_master(theme)
         };
@@ -758,21 +789,11 @@ fn desktop_menu_master(
         .flex_col()
         .tab_index(0)
         .track_focus(list_focus.container())
-        .focus(theme::desktop_focus(theme.desktop.focus))
+        .focus(theme::desktop_focus(theme.accent))
         .on_key_down(on_key);
     for (category, items) in groups {
         if let Some(heading) = category_heading(category) {
-            list = list.child(
-                div()
-                    .px(px(16.))
-                    .pt(px(16.))
-                    .pb(px(8.))
-                    .text_size(px(14.))
-                    .line_height(px(20.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.desktop.ink)
-                    .child(heading),
-            );
+            list = list.child(section_label(heading, theme));
         }
         for item in items {
             let key = menu_key(&item);
@@ -785,10 +806,18 @@ fn desktop_menu_master(
                 selected,
             );
             let handle = list_focus.row(&key, cx);
-            list = list.child(desktop_menu_row(
-                &item,
-                row,
-                desktop_preview_handler(cx, key),
+            let mut cells = vec![menu_primary_cell(&item, row, theme)];
+            if let Some((label, ink, _)) = desktop_menu_status(&row, theme) {
+                cells.push(record_status_cell(label, ink, theme));
+            }
+            cells.push(record_cell_right(item.price.clone(), 80., theme));
+            list = list.child(record_row_focusable(
+                SharedString::from(format!("desktop-menu-{key}")),
+                cells,
+                selected,
+                Some(desktop_preview_handler(cx, key)),
+                false,
+                None,
                 Some(&handle),
                 theme,
             ));
@@ -798,21 +827,28 @@ fn desktop_menu_master(
 }
 
 fn desktop_empty_master(theme: &AppTheme) -> AnyElement {
-    div()
-        .size_full()
-        .p(px(16.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(
-            div()
-                .text_size(px(14.))
-                .line_height(px(20.))
-                .text_color(theme.text_secondary)
-                .text_center()
-                .child("Keine Menüs verfügbar"),
-        )
-        .into_any_element()
+    state_message("Keine Menüs verfügbar", theme)
+}
+
+/// The menu row's primary cell: the dish title in `BODY`, struck while its
+/// cancellation is pending. Ink is inherited from the row, so the selected
+/// row paints it in the accent.
+fn menu_primary_cell(item: &MenuItem, state: DesktopMenuRowState, theme: &AppTheme) -> AnyElement {
+    let title = div()
+        .flex_1()
+        .min_w_0()
+        .text_size(px(theme.scale.body))
+        .line_height(px(theme.scale.body_line))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_ellipsis()
+        .whitespace_nowrap()
+        .child(item.title.clone());
+    let title = if state.pending_cancel {
+        title.line_through()
+    } else {
+        title
+    };
+    title.into_any_element()
 }
 
 /// The detail pane: the selected row's complete dish, or the prompt.
@@ -863,7 +899,11 @@ pub(crate) fn desktop_menu_detail(
     content_width: f32,
     cx: &App,
 ) -> AnyElement {
-    let pad = if content_width >= 1024. { 24. } else { 16. };
+    let pad = if content_width >= 1024. {
+        theme.scale.space_5
+    } else {
+        theme.scale.space_4
+    };
     let dish = if item.subtitle.trim().is_empty() {
         item.title.clone()
     } else {
@@ -873,27 +913,27 @@ pub(crate) fn desktop_menu_detail(
         .p(px(pad))
         .flex()
         .flex_col()
-        .gap(px(8.))
+        .gap(px(theme.scale.space_2))
         .child(
             div()
-                .text_size(px(12.))
-                .line_height(px(16.))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
                 .child(format_day_short(&item.day)),
         )
         .child(
             div()
-                .text_size(px(20.))
-                .line_height(px(26.))
+                .text_size(px(theme.scale.headline))
+                .line_height(px(theme.scale.headline_line))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.desktop.ink)
+                .text_color(theme.text_primary)
                 .child(item.title.clone()),
         )
         .child(
             div()
-                .text_size(px(16.))
-                .line_height(px(24.))
-                .text_color(theme.desktop.ink)
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
+                .text_color(theme.text_primary)
                 .child(dish),
         );
 
@@ -907,8 +947,8 @@ pub(crate) fn desktop_menu_detail(
     if !allergens.is_empty() {
         detail = detail.child(
             div()
-                .text_size(px(14.))
-                .line_height(px(20.))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
                 .child(format!("Allergene: {allergens}")),
         );
@@ -916,14 +956,14 @@ pub(crate) fn desktop_menu_detail(
 
     detail = detail.child(
         div()
-            .text_size(px(16.))
-            .line_height(px(24.))
+            .text_size(px(theme.scale.body))
+            .line_height(px(theme.scale.body_line))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(theme.desktop.ink)
+            .text_color(theme.text_primary)
             .child(item.price.clone()),
     );
     if let Some((label, ink, fill)) = desktop_menu_status(&state, theme) {
-        detail = detail.child(desktop_status_pill(label, ink, fill));
+        detail = detail.child(desktop_status_pill(label, ink, fill, theme));
     }
     if let Some((label, kind)) = desktop_menu_action(&state) {
         let control = if blocked {
@@ -944,17 +984,17 @@ pub(crate) fn desktop_menu_detail(
     detail.into_any_element()
 }
 
-fn desktop_status_pill(label: &'static str, ink: Hsla, fill: Hsla) -> AnyElement {
+fn desktop_status_pill(label: &'static str, ink: Hsla, fill: Hsla, theme: &AppTheme) -> AnyElement {
     div()
         .flex()
         .child(
             div()
-                .px(px(8.))
-                .py(px(2.))
-                .rounded(px(4.))
+                .px(px(theme.scale.space_2))
+                .py(px(theme.scale.space_1))
+                .rounded(px(theme.scale.radius_chip))
                 .bg(fill)
-                .text_size(px(12.))
-                .line_height(px(16.))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(ink)
                 .child(label),
@@ -1000,29 +1040,28 @@ pub(crate) fn desktop_submit_action(
     theme: &AppTheme,
     on_click: ClickHandler,
 ) -> AnyElement {
-    let action = theme.desktop.action;
     let button = div()
-        .min_h(px(TARGET_MIN))
+        .min_h(px(tokens::ACTION_HEIGHT))
         .min_w_0()
-        .px(px(16.))
-        .py(px(8.))
-        .rounded(px(8.))
-        .bg(action.fill)
+        .px(px(theme.scale.space_4))
+        .py(px(theme.scale.space_2))
+        .rounded(px(theme.scale.radius_chip))
+        .bg(theme.accent)
         .flex()
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .hover(move |s| s.bg(action.hover))
+        .hover(move |s| s.bg(theme.pressed(theme.accent)))
         .child(
             div()
-                .text_size(px(14.))
-                .line_height(px(20.))
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(action.ink)
+                .text_color(theme.on_accent)
                 .text_center()
                 .child(label),
         );
-    theme::focus_frame(button, ControlState::Rest, 8., theme)
+    theme::focus_frame(button, ControlState::Rest, theme.scale.radius_chip, theme)
         .id("desktop-menus-submit")
         .tab_index(0)
         .on_click(move |_, window, cx| on_click(window, cx))

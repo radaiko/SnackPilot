@@ -30,9 +30,7 @@ use crate::components::dialog::{
 };
 use crate::components::loading_overlay::{desktop_loading_overlay, loading_overlay};
 use crate::components::record_table::RecordListFocus;
-use crate::components::tab_bar::{
-    reserved_height, tab_bar, TabSelect, BAR_HEIGHT, IOS_PILL_HEIGHT,
-};
+use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect, BAR_HEIGHT};
 use crate::components::toast::{
     desktop_toast, toast_overlay_for, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION,
 };
@@ -372,8 +370,8 @@ fn safe_area() -> (f32, f32, f32, f32) {
 /// 16 below safe top, 16 above screen controls).
 pub(crate) const HEADING_TOP: f32 = 16.;
 pub(crate) const HEADING_GAP: f32 = 16.;
-/// Scroll-end breathing room below the measured obstruction.
-pub(crate) const SCROLL_END_GAP: f32 = 16.;
+/// Scroll-end breathing room between the content and the navigation.
+pub(crate) const SCROLL_END_GAP: f32 = 8.;
 
 /// The compact shell's heading: the active tab's German title in the headline
 /// role, supplied by the shell instead of every screen. A pushed settings
@@ -384,35 +382,19 @@ pub(crate) fn shell_heading(tab: Tab, pushed: bool) -> Option<&'static str> {
 }
 
 /// The measured bottom obstruction a scrolled compact surface must clear
-/// (REQ-UI-15/REQ-UI-16): the navigation height only when it is painted over the
-/// content (the iOS floating pill), plus the dock's measured height when a dock
-/// is present, plus the 16 px scroll-end gap. A bar in normal flow already owns
-/// its height, so it is never counted twice, and no blind 100 px padding is
-/// added anywhere in the shell.
-pub(crate) fn obstruction_reservation(
-    flat: bool,
-    safe_bottom: f32,
-    in_flow_navigation: bool,
-    dock_height: f32,
-) -> f32 {
-    let navigation = if in_flow_navigation {
-        0.
-    } else {
-        reserved_height(flat, safe_bottom)
-    };
-    navigation + dock_height.max(0.) + SCROLL_END_GAP
+/// (REQ-UI-15/REQ-UI-16): the navigation height, plus the Menüs dock's measured
+/// height when present, plus the 8 px scroll-end gap. No blind 100 px padding
+/// and no second screen-owned inset are added anywhere in the shell.
+pub(crate) fn obstruction_reservation(safe_bottom: f32, dock_height: f32) -> f32 {
+    reserved_height(safe_bottom) + dock_height.max(0.) + SCROLL_END_GAP
 }
 
 /// The top edge of the platform navigation above the window bottom: the
 /// in-flow bar's own height plus its safe-area strip on Android, the floating
 /// iOS pill's bottom inset plus its 56 px height. A compact surface's dock sits
 /// [`crate::components::fab::DOCK_GAP`] above this line.
-pub(crate) fn navigation_top(flat: bool, safe_bottom: f32) -> f32 {
-    if flat {
-        BAR_HEIGHT + safe_bottom
-    } else {
-        safe_bottom.max(8.) + IOS_PILL_HEIGHT
-    }
+pub(crate) fn navigation_top(safe_bottom: f32) -> f32 {
+    BAR_HEIGHT + safe_bottom
 }
 
 /// A compact Menüs cached refresh keeps its cards, checks and day
@@ -427,34 +409,11 @@ pub(crate) fn cached_menu_refresh(
         && snapshot.is_some_and(|snapshot| snapshot.refreshing && !snapshot.items.is_empty())
 }
 
-/// Legacy screens that still paint their own bottom inset (`p(16)` + `pb(100)`
-/// on the list/detail roots). Tasks 1.3–1.6 move them onto the shell; until
-/// then the shell must not stack its measured reservation on top. This is the
-/// tracked contract gap, not a second layout owner: once a screen drops its
-/// padding it also drops out of this list and the measured value applies.
-pub(crate) fn legacy_screen_owns_bottom_inset(top: Screen) -> bool {
-    matches!(top, Screen::Settings | Screen::SettingsDetail)
-}
-
-/// The inset a legacy screen already paints (`.pb(px(100.))`). The shell tops
-/// it up only when the measured clearance is larger, so the two never sum.
-pub(crate) const LEGACY_SCREEN_BOTTOM_INSET: f32 = 100.;
-
-/// The compact column's one bottom inset. A legacy screen already paints its own
-/// `pb(100)`, so the shell contributes only the shortfall up to the measured
-/// target; a migrated screen gets the plan's measured reservation. That value is
-/// already the content's own clearance on both navigation dialects: an in-flow
-/// bar's height is excluded from it (the content box ends above the bar), while
-/// the shell's dock is painted *over* the content, 8 px above that bar,
-/// so a migrated screen needs the dock's height in flow too (task 1.3 review:
-/// only the 16 px scroll-end gap was left, so the dock covered the last card on
-/// the Android dialect).
-pub(crate) fn compact_content_bottom(plan: &CompactShellPlan, screen_owns_inset: bool) -> f32 {
-    if screen_owns_inset {
-        (plan.reservation - LEGACY_SCREEN_BOTTOM_INSET).max(0.)
-    } else {
-        plan.reservation
-    }
+/// The compact column's one bottom inset: the navigation height plus the 8 px
+/// scroll-end gap, plus the dock's measured band when the Menüs dock is
+/// present. No screen paints a second bottom inset of its own.
+pub(crate) fn compact_content_bottom(plan: &CompactShellPlan) -> f32 {
+    plan.reservation
 }
 
 /// The compact frame `render` paints: the one measured safe-area top, outside
@@ -507,7 +466,6 @@ pub(crate) fn compact_shell_plan(
     tab: Tab,
     top: Screen,
     form: bool,
-    flat: bool,
     safe_top: f32,
     safe_bottom: f32,
     dock_height: f32,
@@ -523,20 +481,15 @@ pub(crate) fn compact_shell_plan(
         content_width: geometry
             .map(|g| if form { g.form } else { g.content })
             .unwrap_or(width),
-        reservation: obstruction_reservation(
-            flat,
-            safe_bottom,
-            /* in_flow_navigation: */ flat,
-            dock_height,
-        ),
+        reservation: obstruction_reservation(safe_bottom, dock_height),
         bar_visible: true,
         active: tab,
         safe_top,
     }
 }
 
-/// The compact shell heading row: headline role (24/32 Bold), on the pinned
-/// primary ink, wrapping rather than ellipsizing.
+/// The compact shell heading row: title role (28/34 semibold), 16 px
+/// gutters, wrapping rather than ellipsizing.
 fn shell_heading_row(title: &'static str, theme: &AppTheme) -> Div {
     div()
         .w_full()
@@ -544,9 +497,9 @@ fn shell_heading_row(title: &'static str, theme: &AppTheme) -> Div {
         .pb(px(HEADING_GAP))
         .child(
             div()
-                .text_size(px(theme.mobile.headline))
-                .line_height(px(theme.mobile.headline_line))
-                .font_weight(FontWeight::BOLD)
+                .text_size(px(theme.scale.title))
+                .line_height(px(theme.scale.title_line))
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text_primary)
                 .child(title),
         )
@@ -618,7 +571,6 @@ pub struct AppShell {
     /// neighbouring segment without wrapping (REQ-UI-11).
     pub(crate) segment_group: FocusHandle,
     pub(crate) appearance_design: FocusHandle,
-    pub(crate) appearance_accent: FocusHandle,
 }
 
 impl AppShell {
@@ -718,7 +670,6 @@ impl AppShell {
             settings_master: cx.focus_handle(),
             segment_group: cx.focus_handle(),
             appearance_design: cx.focus_handle(),
-            appearance_accent: cx.focus_handle(),
             menu_list: RecordListFocus::new(cx.focus_handle(), cx.focus_handle()),
             order_list: RecordListFocus::new(cx.focus_handle(), cx.focus_handle()),
             receipt_list: RecordListFocus::new(cx.focus_handle(), cx.focus_handle()),
@@ -788,7 +739,6 @@ impl AppShell {
     /// Show the §4.8 new-menu toast; the phase state machine
     /// (In → Hold → Out → gone) runs on chained background timers.
     /// The menus task wires the trigger once new-menu detection lands.
-    #[allow(dead_code)]
     pub fn show_toast(&mut self, cx: &mut Context<Self>) {
         self.toast = Some(Toast {
             message: crate::components::toast::NEW_MENU_MESSAGE.into(),
@@ -1252,14 +1202,16 @@ impl AppShell {
             .gap(px(8.))
             .child(
                 div()
-                    .text_size(px(28.))
-                    .font_weight(FontWeight::BOLD)
+                    .text_size(px(theme.scale.title))
+                    .line_height(px(theme.scale.title_line))
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.text_primary)
                     .child(title.to_string()),
             )
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .text_color(theme.text_secondary)
                     .child(hint),
             )
@@ -1275,7 +1227,6 @@ impl AppShell {
         state: &State,
         theme: &AppTheme,
         layout: LayoutMode,
-        viewport_width: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // Desktop containment (REQ-SCR-04): the model owns the projection, so
@@ -1296,7 +1247,6 @@ impl AppShell {
                 &self.settings_rows,
                 &self.settings_master,
                 &self.appearance_design,
-                &self.appearance_accent,
                 theme,
                 cx,
             );
@@ -1329,7 +1279,6 @@ impl AppShell {
                     theme,
                     None,
                     &self.appearance_design,
-                    &self.appearance_accent,
                     cx,
                 ),
                 (Detail::Notifications, _, _) => {
@@ -1392,14 +1341,7 @@ impl AppShell {
                 },
                 Screen::Orders => {
                     if layout == LayoutMode::Phone {
-                        orders_tab(
-                            state,
-                            self.model.as_ref(),
-                            state.orders_past,
-                            viewport_width,
-                            theme,
-                            cx,
-                        )
+                        orders_tab(state, self.model.as_ref(), state.orders_past, theme, cx)
                     } else {
                         desktop_orders_tab(
                             state,
@@ -1469,7 +1411,7 @@ impl Render for AppShell {
             window.appearance(),
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         );
-        let theme = AppTheme::resolve(state.theme, state.accent, os_dark);
+        let theme = AppTheme::resolve(state.theme, os_dark);
         let (safe_top, safe_bottom, _, _) = safe_area();
         // Host-gated layout (task 1.2, REQ-UI-07): only a Desktop host past
         // the 720 px breakpoint leaves the phone shell, so iOS and Android
@@ -1519,7 +1461,7 @@ impl Render for AppShell {
         // The compact screens measure their own column from the same live
         // viewport the shell centres; the wide Ledger never reads it.
         let viewport_width = f32::from(window.viewport_size().width);
-        let screen_content = self.screen(&nav, &state, &theme, layout, viewport_width, cx);
+        let screen_content = self.screen(&nav, &state, &theme, layout, cx);
         // Compact Day Tray shell plan (REQ-UI-03/04/15/16): one heading, one
         // centred column of min(viewport − 32, 560), the safe-area top applied
         // exactly once outside the column and a measured obstruction below the
@@ -1555,7 +1497,6 @@ impl Render for AppShell {
             nav.active_tab(),
             nav.top(),
             credential_form,
-            theme.flat,
             safe_top,
             safe_bottom,
             menu_dock_height,
@@ -1620,9 +1561,9 @@ impl Render for AppShell {
             });
         }
         if layout != LayoutMode::Phone {
-            // SnackPilot Desktop Ledger shell: the navigation rail, then the
-            // centred workspace panel. Every width comes from the model's
-            // geometry, so no screen derives a tile itself.
+            // Desktop shell: a 240 px rail on `BG`, then the workspace on
+            // `SURFACE`. Every width comes from the model's geometry, so no
+            // screen derives a tile itself.
             let geometry = self
                 .model
                 .as_ref()
@@ -1632,7 +1573,7 @@ impl Render for AppShell {
                 });
             let tab = nav.active_tab();
             // Menüs/Bestellungen/Abrechnung carry the refresh action;
-            // Einstellungen has none (brief "Workspace header").
+            // Einstellungen has none.
             let on_refresh: Option<ClickHandler> = match (refresh_intent(tab), self.model.as_ref())
             {
                 (Some(intent), Some(model)) => {
@@ -1644,45 +1585,42 @@ impl Render for AppShell {
                 }
                 _ => None,
             };
-            let panel = theme::apply(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w(px(geometry.workspace_width))
-                    .h_full()
-                    .overflow_hidden(),
-                &theme.workspace_panel(),
-            )
-            .child(
-                div()
-                    .tab_index(0)
-                    .track_focus(&self.heading_focus)
-                    .focus(theme::desktop_focus(theme.desktop.focus))
-                    .child(workspace_header(tab.title(), on_refresh, &theme)),
-            )
-            .child(
-                banner
-                    .map(|banner| {
-                        div()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            .overflow_hidden()
-                            .pt(px(plan.safe_top))
-                            .child(banner)
-                    })
-                    .unwrap_or_else(|| {
-                        div()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            .overflow_hidden()
-                            .pt(px(plan.safe_top))
-                    })
-                    .child(screen_content),
-            );
+            let content = div()
+                .w(px(geometry.workspace_width))
+                .h_full()
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .child(
+                    div()
+                        .tab_index(0)
+                        .track_focus(&self.heading_focus)
+                        .focus(theme::desktop_focus(theme.accent))
+                        .child(workspace_header(tab.title(), on_refresh, &theme)),
+                )
+                .child(
+                    banner
+                        .map(|banner| {
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .overflow_hidden()
+                                .pt(px(plan.safe_top))
+                                .child(banner)
+                        })
+                        .unwrap_or_else(|| {
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .overflow_hidden()
+                                .pt(px(plan.safe_top))
+                        })
+                        .child(screen_content),
+                );
             // The desktop toast paints over the workspace only, never the
-            // rail (brief "Overlays"), so it lives inside the main region.
+            // rail, so it lives inside the main region.
             let mut main_region = div()
                 .flex_1()
                 .min_w_0()
@@ -1690,7 +1628,8 @@ impl Render for AppShell {
                 .flex()
                 .relative()
                 .justify_center()
-                .child(panel);
+                .bg(theme.surface)
+                .child(content);
             if let Some(toast) = &self.toast {
                 main_region = main_region.child(desktop_toast(toast, safe_top + 8., &theme));
             }
@@ -1720,7 +1659,7 @@ impl Render for AppShell {
             if let Some(banner) = banner {
                 column = column.child(banner);
             }
-            let bottom = compact_content_bottom(&plan, legacy_screen_owns_bottom_inset(nav.top()));
+            let bottom = compact_content_bottom(&plan);
             let content = div()
                 .w_full()
                 .flex_1()
@@ -1739,31 +1678,21 @@ impl Render for AppShell {
                     self.model.as_ref(),
                     plan.content_width,
                     menu_dock_height,
-                    navigation_top(theme.flat, safe_bottom),
+                    navigation_top(safe_bottom),
                     &theme,
                     cx,
                 )
             } else {
                 None
             };
-            if theme.flat {
-                // §2.2: in-flow bottom bar; the safe-area strip under it keeps
-                // the bar's surface colour (v1 paddingBottom insets.bottom). The
-                // bar owns its height in flow, so the plan excludes it there;
-                // the dock above it is still painted over the content, which is
-                // why the migrated screen keeps the dock's height in its inset.
-                root = root.child(content).child(
-                    div()
-                        .w_full()
-                        .bg(theme.surface)
-                        .pb(px(safe_bottom))
-                        .child(bar),
-                );
-            } else {
-                // §2.1: floating pill, painted over the content it reserves,
-                // with the measured obstruction + 16 px scroll-end gap.
-                root = root.child(content).child(bar);
-            }
+            // One bottom bar in flow, with the safe-area strip below it.
+            root = root.child(content).child(
+                div()
+                    .w_full()
+                    .bg(theme.surface)
+                    .pb(px(safe_bottom))
+                    .child(bar),
+            );
         }
 
         // Overlays stack by paint order (gpui has no z-index): loading, then
@@ -1831,14 +1760,14 @@ mod tests {
     use super::{
         cached_menu_refresh, compact_content_bottom, compact_frame, compact_shell_plan,
         desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
-        focus_restore, keyboard_action, legacy_screen_owns_bottom_inset, menu_row_action,
-        model_settings_detail, navigation_top, nearest_restore_cursor, obstruction_reservation,
-        order_cancel_state, order_row_effect, refresh_intent, safe_area, shell_heading,
-        should_create_inputs, Detail, FocusRestore, MenuRowAction, MutationGate, OrderCancelState,
-        OrderRowEffect, RefreshIntent, HEADING_GAP, HEADING_TOP, LEGACY_SCREEN_BOTTOM_INSET,
-        SCROLL_END_GAP,
+        focus_restore, keyboard_action, menu_row_action, model_settings_detail, navigation_top,
+        nearest_restore_cursor, obstruction_reservation, order_cancel_state, order_row_effect,
+        refresh_intent, safe_area, shell_heading, should_create_inputs, Detail, FocusRestore,
+        MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, HEADING_GAP,
+        HEADING_TOP, SCROLL_END_GAP,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
+    use crate::components::tab_bar::reserved_height;
     use snackpilot_model::desktop::HostKind;
     use snackpilot_model::desktop::LayoutMode;
     use snackpilot_model::navigation::{ListKind, Screen, SettingsDetail, Tab};
@@ -1942,7 +1871,6 @@ mod tests {
                 Tab::Menus,
                 Screen::Menus,
                 false,
-                false,
                 0.,
                 0.,
                 0.,
@@ -1952,12 +1880,13 @@ mod tests {
             assert_eq!(plan.safe_top, 0., "only the measured inset is applied");
             assert!(plan.bar_visible, "the platform bar stays visible");
             assert_eq!(plan.active, Tab::Menus);
-            // The pill is painted over the content, so its height is reserved
-            // once, plus the 16 px scroll-end gap.
+            // One measured inset: the navigation height plus the 8 px
+            // scroll-end gap, never a blind 100 px padding.
             assert_eq!(
-                compact_content_bottom(&plan, false),
-                reserved_height(false, 0.) + SCROLL_END_GAP
+                compact_content_bottom(&plan),
+                reserved_height(0.) + SCROLL_END_GAP
             );
+            assert_eq!(SCROLL_END_GAP, 8.);
             assert_ne!(plan.reservation, 100., "no blind 100 px padding");
         }
 
@@ -1968,7 +1897,6 @@ mod tests {
             390.,
             Tab::Settings,
             Screen::SettingsDetail,
-            false,
             false,
             0.,
             0.,
@@ -1995,7 +1923,6 @@ mod tests {
                 Tab::Settings,
                 Screen::SettingsDetail,
                 true,
-                false,
                 0.,
                 0.,
                 0.,
@@ -2005,26 +1932,15 @@ mod tests {
             assert!(form.content_width <= 440., "never wider than the form cap");
         }
 
-        // Reservation arithmetic: an in-flow bar already owns its height, so it
-        // is not counted a second time; a dock adds exactly its measured height.
+        // Reservation arithmetic: the navigation height plus the dock.
         assert_eq!(
-            obstruction_reservation(true, 34., true, 0.),
-            SCROLL_END_GAP,
-            "the flat bar is in flow: no duplicate navigation padding"
+            obstruction_reservation(34., 0.),
+            reserved_height(34.) + SCROLL_END_GAP
         );
         assert_eq!(
-            obstruction_reservation(false, 34., false, 0.),
-            reserved_height(false, 34.) + SCROLL_END_GAP
-        );
-        assert_eq!(
-            obstruction_reservation(false, 34., false, 56.),
-            reserved_height(false, 34.) + 56. + SCROLL_END_GAP,
+            obstruction_reservation(34., 56.),
+            reserved_height(34.) + 56. + SCROLL_END_GAP,
             "the dock adds its measured height"
-        );
-        assert_eq!(
-            obstruction_reservation(true, 34., true, 56.),
-            56. + SCROLL_END_GAP,
-            "an in-flow bar never contributes its own height twice"
         );
     }
 
@@ -2058,7 +1974,6 @@ mod tests {
                 Tab::Menus,
                 Screen::Menus,
                 false,
-                false,
                 top,
                 bottom,
                 0.,
@@ -2082,7 +1997,6 @@ mod tests {
             Tab::Menus,
             Screen::Menus,
             false,
-            false,
             0.,
             0.,
             0.,
@@ -2096,7 +2010,6 @@ mod tests {
             Tab::Settings,
             Screen::SettingsDetail,
             false,
-            false,
             62.,
             34.,
             0.,
@@ -2104,17 +2017,12 @@ mod tests {
         assert_eq!(compact_frame(&pushed).heading, None);
     }
 
-    /// The compact column owns one bottom inset (REQ-UI-03/15). The Menüs,
-    /// Bestellungen and Abrechnung screens migrated in tasks 1.3/1.4/1.5, so the
-    /// shell supplies exactly the measured reservation there — the Bestellungen
-    /// selection strip sits inside that measured content box, above navigation —
-    /// while the screens still on the legacy inset get only the shortfall
-    /// topped up. The
-    /// real column arithmetic is what `render` uses, and the test fails if the
-    /// two insets ever sum.
+    /// The compact column owns one bottom inset (REQ-UI-03/15): the navigation
+    /// height plus the 8 px scroll-end gap, once, and no screen adds a second
+    /// inset of its own. With no dock the reservation has no dock term.
     /// @req REQ-UI-03 @req REQ-UI-15
     #[test]
-    fn compact_shell_does_not_stack_a_screen_bottom_inset() {
+    fn compact_shell_owns_the_only_bottom_inset() {
         use snackpilot_model::desktop::HostKind;
         use snackpilot_model::navigation::{Screen, Tab};
 
@@ -2126,39 +2034,40 @@ mod tests {
                 Tab::Menus,
                 Screen::Menus,
                 false,
-                false,
                 0.,
                 0.,
                 0.,
             );
-            // The migrated screens own no inset of their own any more: the
-            // measured reservation alone clears the navigation.
-            for top in [Screen::Menus, Screen::Orders, Screen::Billing] {
-                assert!(
-                    !legacy_screen_owns_bottom_inset(top),
-                    "{top:?} dropped its legacy 16/100 px padding"
+            assert_eq!(
+                compact_content_bottom(&plan),
+                reserved_height(0.) + SCROLL_END_GAP,
+                "navigation height plus 8 px at {width}"
+            );
+            assert_ne!(plan.reservation, 100., "no blind 100 px padding");
+            for top in [
+                Screen::Menus,
+                Screen::Orders,
+                Screen::Billing,
+                Screen::Settings,
+                Screen::SettingsDetail,
+            ] {
+                let plan = compact_shell_plan(
+                    HostKind::Phone,
+                    width,
+                    width,
+                    Tab::Menus,
+                    top,
+                    false,
+                    0.,
+                    0.,
+                    0.,
                 );
-                assert_eq!(compact_content_bottom(&plan, false), plan.reservation);
-            }
-            // The screens still to migrate own their inset; the shell only tops
-            // up any shortfall.
-            for top in [Screen::Settings, Screen::SettingsDetail] {
-                assert!(legacy_screen_owns_bottom_inset(top), "{top:?}");
                 assert_eq!(
-                    compact_content_bottom(&plan, true),
-                    (plan.reservation - LEGACY_SCREEN_BOTTOM_INSET).max(0.)
+                    compact_content_bottom(&plan),
+                    plan.reservation,
+                    "{top:?} gets exactly the shell's one inset"
                 );
             }
-
-            // The effective scroll-end clearance is one copy — the legacy inset
-            // topped up to the measured target — never the sum of both.
-            let total = LEGACY_SCREEN_BOTTOM_INSET + compact_content_bottom(&plan, true);
-            assert_eq!(total, plan.reservation.max(LEGACY_SCREEN_BOTTOM_INSET));
-            assert!(
-                total >= plan.reservation,
-                "the last content still clears the measured pill"
-            );
-            assert_ne!(total, LEGACY_SCREEN_BOTTOM_INSET + plan.reservation);
         }
     }
 
@@ -2205,8 +2114,7 @@ mod tests {
     fn mobile_pending_dock_reserves_the_band_it_paints() {
         let (model, _fake) = claim_demo_model("dock-measure");
         let mut state = model.state();
-        let theme =
-            crate::theme::AppTheme::build(false, snackpilot_model::AccentColor::Orange, false);
+        let theme = crate::theme::AppTheme::build(false);
 
         // Queue the first orderable dish: the dock is exactly the model label.
         let item = state
@@ -2229,13 +2137,10 @@ mod tests {
         // dock paints for its own short label.
         assert_eq!(dock_height_for_lines(1, &theme), 48.);
 
-        // Both dialects keep the dock's bottom edge 8 px above the navigation's
-        // top edge: the pill's height plus its inset, the bar plus its strip.
+        // The dock's bottom edge sits 8 px above the navigation's top edge.
         for safe_bottom in [0., 34.] {
-            for flat in [false, true] {
-                let nav = navigation_top(flat, safe_bottom);
-                assert_eq!(dock_bottom(nav), nav + DOCK_GAP);
-            }
+            let nav = navigation_top(safe_bottom);
+            assert_eq!(dock_bottom(nav), nav + DOCK_GAP);
         }
 
         // The reservation clears the dock for every line count it can measure
@@ -2244,8 +2149,8 @@ mod tests {
         // height — or leaving only the 16 px scroll-end gap for a bar in flow,
         // which is what the review caught on the Android dialect — fails here.
         for safe_bottom in [0., 34.] {
-            for flat in [false, true] {
-                let nav = navigation_top(flat, safe_bottom);
+            {
+                let nav = navigation_top(safe_bottom);
                 for lines in 1..=3 {
                     let painted = dock_height_for_lines(lines, &theme);
                     let plan = compact_shell_plan(
@@ -2255,7 +2160,6 @@ mod tests {
                         Tab::Menus,
                         Screen::Menus,
                         false,
-                        flat,
                         0.,
                         safe_bottom,
                         painted,
@@ -2263,17 +2167,16 @@ mod tests {
                     // Where the content box ends above the window bottom: the
                     // window itself under a floating pill, the bar's own top
                     // edge when the bar is in flow.
-                    let content_end = if flat { nav } else { 0. };
-                    let content_inner_bottom = content_end + compact_content_bottom(&plan, false);
+                    let content_inner_bottom = compact_content_bottom(&plan);
                     let dock_top = dock_bottom(nav) + painted;
                     assert_eq!(
                         content_inner_bottom - dock_top,
                         SCROLL_END_GAP - DOCK_GAP,
-                        "{lines} measured lines, flat={flat}: the last card ends 8 px above the dock"
+                        "{lines} measured lines, the content ends at the dock band"
                     );
                     assert!(
-                        content_inner_bottom > dock_top,
-                        "{lines} measured lines, flat={flat}: nothing is clipped by the dock"
+                        content_inner_bottom >= dock_top,
+                        "{lines} measured lines, nothing is clipped by the dock"
                     );
                 }
             }

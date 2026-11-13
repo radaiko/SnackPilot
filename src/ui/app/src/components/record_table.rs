@@ -1,12 +1,9 @@
-//! Desktop record table (desktop-ui-redesign brief "Record table"): the
-//! read-only list rows of the workspace master pane. Header 36 px on
-//! `background`, rows on `surface` at 56 px minimum with a 1 px bottom
-//! border, no zebra and no shadows; hover `surface_variant`; the selected
-//! row takes a `primary_surface` tint and a 3 px inset accent rule in the
-//! resolved `accent_boundary` ink (3:1 on that tint, like the card edge and
-//! chip border) that never changes the row width (the rule is always there,
-//! transparent when unselected). Cells are read-only: no pointer cursor, and
-//! the row is the single interaction target.
+//! Desktop record table: the read-only list rows of the workspace master
+//! pane. Header 36 px on `BG` with `META` semibold `TEXT_SECONDARY`; rows are
+//! `ROW_HEIGHT` (40 px) on `SURFACE` with a hairline `BORDER` bottom; hover is
+//! a 4 % `TEXT` mix; the selected row is `ACCENT_SURFACE` with accent ink and
+//! a reserved 3 px accent rule that never changes the row width. Cells are
+//! read-only: no pointer cursor, and the row is the single interaction target.
 //! @req REQ-UI-07 @req REQ-UI-12
 
 use std::cell::RefCell;
@@ -15,19 +12,15 @@ use std::rc::Rc;
 
 use gpui::*;
 
+use snackpilot_model::desktop::ROW_HEIGHT;
+use snackpilot_model::tokens;
+
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 
-/// Header row height (brief: 36 px).
+/// Header row height.
 const HEADER_HEIGHT: f32 = 36.;
-/// Row minimum height: the 44 px target floor rounded up to the brief's
-/// 56 px list row.
-const ROW_HEIGHT: f32 = 56.;
-/// Horizontal cell padding (brief: 12 px).
-const CELL_PAD: f32 = 12.;
-/// Gap between cells (brief: 12 px).
-const CELL_GAP: f32 = 12.;
-/// Selected-row inset accent rule (brief: 3 px).
+/// Selected-row inset accent rule.
 const SELECT_RULE: f32 = 3.;
 /// Batch-check hit column (brief `desktop.batchCheckColumn`: 44 px).
 pub const CHECK_COLUMN: f32 = 44.;
@@ -36,18 +29,19 @@ const CHECK_BOX: f32 = 20.;
 
 /// The column header row: 36 px, `background` fill, 12 px/600 labels.
 pub fn record_header(columns: Vec<&'static str>, theme: &AppTheme) -> AnyElement {
+    let m = &theme.scale;
     div()
         .h(px(HEADER_HEIGHT))
         .flex_shrink_0()
         .flex()
         .items_center()
-        .px(px(CELL_PAD))
-        .gap(px(CELL_GAP))
+        .px(px(m.space_3))
+        .gap(px(m.space_3))
         .bg(theme.background)
         .children(columns.into_iter().map(|label| {
             div()
-                .text_size(px(12.))
-                .line_height(px(16.))
+                .text_size(px(m.meta))
+                .line_height(px(m.meta_line))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text_secondary)
                 .whitespace_nowrap()
@@ -280,7 +274,7 @@ pub fn record_row_focusable(
             .on_click(move |_, window, cx| on_click(window, cx)),
         None => record_row_body(id, cells, selected, theme),
     }
-    .focus(theme::desktop_focus(theme.desktop.focus));
+    .focus(theme::desktop_focus(theme.accent));
     row = match focus {
         Some(focus) => row
             .track_focus(&focus.handle)
@@ -318,18 +312,29 @@ fn record_row_body(
         .border_b_1()
         .border_color(theme.border)
         .bg(if selected {
-            theme.primary_surface
+            theme.accent_surface
         } else {
             theme.surface
         })
-        .hover(|s| s.bg(theme.surface_variant))
+        .text_color(if selected {
+            theme.accent
+        } else {
+            theme.text_primary
+        })
+        .hover(move |s| {
+            s.bg(if selected {
+                theme.accent_surface
+            } else {
+                theme.hover(theme.surface)
+            })
+        })
         .child(
             div()
                 .w(px(SELECT_RULE))
                 .self_stretch()
                 .flex_shrink_0()
                 .bg(if selected {
-                    theme.desktop.accent_boundary
+                    theme.accent
                 } else {
                     hsla(0., 0., 0., 0.)
                 }),
@@ -341,8 +346,8 @@ fn record_row_body(
                 .min_h(px(ROW_HEIGHT))
                 .flex()
                 .items_center()
-                .px(px(CELL_PAD))
-                .gap(px(CELL_GAP))
+                .px(px(theme.scale.space_3))
+                .gap(px(theme.scale.space_3))
                 .children(cells),
         )
 }
@@ -350,9 +355,37 @@ fn record_row_body(
 /// A read-only record cell: text at the body size, no cursor, truncates.
 pub fn record_cell(text: impl Into<SharedString>, theme: &AppTheme) -> AnyElement {
     div()
-        .text_size(px(14.))
-        .line_height(px(20.))
-        .text_color(theme.text_primary)
+        .text_size(px(theme.scale.meta))
+        .line_height(px(theme.scale.meta_line))
+        .text_ellipsis()
+        .whitespace_nowrap()
+        .child(text.into())
+        .into_any_element()
+}
+
+/// A read-only `BODY` cell for the row's primary value.
+pub fn record_cell_body(text: impl Into<SharedString>, theme: &AppTheme) -> AnyElement {
+    div()
+        .text_size(px(theme.scale.body))
+        .line_height(px(theme.scale.body_line))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_ellipsis()
+        .whitespace_nowrap()
+        .child(text.into())
+        .into_any_element()
+}
+
+/// A read-only status cell in `META`; the caller passes the semantic ink.
+pub fn record_status_cell(
+    text: impl Into<SharedString>,
+    ink: Hsla,
+    theme: &AppTheme,
+) -> AnyElement {
+    div()
+        .text_size(px(theme.scale.meta))
+        .line_height(px(theme.scale.meta_line))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(ink)
         .text_ellipsis()
         .whitespace_nowrap()
         .child(text.into())
@@ -369,9 +402,9 @@ pub fn record_header_cells(cells: Vec<AnyElement>, theme: &AppTheme) -> AnyEleme
         .items_center()
         // The inset accent rule of a body row is always present, so the
         // header keeps the same leading offset to stay column-aligned.
-        .pl(px(CELL_PAD + SELECT_RULE))
-        .pr(px(CELL_PAD))
-        .gap(px(CELL_GAP))
+        .pl(px(theme.scale.space_3 + SELECT_RULE))
+        .pr(px(theme.scale.space_3))
+        .gap(px(theme.scale.space_3))
         .bg(theme.background)
         .children(cells)
         .into_any_element()
@@ -379,8 +412,8 @@ pub fn record_header_cells(cells: Vec<AnyElement>, theme: &AppTheme) -> AnyEleme
 
 fn record_header_label(text: impl Into<SharedString>, theme: &AppTheme) -> AnyElement {
     div()
-        .text_size(px(12.))
-        .line_height(px(16.))
+        .text_size(px(theme.scale.meta))
+        .line_height(px(theme.scale.meta_line))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme.text_secondary)
         .whitespace_nowrap()
@@ -447,22 +480,39 @@ pub fn record_cell_flex(text: impl Into<SharedString>, theme: &AppTheme) -> AnyE
         .into_any_element()
 }
 
-/// A fixed-width, end-aligned, tabular body cell (amount columns).
+/// A fixed-width, end-aligned, tabular `META` cell (amount columns).
 pub fn record_cell_right(
     text: impl Into<SharedString>,
     width: f32,
     theme: &AppTheme,
 ) -> AnyElement {
+    record_cell_right_inner(width, theme)
+        .child(record_cell(text, theme))
+        .into_any_element()
+}
+
+/// A fixed-width, end-aligned, tabular `BODY` cell for a primary amount.
+pub fn record_cell_right_body(
+    text: impl Into<SharedString>,
+    width: f32,
+    theme: &AppTheme,
+) -> AnyElement {
+    record_cell_right_inner(width, theme)
+        .child(record_cell_body(text, theme))
+        .into_any_element()
+}
+
+fn record_cell_right_inner(width: f32, theme: &AppTheme) -> Div {
     div()
         .w(px(width))
         .flex_shrink_0()
         .text_right()
+        .text_size(px(theme.scale.meta))
+        .line_height(px(theme.scale.meta_line))
         .font_features(FontFeatures(std::sync::Arc::new(vec![(
             "tnum".to_string(),
             1,
         )])))
-        .child(record_cell(text, theme))
-        .into_any_element()
 }
 
 /// An empty header cell occupying the batch-check column, so the header and
@@ -480,7 +530,6 @@ pub fn record_check_cell(
     on_toggle: ClickHandler,
     theme: &AppTheme,
 ) -> AnyElement {
-    let action = theme.desktop.action;
     div()
         .id(id)
         .w(px(CHECK_COLUMN))
@@ -490,7 +539,7 @@ pub fn record_check_cell(
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .hover(|s| s.bg(theme.surface_variant))
+        .hover(move |s| s.bg(theme.hover(theme.surface)))
         .on_click(move |_, window, cx| {
             on_toggle(window, cx);
             cx.stop_propagation();
@@ -499,16 +548,17 @@ pub fn record_check_cell(
             div()
                 .w(px(CHECK_BOX))
                 .h(px(CHECK_BOX))
-                .rounded(px(4.))
+                .rounded(px(tokens::RADIUS_CHIP))
                 .border_1()
-                .border_color(if checked { theme.primary } else { theme.border })
-                .bg(if checked { action.fill } else { theme.surface })
+                .border_color(if checked { theme.accent } else { theme.border })
+                .bg(if checked { theme.accent } else { theme.surface })
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(14.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(action.ink)
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.on_accent)
                 .child(if checked { "✓" } else { "" }),
         )
         .into_any_element()
@@ -530,6 +580,25 @@ mod tests {
         detail_entry, retain_rendered, roving_index, row_space_toggles, table_date, DetailEntry,
     };
     use std::collections::HashMap;
+
+    /// The desktop record table uses one 40 px row, a 4 % text hover mix and
+    /// an accent-ink selection, so the whole shell keeps the flat scale.
+    /// @req REQ-UI-12
+    #[test]
+    fn record_rows_use_the_flat_40px_row() {
+        let theme = crate::theme::AppTheme::build(false);
+        assert_eq!(super::ROW_HEIGHT, 40.);
+        assert_eq!(theme.scale.body, 17.);
+        assert_eq!(theme.scale.meta, 13.);
+        let rest: gpui::Rgba = theme.surface.into();
+        let hover: gpui::Rgba = theme.hover(theme.surface).into();
+        let pressed: gpui::Rgba = theme.pressed(theme.surface).into();
+        assert!((hover.r - rest.r).abs() > 0.0, "hover mixes text ink");
+        assert!(
+            (hover.r - rest.r).abs() < (pressed.r - rest.r).abs(),
+            "hover is the lighter 4 % mix"
+        );
+    }
 
     // 2026-11-10 12:00 Europe/Vienna.
     /// @req REQ-SCR-03

@@ -7,6 +7,7 @@
 use std::rc::Rc;
 
 use gpui::*;
+use gpui_kit::assets::IconName;
 
 use crate::app::{AppShell, Detail};
 use crate::components::settings_row::{settings_row, settings_row_desktop};
@@ -51,27 +52,31 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
     }
     .to_string();
 
-    let rows: Vec<(&'static str, &'static str, String, Detail)> = vec![
+    let rows: Vec<(&'static str, IconName, &'static str, String, Detail)> = vec![
         (
             "settings-gourmet",
+            IconName::Utensils,
             "Kantine-Zugangsdaten",
             gourmet_hint,
             Detail::LoginKantine,
         ),
         (
             "settings-ventopay",
+            IconName::CreditCard,
             "Automaten-Zugangsdaten",
             ventopay_hint,
             Detail::LoginAutomaten,
         ),
         (
             "settings-appearance",
+            IconName::Palette,
             "Darstellung",
             theme_hint,
             Detail::Appearance,
         ),
         (
             "settings-notifications",
+            IconName::Bell,
             "Benachrichtigungen",
             "Erinnerungen und Standort-Benachrichtigungen".to_string(),
             Detail::Notifications,
@@ -83,25 +88,40 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
         .flex_1()
         .flex()
         .flex_col()
-        .p(px(20.))
-        .pb(px(100.))
+        .gap(px(theme.scale.space_2))
         .overflow_y_scroll();
 
-    for (index, (id, title, hint, detail)) in rows.into_iter().enumerate() {
+    let section = div()
+        .mb(px(theme.scale.space_2))
+        .text_size(px(theme.scale.meta))
+        .line_height(px(theme.scale.meta_line))
+        .text_color(theme.text_secondary)
+        .child("Konto");
+    list = list.child(section);
+
+    for (index, (id, icon, title, hint, detail)) in rows.into_iter().enumerate() {
         // §3.4: Benachrichtigungen only where the platform supports them.
         if detail == Detail::Notifications
             && cfg!(not(any(target_os = "ios", target_os = "android")))
         {
             continue;
         }
-        if index > 0 {
-            list = list.child(div().h(px(1.)).my(px(24.)).bg(theme.divider()));
+        if index == 2 {
+            list = list.child(
+                div()
+                    .mt(px(theme.scale.space_4))
+                    .mb(px(theme.scale.space_2))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
+                    .text_color(theme.text_secondary)
+                    .child("App"),
+            );
         }
         let entity = cx.entity().clone();
         let handler = Rc::new(move |window: &mut Window, cx: &mut App| {
             let _ = entity.update(cx, |this, cx| this.open_detail(detail, window, cx));
         });
-        list = list.child(settings_row(id, title, Some(hint), handler, theme));
+        list = list.child(settings_row(id, icon, title, Some(hint), handler, theme));
     }
 
     let datenschutz = cx.entity().clone();
@@ -123,15 +143,19 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
         div()
             .id("datenschutz")
             .w_full()
+            .min_h(px(theme.scale.target))
             .flex()
-            .justify_center()
-            .py(px(16.))
+            .items_center()
+            .px(px(theme.scale.space_4))
+            .mt(px(theme.scale.space_2))
             .cursor_pointer()
+            .focus(theme::desktop_focus(theme.accent))
             .on_click(move |_, window, cx| on_privacy(window, cx))
             .child(
                 div()
-                    .text_size(px(14.))
-                    .text_color(theme.text_tertiary)
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
+                    .text_color(theme.text_secondary)
                     .child("Datenschutz"),
             ),
     )
@@ -152,7 +176,6 @@ pub fn desktop_settings_tab(
     rows_focus: &[gpui::FocusHandle; 4],
     master_focus: &gpui::FocusHandle,
     appearance_design: &gpui::FocusHandle,
-    appearance_accent: &gpui::FocusHandle,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -233,11 +256,11 @@ pub fn desktop_settings_tab(
         .w_full()
         .flex()
         .flex_col()
-        .p(px(8.))
-        .gap(px(4.))
+        .p(px(theme.scale.space_2))
+        .gap(px(theme.scale.space_1))
         .tab_index(0)
         .track_focus(master_focus)
-        .focus(theme::desktop_focus(theme.desktop.focus))
+        .focus(theme::desktop_focus(theme.accent))
         .on_key_down({
             let handles = handles.clone();
             move |event: &KeyDownEvent, window, cx| {
@@ -299,18 +322,19 @@ pub fn desktop_settings_tab(
     list = list.child(
         div()
             .id("datenschutz")
-            .min_h(px(44.))
-            .px(px(12.))
+            .h(px(snackpilot_model::desktop::ROW_HEIGHT))
+            .px(px(theme.scale.space_3))
             .flex()
             .items_center()
             .tab_index(0)
             .cursor_pointer()
-            .focus(theme::desktop_focus(theme.desktop.focus))
+            .hover(move |s| s.bg(theme.hover(theme.surface)))
+            .focus(theme::desktop_focus(theme.accent))
             .on_click(move |_, window, cx| privacy(window, cx))
             .child(
                 div()
-                    .text_size(px(14.))
-                    .line_height(px(20.))
+                    .text_size(px(theme.scale.body))
+                    .line_height(px(theme.scale.body_line))
                     .text_color(theme.text_secondary)
                     .child("Datenschutz"),
             ),
@@ -355,7 +379,6 @@ pub fn desktop_settings_tab(
             theme,
             Some(pad),
             appearance_design,
-            appearance_accent,
             cx,
         ),
         Some(Detail::Notifications) => {
@@ -386,9 +409,7 @@ pub(crate) fn placeholder_detail(
         .size_full()
         .flex()
         .flex_col()
-        .p(px(20.))
-        .pb(px(100.))
-        .gap(px(24.))
+        .gap(px(theme.scale.space_4))
         .child(crate::navigation::back_affordance(
             "Einstellungen",
             theme,
@@ -396,8 +417,9 @@ pub(crate) fn placeholder_detail(
         ))
         .child(
             div()
-                .text_size(px(28.))
-                .font_weight(FontWeight::BOLD)
+                .text_size(px(theme.scale.title))
+                .line_height(px(theme.scale.title_line))
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text_primary)
                 .child(title),
         )

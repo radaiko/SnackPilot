@@ -15,7 +15,7 @@ pub fn spinner(color: Hsla, size: f32) -> Spinner {
 
 /// A spinner sized and coloured for a primary button's busy state.
 pub fn button_spinner(theme: &AppTheme) -> Spinner {
-    Spinner::new().color(theme.on_primary).with_size(px(16.))
+    Spinner::new().color(theme.on_accent).with_size(px(16.))
 }
 
 /// Spinner plus German loading label, e.g. "Wird in den Warenkorb gelegt...",
@@ -28,7 +28,8 @@ pub fn loading_row(text: impl Into<SharedString>, theme: &AppTheme) -> Div {
         .child(spinner(theme.text_secondary, 16.))
         .child(
             div()
-                .text_size(px(14.))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
                 .child(text.into()),
         )

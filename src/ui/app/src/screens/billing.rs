@@ -9,17 +9,19 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::*;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::prelude::Styled;
 
 use crate::app::{dispatch_off_thread, AppShell};
 use crate::components::bill_card::{
     bill_card, desktop_bill_detail, desktop_bill_header, desktop_bill_row,
 };
-use crate::components::chip;
 use crate::components::chip::desktop_chip;
 use crate::components::pull_refresh::pull_refresh;
 use crate::components::record_table::{detail_entry, RecordListFocus};
 use crate::components::spinner::spinner;
-use crate::components::workspace::{detail_prompt, split_workspace_scrolled};
+use crate::components::workspace::{detail_prompt, split_workspace_scrolled, state_message};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::MonthOption;
@@ -72,7 +74,7 @@ pub fn billing_tab(
         theme,
     ));
 
-    let mut content = div().flex_1().min_h(px(0.)).flex().flex_col();
+    let mut content = div().w_full().flex_1().min_h(px(0.)).flex().flex_col();
     content = content.child(mobile_source_row(
         state.billing_source,
         source_select(model, off_thread, cx),
@@ -91,7 +93,7 @@ pub fn billing_tab(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(spinner(theme.primary, 36.)),
+                    .child(spinner(theme.accent, 36.)),
             );
         }
         BillingView::Refresh => {
@@ -111,6 +113,7 @@ pub fn billing_tab(
         }
         let mut list = div()
             .id("billing-list")
+            .w_full()
             .flex_1()
             .min_h(px(0.))
             .flex()
@@ -127,13 +130,13 @@ pub fn billing_tab(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .p(px(theme.mobile.space_4))
+                    .p(px(theme.scale.space_4))
                     .child(
                         div()
-                            .text_size(px(theme.mobile.body))
-                            .line_height(px(theme.mobile.body_line))
+                            .text_size(px(theme.scale.meta))
+                            .line_height(px(theme.scale.meta_line))
                             .text_center()
-                            .text_color(theme.mobile_secondary_on(theme.mobile_card_fill()))
+                            .text_color(theme.text_secondary)
                             .child("Keine Abrechnungsdaten für diesen Monat"),
                     ),
             );
@@ -224,8 +227,9 @@ fn gate(theme: &AppTheme) -> AnyElement {
         .justify_center()
         .child(
             div()
-                .text_size(px(16.))
-                .text_color(theme.text_tertiary)
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
                 .child("Anmeldung erforderlich"),
         )
         .into_any_element()
@@ -234,10 +238,59 @@ fn gate(theme: &AppTheme) -> AnyElement {
 /// One month choice activation (compact task 1.5).
 pub(crate) type MonthSelect = Rc<dyn Fn(u8, &mut Window, &mut App)>;
 
-/// The three month choices: equal min-48 targets, body-16 labels in the
-/// incumbent full German form (a second line is allowed, never truncation),
-/// the accent rule and readable accent ink on the selected one. The controls
-/// stay painted and usable while a fetch runs.
+/// One flat option chip: 44 px high, 8 radius, 12 side padding and the accent
+/// tint and boundary when selected. The source chips carry the 20 px check; the
+/// three equal month chips keep their whole third for the full German label,
+/// with the boundary and primary-role word carrying the selection.
+fn option_chip(label: &str, selected: bool, equal: bool, theme: &AppTheme) -> Div {
+    let (fill, border, ink) = if selected {
+        // The accent on its own tint reaches only 4.44:1 in light: the word
+        // takes the primary text role, the boundary keeps the accent.
+        (theme.accent_surface, theme.accent, theme.text_primary)
+    } else {
+        (theme.surface, theme.border, theme.text_secondary)
+    };
+    let (size, line) = if equal {
+        (theme.scale.meta, theme.scale.meta_line)
+    } else {
+        (theme.scale.body, theme.scale.body_line)
+    };
+    let mut chip = div()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(theme.scale.space_2))
+        .min_h(px(theme.scale.target))
+        .px(px(theme.scale.space_3))
+        .py(px(theme.scale.space_2))
+        .rounded(px(theme.scale.radius_chip))
+        .bg(fill)
+        .border(px(1.))
+        .border_color(border);
+    if equal {
+        chip = chip.flex_1().min_w(px(0.));
+    } else if selected {
+        chip = chip.child(
+            Icon::new(IconName::Check)
+                .with_size(px(theme.scale.icon))
+                .text_color(ink),
+        );
+    }
+    chip.child(
+        div()
+            .min_w(px(0.))
+            .text_size(px(size))
+            .line_height(px(line))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_center()
+            .text_color(ink)
+            .child(label.to_string()),
+    )
+}
+
+/// The three month choices: three equal 44 px chips in the incumbent full
+/// German form (a second line is allowed, never truncation), selected by the
+/// accent tint and boundary. The controls stay painted while a fetch runs.
 /// @req REQ-SCR-03 @req REQ-UI-15 @req REQ-UI-16
 pub(crate) fn mobile_month_row(
     options: &[MonthOption],
@@ -245,48 +298,31 @@ pub(crate) fn mobile_month_row(
     on_select: MonthSelect,
     theme: &AppTheme,
 ) -> Div {
-    let card = theme.mobile_card_fill();
-    // Three equal thirds: the row never wraps, the label may take a second
-    // line inside its own target, and no part of it is truncated.
-    let mut row = div().flex().w_full();
+    let mut row = div()
+        .flex()
+        .w_full()
+        .gap(px(theme.scale.space_2))
+        .py(px(theme.scale.space_2));
     for option in options {
         let offset = option.offset;
-        let is_selected = offset == selected;
         let on = Rc::clone(&on_select);
+        let ink = if offset == selected {
+            theme.accent
+        } else {
+            theme.text_secondary
+        };
+        let hover = theme.pressed(if offset == selected {
+            theme.accent_surface
+        } else {
+            theme.surface
+        });
         row = row.child(
-            div()
+            option_chip(&option.label, offset == selected, true, theme)
                 .id(SharedString::from(format!("billing-month-{offset}")))
-                .flex_1()
-                .min_w_0()
-                .min_h(px(theme.mobile.action_height))
-                .px(px(theme.mobile.space_2))
-                .py(px(theme.mobile.space_2))
-                .flex()
-                .items_center()
-                .justify_center()
                 .cursor_pointer()
-                .border_b(px(3.))
-                .border_color(if is_selected {
-                    theme.primary
-                } else {
-                    hsla(0., 0., 0., 0.)
-                })
-                .on_click(move |_, window, cx| on(offset, window, cx))
-                .child(
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .text_size(px(theme.mobile.body))
-                        .line_height(px(theme.mobile.body_line))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_center()
-                        .text_color(if is_selected {
-                            theme.mobile_ink_on(card, theme.primary)
-                        } else {
-                            theme.mobile_secondary_on(card)
-                        })
-                        .child(option.label.clone()),
-                ),
+                .hover(move |s| s.bg(hover))
+                .focus(theme::desktop_focus(ink))
+                .on_click(move |_, window, cx| on(offset, window, cx)),
         );
     }
     row
@@ -295,9 +331,8 @@ pub(crate) fn mobile_month_row(
 /// One source filter activation (compact task 1.5).
 pub(crate) type SourceSelect = Rc<dyn Fn(BillingSource, &mut Window, &mut App)>;
 
-/// The `Alle`/`Kantine`/`Automaten` options: the shared mobile option recipe
-/// (min-44 target, 12 px side padding, r8, check 20 plus tint when selected),
-/// wrapping when the text scale demands it.
+/// The `Alle`/`Kantine`/`Automaten` options: 44 px chips with the 20 px check
+/// on the selected one, wrapping when the text scale demands it.
 /// @req REQ-SCR-03 @req REQ-UI-15 @req REQ-UI-16
 pub(crate) fn mobile_source_row(
     selected: BillingSource,
@@ -308,18 +343,26 @@ pub(crate) fn mobile_source_row(
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(theme.mobile.space_2))
-        .py(px(theme.mobile.space_2));
+        .gap(px(theme.scale.space_2))
+        .py(px(theme.scale.space_2));
     for (source, label) in [
         (BillingSource::All, "Alle"),
         (BillingSource::Gourmet, "Kantine"),
         (BillingSource::Ventopay, "Automaten"),
     ] {
         let on = Rc::clone(&on_select);
+        let is_selected = selected == source;
+        let hover = theme.pressed(if is_selected {
+            theme.accent_surface
+        } else {
+            theme.surface
+        });
         row = row.child(
-            chip::chip(label, selected == source, theme)
+            option_chip(label, is_selected, false, theme)
                 .id(SharedString::from(format!("billing-chip-{label}")))
                 .cursor_pointer()
+                .hover(move |s| s.bg(hover))
+                .focus(theme::desktop_focus(theme.accent))
                 .on_click(move |_, window, cx| on(source, window, cx)),
         );
     }
@@ -329,18 +372,18 @@ pub(crate) fn mobile_source_row(
 /// The neutral cached-refresh feedback: a 16 px spinner with the incumbent
 /// `Aktualisiere...` label, instead of a blocking overlay.
 fn refresh_row(theme: &AppTheme) -> AnyElement {
-    let ink = theme.mobile_secondary_on(theme.mobile_card_fill());
+    let ink = theme.text_secondary;
     div()
-        .px(px(theme.mobile.space_4))
-        .py(px(theme.mobile.space_2))
+        .py(px(theme.scale.space_2))
         .flex()
         .items_center()
-        .gap(px(theme.mobile.space_2))
-        .child(spinner(ink, 16.))
+        .justify_center()
+        .gap(px(theme.scale.space_2))
+        .child(spinner(ink, theme.scale.icon))
         .child(
             div()
-                .text_size(px(theme.mobile.meta))
-                .line_height(px(theme.mobile.meta_line))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(ink)
                 .child("Aktualisiere..."),
         )
@@ -348,21 +391,17 @@ fn refresh_row(theme: &AppTheme) -> AnyElement {
 }
 
 fn mobile_error_banner(message: &str, theme: &AppTheme) -> AnyElement {
-    let fill = if theme.flat {
-        theme.error_surface
-    } else {
-        theme.glass_error
-    };
-    let ink = theme.mobile_status_on(fill, "error");
+    let fill = theme.error_surface;
+    let ink = theme.error;
     let r = theme.tinted_banner(fill);
     theme::apply(
         div()
-            .mb(px(theme.mobile.space_2))
-            .p(px(theme.mobile.space_3))
+            .mb(px(theme.scale.space_2))
+            .p(px(theme.scale.space_4))
             .child(
                 div()
-                    .text_size(px(theme.mobile.meta))
-                    .line_height(px(theme.mobile.meta_line))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .text_color(ink)
                     .child(message.to_string()),
             ),
@@ -387,9 +426,9 @@ pub(crate) fn mobile_summary(
     (format_eur(totals.gesamt), pairs)
 }
 
-/// The summary surface: `banner_surface` with padding16, `Gesamt` in metadata
-/// above the body value at the leading edge, then one wrapping metadata line
-/// of the remaining pairs 16 px apart — never three equal metric columns.
+/// The one summary card: `Gesamt` in the metadata role, the formatted total in
+/// the title role beneath it, then the `Belege` count and the conditional
+/// Kantine `Zuschuss` as metadata pairs — never three equal metric columns.
 /// @req REQ-SCR-03 @req REQ-UI-15
 pub(crate) fn mobile_summary_surface(
     entries: &[BillingEntry],
@@ -397,29 +436,20 @@ pub(crate) fn mobile_summary_surface(
     source: BillingSource,
     theme: &AppTheme,
 ) -> AnyElement {
-    let m = &theme.mobile;
-    // The banner fill is the surface the ink is measured on.
-    let plan = theme.banner_surface();
-    let fill = plan.bg;
-    let meta = theme.mobile_secondary_on(fill);
+    let m = &theme.scale;
     let (gesamt, pairs) = mobile_summary(entries.len(), totals, source);
     let mut line = div().flex().flex_wrap().items_baseline().gap(px(m.space_4));
     for (label, value) in pairs {
-        let ink = if label == "Zuschuss" {
-            theme.mobile_status_on(fill, "success")
-        } else {
-            theme.text_primary
-        };
         line = line.child(
             div()
                 .flex()
                 .items_baseline()
-                .gap(px(m.space_1))
+                .gap(px(m.space_2))
                 .child(
                     div()
                         .text_size(px(m.meta))
                         .line_height(px(m.meta_line))
-                        .text_color(meta)
+                        .text_color(theme.text_secondary)
                         .child(label),
                 )
                 .child(
@@ -427,7 +457,7 @@ pub(crate) fn mobile_summary_surface(
                         .text_size(px(m.meta))
                         .line_height(px(m.meta_line))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(ink)
+                        .text_color(theme.text_primary)
                         .child(value),
                 ),
         );
@@ -443,24 +473,25 @@ pub(crate) fn mobile_summary_surface(
                 div()
                     .flex()
                     .flex_col()
+                    .gap(px(m.space_2))
                     .child(
                         div()
                             .text_size(px(m.meta))
                             .line_height(px(m.meta_line))
-                            .text_color(meta)
+                            .text_color(theme.text_secondary)
                             .child("Gesamt"),
                     )
                     .child(
                         div()
-                            .text_size(px(m.body))
-                            .line_height(px(m.body_line))
+                            .text_size(px(m.title))
+                            .line_height(px(m.title_line))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.text_primary)
                             .child(gesamt),
                     ),
             )
             .child(line),
-        &plan,
+        &theme.card_surface(),
     )
     .into_any_element()
 }
@@ -502,16 +533,8 @@ fn month_row(
     off_thread: bool,
     cx: &mut Context<AppShell>,
 ) -> Div {
-    let border = if theme.flat {
-        theme.border
-    } else {
-        theme.glass_highlight
-    };
-    let bg = if theme.flat {
-        theme.surface
-    } else {
-        theme.glass_surface
-    };
+    let border = theme.border;
+    let bg = theme.surface;
     let mut row = div()
         .flex()
         .w_full()
@@ -537,21 +560,23 @@ fn month_row(
                 .flex()
                 .items_center()
                 .justify_center()
-                .py(px(14.))
+                .min_h(px(snackpilot_model::tokens::TARGET))
+                .py(px(theme.scale.space_3))
                 .cursor_pointer()
                 .border_b_3()
                 .border_color(if selected {
-                    theme.primary
+                    theme.accent
                 } else {
                     hsla(0., 0., 0., 0.)
                 })
                 .on_click(move |_, window, cx| action(window, cx))
                 .child(
                     div()
-                        .text_size(px(13.))
+                        .text_size(px(theme.scale.meta))
+                        .line_height(px(theme.scale.meta_line))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(if selected {
-                            theme.primary
+                            theme.accent
                         } else {
                             theme.text_tertiary
                         })
@@ -573,8 +598,8 @@ fn desktop_chips_row(
         .flex()
         .items_center()
         .gap(px(8.))
-        .px(px(16.))
-        .py(px(8.));
+        .px(px(theme.scale.space_4))
+        .py(px(theme.scale.space_2));
     for (source, label) in [
         (BillingSource::All, "Alle"),
         (BillingSource::Gourmet, "Kantine"),
@@ -621,14 +646,19 @@ fn dispatch_billing_action(off_thread: bool, cx: &mut App, action: impl FnOnce()
 }
 
 fn error_banner(message: &str, theme: &AppTheme) -> AnyElement {
-    let r = theme.tinted_banner(theme.glass_error);
+    let r = theme.tinted_banner(theme.error_surface);
     theme::apply(
-        div().mx(px(16.)).mt(px(8.)).p(px(12.)).child(
-            div()
-                .text_size(px(13.))
-                .text_color(theme.error_text)
-                .child(message.to_string()),
-        ),
+        div()
+            .mx(px(theme.scale.space_4))
+            .mt(px(theme.scale.space_2))
+            .p(px(theme.scale.space_3))
+            .child(
+                div()
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
+                    .text_color(theme.error)
+                    .child(message.to_string()),
+            ),
         &r,
     )
     .into_any_element()
@@ -698,7 +728,7 @@ pub fn desktop_billing_tab(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(spinner(theme.primary, 36.)),
+                    .child(spinner(theme.accent, 36.)),
             )
             .into_any_element();
     }
@@ -728,30 +758,30 @@ pub(crate) fn desktop_summary_line(
         div()
             .flex()
             .items_baseline()
-            .gap(px(4.))
+            .gap(px(theme.scale.space_1))
             .child(
                 div()
-                    .text_size(px(14.))
-                    .line_height(px(20.))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .text_color(theme.text_secondary)
                     .child(label),
             )
             .child(
                 div()
-                    .text_size(px(14.))
-                    .line_height(px(20.))
+                    .text_size(px(theme.scale.body))
+                    .line_height(px(theme.scale.body_line))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(ink)
                     .child(value),
             )
     };
     let mut line = div()
-        .px(px(16.))
-        .py(px(8.))
+        .px(px(theme.scale.space_4))
+        .py(px(theme.scale.space_2))
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(16.))
+        .gap(px(theme.scale.space_4))
         .child(item(
             "Gesamt",
             format_eur(totals.gesamt),
@@ -763,11 +793,7 @@ pub(crate) fn desktop_summary_line(
             theme.text_primary,
         ));
     if show_subsidy {
-        line = line.child(item(
-            "Zuschuss",
-            format_eur(totals.zuschuss),
-            theme.success_text,
-        ));
+        line = line.child(item("Zuschuss", format_eur(totals.zuschuss), theme.success));
     }
     line.into_any_element()
 }
@@ -812,25 +838,18 @@ fn desktop_receipt_master(
         .flex_col()
         .tab_index(0)
         .track_focus(list_focus.container())
-        .focus(theme::desktop_focus(theme.desktop.focus))
+        .focus(theme::desktop_focus(theme.accent))
         .on_key_down(on_key)
         .child(desktop_bill_header(compact, theme));
     if entries.is_empty() {
         list = list.child(
             div()
                 .w_full()
-                .p(px(16.))
-                .pt(px(32.))
-                .flex()
-                .justify_center()
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .line_height(px(20.))
-                        .text_color(theme.text_secondary)
-                        .text_center()
-                        .child("Keine Abrechnungsdaten für diesen Monat"),
-                ),
+                .p(px(theme.scale.space_4))
+                .child(state_message(
+                    "Keine Abrechnungsdaten für diesen Monat",
+                    theme,
+                )),
         );
         return list.into_any_element();
     }
@@ -883,7 +902,10 @@ mod mobile_tests {
         billing_context_cached, billing_context_matches, billing_owns_progress, billing_view,
         mobile_summary, BillingView,
     };
+    use crate::theme::AppTheme;
+    use gpui_kit::px;
     use snackpilot_model::navigation::Screen;
+    use snackpilot_model::tokens;
     use snackpilot_model::{format_eur, AppModel, BillingSource, BillingTotals, FakePlatform};
     use std::sync::Arc;
 
@@ -1013,6 +1035,39 @@ mod mobile_tests {
             mobile_summary(0, &no_subsidy, BillingSource::All),
             ("€ 12,50".to_string(), vec![("Belege", "0".to_string())]),
             "no zero-value subsidy line is painted"
+        );
+    }
+    /// The flat Abrechnung controls (REQ-SCR-03/REQ-UI-15): months are three
+    /// equal 44 px chips, sources carry the 20 px check on the selected one,
+    /// and the summary is one 12 radius card whose total is the title role with
+    /// the incumbent formatter and the conditional subsidy pair.
+    /// @req REQ-SCR-03 @req REQ-UI-15
+    #[test]
+    fn mobile_billing_controls_use_chips_and_one_summary_card() {
+        let theme = AppTheme::build(false);
+        assert_eq!(theme.scale.target, tokens::TARGET);
+        assert_eq!(theme.scale.target, 44.);
+        assert_eq!(theme.scale.icon, tokens::ICON);
+        assert_eq!(theme.scale.icon, 20.);
+        let card = theme.card_surface();
+        assert_eq!(card.radius, px(tokens::RADIUS_CARD));
+        assert_eq!(card.border.map(|(w, _)| w), Some(px(1.)));
+        assert_eq!(theme.scale.title, tokens::TITLE.size);
+        assert_eq!(theme.scale.title, 28.);
+
+        let totals = BillingTotals {
+            gesamt: 12.5,
+            belege: 3,
+            zuschuss: 1.25,
+        };
+        let (gesamt, pairs) = mobile_summary(3, &totals, BillingSource::All);
+        assert_eq!(gesamt, format_eur(totals.gesamt));
+        assert_eq!(
+            pairs,
+            vec![
+                ("Belege", "3".to_string()),
+                ("Zuschuss", format_eur(totals.zuschuss))
+            ]
         );
     }
 }

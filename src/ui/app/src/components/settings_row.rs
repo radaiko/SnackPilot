@@ -1,7 +1,7 @@
 //! Settings row — docs/requirements/04-ui-ux.md §3.4.
 //!
-//! Title 18/600, optional hint 13/tertiary, trailing chevron 20; rows are
-//! separated by hairline dividers in the caller.
+//! One grouped surface row: 56 px high, leading Lucide icon, body title, meta
+//! hint and a trailing chevron; no dividers, no shadow.
 
 use gpui::*;
 use gpui_kit::assets::IconName;
@@ -11,10 +11,12 @@ use crate::navigation::ClickHandler;
 use crate::theme;
 use crate::theme::AppTheme;
 
-/// Desktop settings row (brief `desktop.settingsRow`): 72 px minimum, 12 px
-/// padding, whole row a target, title 14/20 Semibold and hint 12/16; the
-/// selected row takes the selection tint and the inset accent rule, and focus
-/// is the independent ring. Mobile keeps [`settings_row`] unchanged.
+/// The compact settings row's one target height.
+pub const MOBILE_SETTINGS_ROW_HEIGHT: f32 = 56.;
+
+/// Desktop settings row: a 40 px flat row, `BODY` title, `META` hint and a
+/// trailing chevron; the selected row is `SURFACE_ALT` with a 3 px accent
+/// rule and accent ink. Mobile keeps [`settings_row`] unchanged.
 /// @req REQ-SCR-04 @req REQ-UI-12
 pub fn settings_row_desktop(
     id: &'static str,
@@ -25,42 +27,33 @@ pub fn settings_row_desktop(
     on_tap: ClickHandler,
     theme: &AppTheme,
 ) -> Stateful<Div> {
-    let mut text = div().flex().flex_col().min_w_0().child(
-        div()
-            .text_size(px(14.))
-            .line_height(px(20.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(theme.desktop.ink)
-            .child(title),
-    );
-    if let Some(hint) = hint {
-        text = text.child(
-            div()
-                .mt(px(2.))
-                .text_size(px(12.))
-                .line_height(px(16.))
-                .text_color(theme.text_secondary)
-                .child(hint),
-        );
-    }
-    let row = div()
+    let income = if selected {
+        theme.accent
+    } else {
+        theme.text_primary
+    };
+    let mut row = div()
         .id(SharedString::from(id))
         .w_full()
-        .min_h(px(72.))
+        .h(px(snackpilot_model::desktop::ROW_HEIGHT))
         .flex()
         .items_center()
-        .justify_between()
-        .px(px(12.))
-        .py(px(12.))
-        .rounded(px(8.))
+        .gap(px(theme.scale.space_2))
+        .pr(px(theme.scale.space_3))
         .bg(if selected {
-            theme.primary_surface
+            theme.surface_alt
         } else {
             theme.surface
         })
-        .hover(|s| s.bg(theme.surface_variant))
+        .hover(move |s| {
+            s.bg(if selected {
+                theme.surface_alt
+            } else {
+                theme.hover(theme.surface)
+            })
+        })
         .track_focus(focus)
-        .focus(theme::desktop_focus(theme.desktop.focus))
+        .focus(theme::desktop_focus(theme.accent))
         .cursor_pointer()
         .on_click({
             let on_tap = on_tap.clone();
@@ -77,66 +70,131 @@ pub fn settings_row_desktop(
         })
         .child(
             div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .child(
-                    div()
-                        .w(px(3.))
-                        .h(px(32.))
-                        .flex_shrink_0()
-                        .rounded(px(2.))
-                        .bg(if selected {
-                            theme.desktop.accent_boundary
-                        } else {
-                            hsla(0., 0., 0., 0.)
-                        }),
-                )
-                .child(text),
+                .w(px(3.))
+                .self_stretch()
+                .flex_shrink_0()
+                .bg(if selected {
+                    theme.accent
+                } else {
+                    hsla(0., 0., 0., 0.)
+                }),
         )
         .child(
-            Icon::new(IconName::ChevronRight)
-                .with_size(px(20.))
-                .text_color(theme.text_tertiary),
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(income)
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .child(title),
         );
-    row
+    if let Some(hint) = hint {
+        row = row.child(
+            div()
+                .flex_shrink_0()
+                .max_w(relative(0.55))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .child(hint),
+        );
+    }
+    row.child(
+        Icon::new(IconName::ChevronRight)
+            .with_size(px(theme.scale.icon_meta))
+            .text_color(theme.text_secondary),
+    )
 }
 
+/// One compact grouped-list row: surface, hairline border, 12 radius, 16
+/// padding, a leading Lucide icon, body title, meta hint and a trailing
+/// chevron. The whole 56 px row is the target and the pressed fill is the 8 %
+/// text mix.
+/// @req REQ-SCR-04 @req REQ-UI-15
 pub fn settings_row(
     id: &'static str,
+    icon: IconName,
     title: &'static str,
     hint: Option<String>,
     on_tap: ClickHandler,
     theme: &AppTheme,
 ) -> Stateful<Div> {
-    let mut text = div().flex().flex_col().child(
+    let mut text = div().flex_1().min_w(px(0.)).flex().flex_col().child(
         div()
-            .text_size(px(18.))
-            .font_weight(FontWeight::SEMIBOLD)
+            .text_size(px(theme.scale.body))
+            .line_height(px(theme.scale.body_line))
             .text_color(theme.text_primary)
             .child(title),
     );
     if let Some(hint) = hint {
         text = text.child(
             div()
-                .mt(px(2.))
-                .text_size(px(13.))
-                .text_color(theme.text_tertiary)
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
                 .child(hint),
         );
     }
     div()
         .id(SharedString::from(id))
+        .w_full()
+        .min_h(px(MOBILE_SETTINGS_ROW_HEIGHT))
         .flex()
         .items_center()
-        .justify_between()
-        .py(px(8.))
+        .gap(px(theme.scale.space_3))
+        .p(px(theme.scale.space_4))
+        .rounded(px(theme.scale.radius_card))
+        .bg(theme.surface)
+        .border(px(1.))
+        .border_color(theme.border)
+        .tab_index(0)
         .cursor_pointer()
+        .hover(|s| s.bg(theme.pressed(theme.surface)))
+        .focus(theme::desktop_focus(theme.accent))
         .on_click(move |_, window, cx| on_tap(window, cx))
+        .child(
+            Icon::new(icon)
+                .with_size(px(theme.scale.icon))
+                .text_color(theme.text_secondary),
+        )
         .child(text)
         .child(
             Icon::new(IconName::ChevronRight)
-                .with_size(px(20.))
+                .with_size(px(theme.scale.icon))
                 .text_color(theme.text_tertiary),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MOBILE_SETTINGS_ROW_HEIGHT;
+    use crate::theme::AppTheme;
+
+    /// @req REQ-UI-12
+    #[test]
+    fn desktop_settings_row_is_a_40px_flat_row() {
+        assert_eq!(snackpilot_model::desktop::ROW_HEIGHT, 40.);
+        let theme = AppTheme::build(false);
+        assert_eq!(theme.scale.body, 17.);
+        assert_eq!(theme.scale.meta, 13.);
+    }
+
+    /// The compact grouped row (REQ-SCR-04/REQ-UI-15): 56 px high, 16 px
+    /// padding and the 12 px card radius, with the 20 px icon and chevron.
+    /// @req REQ-SCR-04 @req REQ-UI-15
+    #[test]
+    fn mobile_settings_row_uses_the_grouped_contract() {
+        let theme = AppTheme::build(false);
+        assert_eq!(MOBILE_SETTINGS_ROW_HEIGHT, 56.);
+        assert_eq!(theme.scale.space_4, 16.);
+        assert_eq!(theme.scale.radius_card, 12.);
+        assert_eq!(theme.scale.icon, 20.);
+        assert_eq!(theme.scale.meta, 13.);
+        assert_eq!(theme.scale.body, 17.);
+    }
 }

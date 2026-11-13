@@ -1,8 +1,7 @@
 //! Segment tabs — docs/requirements/04-ui-ux.md §3.2.
 //!
-//! Two equal-width tabs with counts, 14 px / 600 labels, 3 px bottom border in
-//! `colors.primary` for the active one. iOS uses glassSurface with a
-//! glassHighlight hairline; Android/desktop use surface with a 1 px border.
+//! Two equal-width tabs with counts, semibold labels and a 3 px accent rule
+//! under the active one; the rule is reserved in both states.
 
 use std::rc::Rc;
 
@@ -10,6 +9,7 @@ use gpui::*;
 
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
+use snackpilot_model::tokens;
 
 /// Which segment is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,9 +25,20 @@ pub type SegmentHandler = Rc<dyn Fn(Segment, &mut Window, &mut App)>;
 /// labels never shift when the selection moves (design "Bestellungen").
 const SELECTION_RULE: f32 = 3.;
 
+/// The compact segment container: one contained surface at the control radius,
+/// not a full-bleed band.
+pub const MOBILE_SEGMENT_RADIUS: f32 = tokens::RADIUS_CONTROL;
+pub const MOBILE_SEGMENT_BORDER: f32 = 1.;
+
 /// The compact segment target height: the 48 px action floor.
 pub fn mobile_segment_height(theme: &AppTheme) -> f32 {
-    theme.mobile.action_height
+    theme.scale.action_height
+}
+
+/// The hairline inset of the selected rule: it stops at the container radius so
+/// the rounded corner never carries a square accent edge.
+pub fn mobile_segment_rule_inset(theme: &AppTheme) -> f32 {
+    theme.scale.radius_control
 }
 
 /// The selected rule: its reserved 3 px thickness in both states, and the
@@ -35,7 +46,7 @@ pub fn mobile_segment_height(theme: &AppTheme) -> f32 {
 /// the same thickness in both states is what keeps the geometry stable.
 pub fn mobile_segment_rule(selected: bool, theme: &AppTheme) -> (f32, Hsla) {
     let ink = if selected {
-        theme.primary
+        theme.accent
     } else {
         hsla(0., 0., 0., 0.)
     };
@@ -54,17 +65,9 @@ pub fn segment_tabs(
     on_select: SegmentHandler,
     theme: &AppTheme,
 ) -> Div {
-    let border = if theme.flat {
-        theme.border
-    } else {
-        theme.glass_highlight
-    };
-    let fill = if theme.flat {
-        theme.surface
-    } else {
-        theme.glass_surface
-    };
-    let inactive_ink = theme.mobile_secondary_on(fill);
+    let border = theme.border;
+    let fill = theme.surface;
+    let inactive_ink = theme.text_secondary;
 
     let tab = |segment: Segment, label: String| {
         let selected = segment == active;
@@ -76,38 +79,50 @@ pub fn segment_tabs(
                 Segment::Past => "orders-tab-past",
             }))
             .flex_1()
-            .min_h(px(mobile_segment_height(theme)))
+            .h(px(mobile_segment_height(theme)))
             .flex()
-            .items_center()
-            .justify_center()
-            .px(px(theme.mobile.space_2))
-            .py(px(theme.mobile.space_2))
+            .flex_col()
             .cursor_pointer()
-            .border_b(px(rule))
-            .border_color(rule_ink)
             .on_click(move |_, window, cx| action(segment, window, cx))
             .child(
                 div()
-                    .min_w(px(0.))
-                    .text_size(px(theme.mobile.body))
-                    .line_height(px(theme.mobile.body_line))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_center()
-                    .text_color(if selected {
-                        theme.text_primary
-                    } else {
-                        inactive_ink
-                    })
-                    .child(label),
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .px(px(theme.scale.space_2))
+                    .child(
+                        div()
+                            .min_w(px(0.))
+                            .text_size(px(theme.scale.body))
+                            .line_height(px(theme.scale.body_line))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_center()
+                            .text_color(if selected {
+                                theme.text_primary
+                            } else {
+                                inactive_ink
+                            })
+                            .child(label),
+                    ),
+            )
+            .child(
+                div()
+                    .h(px(rule))
+                    .mx(px(mobile_segment_rule_inset(theme)))
+                    .rounded(px(rule / 2.))
+                    .bg(rule_ink),
             )
     };
 
     div()
         .flex()
         .w_full()
-        .bg(fill)
-        .border_b_1()
+        .rounded(px(MOBILE_SEGMENT_RADIUS))
+        .border(px(MOBILE_SEGMENT_BORDER))
         .border_color(border)
+        .bg(fill)
+        .overflow_hidden()
         .child(tab(Segment::Upcoming, format!("Kommende ({upcoming})")))
         .child(tab(Segment::Past, format!("Vergangene ({past})")))
 }
@@ -147,26 +162,26 @@ pub fn desktop_segment_toolbar(
                 Segment::Upcoming => "desktop-orders-tab-upcoming",
                 Segment::Past => "desktop-orders-tab-past",
             }))
-            .min_h(px(44.))
-            .px(px(12.))
-            .py(px(8.))
+            .min_h(px(tokens::TARGET))
+            .px(px(theme.scale.space_3))
+            .py(px(theme.scale.space_2))
             .flex()
             .items_center()
             .cursor_pointer()
             .border_b_3()
             .border_color(if selected {
-                theme.primary
+                theme.accent
             } else {
                 hsla(0., 0., 0., 0.)
             })
             .on_click(move |_, window, cx| action(segment, window, cx))
             .child(
                 div()
-                    .text_size(px(14.))
-                    .line_height(px(20.))
+                    .text_size(px(theme.scale.body))
+                    .line_height(px(theme.scale.body_line))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(if selected {
-                        theme.primary
+                        theme.accent
                     } else {
                         theme.text_secondary
                     })
@@ -178,9 +193,9 @@ pub fn desktop_segment_toolbar(
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(8.))
-        .px(px(16.))
-        .py(px(8.))
+        .gap(px(theme.scale.space_2))
+        .px(px(theme.scale.space_4))
+        .py(px(theme.scale.space_2))
         .child(tab(Segment::Upcoming, format!("Kommende ({upcoming})")))
         .child(tab(Segment::Past, format!("Vergangene ({past})")));
     // The two segments are one option group with one tab stop: Left/Right move
@@ -192,7 +207,7 @@ pub fn desktop_segment_toolbar(
         row = row
             .tab_index(0)
             .track_focus(group_focus)
-            .focus(theme::desktop_focus(theme.desktop.focus))
+            .focus(theme::desktop_focus(theme.accent))
             .on_key_down({
                 let focus = group_focus.clone();
                 move |event: &KeyDownEvent, window, cx| {
@@ -214,21 +229,21 @@ pub fn desktop_segment_toolbar(
                 .id("desktop-orders-select")
                 .ml_auto()
                 .tab_index(0)
-                .min_h(px(44.))
-                .px(px(12.))
+                .min_h(px(tokens::TARGET))
+                .px(px(theme.scale.space_3))
                 .flex()
                 .items_center()
                 .cursor_pointer()
-                .rounded(px(8.))
-                .hover(|s| s.bg(theme.surface_variant))
-                .focus(theme::desktop_focus(theme.desktop.focus))
+                .rounded(px(theme.scale.radius_chip))
+                .hover(move |s| s.bg(theme.hover(theme.surface)))
+                .focus(theme::desktop_focus(theme.accent))
                 .on_click(move |_, window, cx| on_select_mode(window, cx))
                 .child(
                     div()
-                        .text_size(px(14.))
-                        .line_height(px(20.))
+                        .text_size(px(theme.scale.body))
+                        .line_height(px(theme.scale.body_line))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme.desktop.accent_on_panel)
+                        .text_color(theme.accent)
                         .child("Auswählen"),
                 ),
         );
@@ -238,9 +253,12 @@ pub fn desktop_segment_toolbar(
 
 #[cfg(test)]
 mod tests {
-    use super::{mobile_segment_height, mobile_segment_rule, segment_arrow, Segment};
+    use super::{
+        mobile_segment_height, mobile_segment_rule, mobile_segment_rule_inset, segment_arrow,
+        Segment, MOBILE_SEGMENT_BORDER, MOBILE_SEGMENT_RADIUS,
+    };
     use crate::theme::AppTheme;
-    use snackpilot_model::AccentColor;
+    use snackpilot_model::tokens;
 
     /// The compact segments keep one geometry in both states (REQ-SCR-02/16):
     /// the 3 px rule is reserved whether or not a segment is selected, so
@@ -250,9 +268,9 @@ mod tests {
     #[test]
     fn mobile_segments_reserve_the_rule_and_equal_targets() {
         for dark in [false, true] {
-            for flat in [false, true] {
-                for accent in [AccentColor::Orange, AccentColor::Golden] {
-                    let theme = AppTheme::build(dark, accent, flat);
+            {
+                {
+                    let theme = AppTheme::build(dark);
                     let (thickness, active) = mobile_segment_rule(true, &theme);
                     let (inactive_thickness, inactive) = mobile_segment_rule(false, &theme);
                     assert_eq!(
@@ -265,6 +283,21 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The segment bar is one contained control (REQ-SCR-02/REQ-UI-15): the
+    /// control radius (not square corners), one hairline boundary and the 48 px
+    /// action floor, with the selected rule inset by that radius so it never
+    /// paints through a rounded corner.
+    /// @req REQ-SCR-02 @req REQ-UI-15
+    #[test]
+    fn mobile_segments_are_a_contained_rounded_control() {
+        let theme = AppTheme::build(false);
+        assert_eq!(MOBILE_SEGMENT_RADIUS, 10.);
+        assert_eq!(MOBILE_SEGMENT_BORDER, 1.);
+        assert_eq!(mobile_segment_height(&theme), 48.);
+        assert_eq!(mobile_segment_rule_inset(&theme), MOBILE_SEGMENT_RADIUS);
+        assert_eq!(theme.scale.radius_control, tokens::RADIUS_CONTROL);
     }
 
     /// The focused segment group moves one segment on Left/Right without

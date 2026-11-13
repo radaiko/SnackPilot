@@ -23,22 +23,27 @@ fn section(title: &'static str, hint: &'static str, theme: &AppTheme, body: Div)
     div()
         .flex()
         .flex_col()
+        .gap(px(theme.scale.space_2))
         .child(
             div()
-                .mb(px(4.))
-                .text_size(px(18.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_primary)
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
                 .child(title),
         )
         .child(
             div()
-                .mb(px(16.))
-                .text_size(px(13.))
-                .text_color(theme.text_tertiary)
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
                 .child(hint),
         )
         .child(body)
+}
+
+/// Plain action rows keep the 48 px primary-action floor.
+pub fn notification_action_height(theme: &AppTheme) -> f32 {
+    theme.scale.action_height
 }
 
 fn primary(
@@ -50,13 +55,15 @@ fn primary(
 ) -> AnyElement {
     let enabled = !label.contains("...");
     let button = div()
+        .w_full()
         .flex()
         .items_center()
         .justify_center()
-        .py(px(14.))
-        .px(px(24.))
-        .rounded(px(12.));
-    let button = theme::apply(button, &theme.button_primary()).id(SharedString::from(id));
+        .min_h(px(notification_action_height(theme)))
+        .px(px(theme.scale.space_4))
+        .py(px(theme.scale.space_2))
+        .rounded(px(theme.scale.radius_control));
+    let button = theme::apply(button, &theme.button_secondary()).id(SharedString::from(id));
     let button = if enabled {
         button
             .cursor_pointer()
@@ -68,17 +75,20 @@ fn primary(
     if let Some(icon) = icon {
         button = button.child(
             Icon::new(icon)
-                .with_size(px(16.))
-                .text_color(theme.on_primary),
+                .with_size(px(theme.scale.icon))
+                .text_color(theme.text_primary),
         );
     }
     button
         .child(
             div()
-                .ml(px(6.))
-                .text_size(px(15.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(theme.on_primary)
+                .min_w(px(0.))
+                .ml(px(theme.scale.space_2))
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_center()
+                .text_color(theme.text_primary)
                 .child(label),
         )
         .into_any_element()
@@ -112,7 +122,7 @@ pub fn notifications_screen(
             .gap(px(8.));
         page = match containment {
             Some(pad) => page.p(px(pad)).w_full().max_w(px(440.)),
-            None => page.p(px(20.)).pb(px(100.)),
+            None => page,
         };
         if containment.is_none() {
             page = page.child(crate::navigation::back_affordance(
@@ -124,16 +134,16 @@ pub fn notifications_screen(
         return page
             .child(
                 div()
-                    .text_size(px(if containment.is_some() { 20. } else { 28. }))
-                    .line_height(px(26.))
+                    .text_size(px(theme.scale.title))
+                    .line_height(px(theme.scale.title_line))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.text_primary)
                     .child("Benachrichtigungen"),
             )
             .child(
                 div()
-                    .text_size(px(14.))
-                    .line_height(px(20.))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .text_color(theme.text_secondary)
                     .child("Benachrichtigungen sind auf diesem Gerät nicht verfügbar."),
             )
@@ -154,24 +164,30 @@ pub fn notifications_screen(
         }
     };
     let reminder_row = div()
+        .w_full()
         .flex()
         .items_center()
         .justify_between()
+        .h(px(theme.scale.action_height))
         .child(
             div()
-                .text_size(px(15.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_secondary)
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
+                .text_color(theme.text_primary)
                 .child("Aktiviert"),
         )
         .child(
             Switch::new("reminder-switch")
                 .checked(state.daily_reminder_enabled)
-                .color(theme.primary)
+                .color(theme.accent)
                 .on_change(toggle),
         );
 
-    let mut reminder_body = div().flex().flex_col().gap(px(12.)).child(reminder_row);
+    let mut reminder_body = div()
+        .flex()
+        .flex_col()
+        .gap(px(theme.scale.space_3))
+        .child(reminder_row);
     if state.daily_reminder_enabled {
         let shell = cx.entity().clone();
         let pick_model = model.clone();
@@ -185,8 +201,8 @@ pub fn notifications_screen(
         reminder_body = reminder_body
             .child(
                 div()
-                    .text_size(px(13.))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .text_color(theme.text_secondary)
                     .child("Uhrzeit"),
             )
@@ -206,7 +222,7 @@ pub fn notifications_screen(
                     .mt(px(12.))
                     .p(px(12.))
                     .rounded(px(10.))
-                    .bg(theme.surface_variant)
+                    .bg(theme.surface_alt)
                     .cursor_pointer()
                     .on_click(move |_, window, cx| open(window, cx))
                     .child(
@@ -214,7 +230,7 @@ pub fn notifications_screen(
                             .flex()
                             .items_start()
                             .gap(px(8.))
-                            .child(Icon::new(IconName::Info).with_size(px(18.)).text_color(theme.text_tertiary))
+                            .child(Icon::new(IconName::Info).with_size(px(theme.scale.icon_meta)).text_color(theme.text_tertiary))
                             .child(
                                 div()
                             .text_size(px(12.))
@@ -224,7 +240,7 @@ pub fn notifications_screen(
                                 div()
                                     .text_size(px(12.))
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme.primary)
+                                    .text_color(theme.accent)
                                     .child("App-Einstellungen öffnen"),
                             ),
                             ),
@@ -250,7 +266,8 @@ pub fn notifications_screen(
             .gap(px(12.))
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .text_color(theme.text_secondary)
                     .child("Firmenstandort gesetzt"),
             )
@@ -260,8 +277,8 @@ pub fn notifications_screen(
                         .flex()
                         .items_center()
                         .justify_center()
-                        .py(px(14.))
-                        .px(px(24.)),
+                        .h(px(theme.scale.action_height))
+                        .px(px(theme.scale.space_4)),
                     &danger,
                 )
                 .id("location-remove")
@@ -269,9 +286,10 @@ pub fn notifications_screen(
                 .on_click(move |_, window, cx| remove(window, cx))
                 .child(
                     div()
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(theme.on_primary)
+                        .text_size(px(theme.scale.body))
+                        .line_height(px(theme.scale.body_line))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme.on_accent)
                         .child("Standort entfernen"),
                 ),
             )
@@ -299,7 +317,8 @@ pub fn notifications_screen(
     let log_body = if state.log_active {
         div().child(
             div()
-                .text_size(px(14.))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
                 .child(state.log_status.clone()),
         )
@@ -337,7 +356,8 @@ pub fn notifications_screen(
             .gap(px(12.))
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
                     .text_color(theme.text_secondary)
                     .child(state.log_status.clone()),
             )
@@ -351,12 +371,17 @@ pub fn notifications_screen(
             .child(
                 div()
                     .id("log-discard")
+                    .min_h(px(theme.scale.action_height))
+                    .flex()
+                    .items_center()
                     .cursor_pointer()
+                    .focus(crate::theme::desktop_focus(theme.accent))
                     .on_click(move |_, window, cx| discard(window, cx))
                     .child(
                         div()
-                            .text_size(px(14.))
-                            .text_color(theme.text_tertiary)
+                            .text_size(px(theme.scale.body))
+                            .line_height(px(theme.scale.body_line))
+                            .text_color(theme.text_secondary)
                             .child("Log verwerfen"),
                     ),
             )
@@ -396,15 +421,12 @@ pub fn notifications_screen(
             ))
     };
 
-    let divider = div().h(px(1.)).my(px(24.)).bg(theme.divider());
-
     div()
         .id("notifications")
         .size_full()
         .flex()
         .flex_col()
-        .p(px(20.))
-        .pb(px(100.))
+        .gap(px(theme.scale.space_5))
         .overflow_y_scroll()
         .child(crate::navigation::back_affordance(
             "Einstellungen",
@@ -413,8 +435,9 @@ pub fn notifications_screen(
         ))
         .child(
             div()
-                .text_size(px(28.))
-                .font_weight(FontWeight::BOLD)
+                .text_size(px(theme.scale.title))
+                .line_height(px(theme.scale.title_line))
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text_primary)
                 .child("Benachrichtigungen"),
         )
@@ -424,14 +447,12 @@ pub fn notifications_screen(
             theme,
             reminder_body,
         ))
-        .child(divider)
         .child(section(
             "Standort-Benachrichtigungen",
             "Erinnerung um 8:45 basierend auf deinem Standort",
             theme,
             location_body,
         ))
-        .child(div().h(px(1.)).my(px(24.)).bg(theme.divider()))
         .child(section(
             "Benachrichtigungs-Log",
             "Zeichnet 24 Stunden lang Diagnose-Daten auf, um Probleme mit Benachrichtigungen zu analysieren.",
@@ -439,4 +460,25 @@ pub fn notifications_screen(
             log_body,
         ))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::notification_action_height;
+    use crate::components::time_chips::{label, time_chips, times};
+    use crate::theme::AppTheme;
+
+    /// The reminder keeps the twelve pinned times and 44 px chips, and the
+    /// location/diagnostics actions keep the 48 px floor (REQ-SCR-08).
+    /// @req REQ-SCR-08
+    #[test]
+    fn notifications_keep_pinned_times_and_action_floor() {
+        let theme = AppTheme::build(false);
+        assert_eq!(times().len(), 12);
+        assert_eq!(label(11, 0), "11:00");
+        assert_eq!(label(13, 45), "13:45");
+        assert_eq!(theme.scale.target, 44.);
+        assert_eq!(notification_action_height(&theme), 48.);
+        let _ = time_chips(None, std::rc::Rc::new(|_, _, _, _| {}), &theme);
+    }
 }

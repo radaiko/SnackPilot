@@ -1,33 +1,32 @@
-//! Desktop navigation rail (desktop-ui-redesign brief §"Navigation rail").
+//! Desktop navigation rail on the one flat system.
 //!
 //! Fixed-width column at the model's `DesktopGeometry::rail_width`, filled
-//! with `desktop.rail`; brand row 56 px, four 44 px rows (icon 20 + label
-//! 14/20 Semibold, 4 px gap, 12 px inset), version footer that is not a
-//! control. The rail scrolls when its content does not fit. Icons are the
-//! same Lucide glyphs as the mobile tab bar (`tab_bar::tab_icon`).
+//! with `BG` and closed by a hairline `BORDER`. The brand row is 56 px, the
+//! section label is `META` `TEXT_SECONDARY`, every tab is a 40 px row
+//! (`BODY`) with a reserved 3 px accent bar, and the active row is
+//! `SURFACE_ALT` with accent ink. Icons are the same Lucide glyphs as the
+//! mobile tab bar (`tab_bar::tab_icon`).
 //! @req REQ-UI-07
 
 use gpui::*;
 use gpui_kit::component::{Icon, Sizable};
+use snackpilot_model::desktop::ROW_HEIGHT;
 use snackpilot_model::navigation::Tab;
 
 use crate::components::tab_bar::{tab_icon, TabSelect};
+use crate::components::workspace::section_label;
 use crate::theme::{self, AppTheme};
 
-/// Brand row height (brief: 56 px).
+/// Brand row height.
 const BRAND_HEIGHT: f32 = 56.;
-/// Rail row minimum height: the 44 px target floor (brief, REQ-UI-07).
-const ROW_HEIGHT: f32 = 44.;
-/// Gap between rail rows (brief: 4 px).
+/// Gap between rail rows.
 const ROW_GAP: f32 = 4.;
-/// Horizontal inset of brand, rows and footer (brief: 12 px).
-const ROW_INSET: f32 = 12.;
-/// Rail icon size (brief: 20 px).
-const ICON_SIZE: f32 = 20.;
+/// Active-row accent rule.
+const ACTIVE_RULE: f32 = 3.;
 
-/// The left navigation rail: brand, the four tabs, version footer.
-/// `width` comes from `AppModel::desktop_geometry()` — the shell never
-/// derives geometry itself.
+/// The left navigation rail: brand, a section label, the four tabs and the
+/// version footer. `width` comes from `AppModel::desktop_geometry()` — the
+/// shell never derives geometry itself.
 pub fn desktop_rail(
     active: Tab,
     width: f32,
@@ -35,6 +34,7 @@ pub fn desktop_rail(
     theme: &AppTheme,
     on_select: TabSelect,
 ) -> AnyElement {
+    let m = &theme.scale;
     let mut column = div()
         .id("desktop-rail")
         .w(px(width))
@@ -42,7 +42,9 @@ pub fn desktop_rail(
         .h_full()
         .flex()
         .flex_col()
-        .bg(theme.desktop.rail)
+        .bg(theme.background)
+        .border_r_1()
+        .border_color(theme.border)
         .overflow_y_scroll()
         .on_key_down({
             let row_focus = row_focus.cloned();
@@ -75,17 +77,18 @@ pub fn desktop_rail(
                 .flex_shrink_0()
                 .flex()
                 .items_center()
-                .px(px(ROW_INSET))
+                .px(px(m.space_4))
                 .child(
                     div()
-                        .text_size(px(16.))
-                        .line_height(px(24.))
+                        .text_size(px(m.headline))
+                        .line_height(px(m.headline_line))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme.desktop.ink)
+                        .text_color(theme.text_primary)
                         .whitespace_nowrap()
                         .child("SnackPilot"),
                 ),
-        );
+        )
+        .child(section_label("Navigation", theme));
 
     column = column
         .gap(px(ROW_GAP))
@@ -107,34 +110,56 @@ pub fn desktop_rail(
                     cx.stop_propagation();
                 }
             })
-            .min_h(px(ROW_HEIGHT))
+            .h(px(ROW_HEIGHT))
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap(px(10.))
-            .px(px(ROW_INSET))
+            .gap(px(m.space_2))
+            .pr(px(m.space_4))
             .cursor_pointer()
             .text_color(if is_active {
-                theme.desktop.accent_on_rail
+                theme.accent
             } else {
                 theme.text_secondary
             })
-            .hover(|s| s.bg(theme.surface_variant))
-            .focus(theme::desktop_focus(theme.desktop.focus))
+            .bg(if is_active {
+                theme.surface_alt
+            } else {
+                theme.background
+            })
+            .hover(move |s| {
+                s.bg(if is_active {
+                    theme.surface_alt
+                } else {
+                    theme.hover(theme.background)
+                })
+            })
+            .focus(theme::desktop_focus(theme.accent))
             .on_click(move |_, window, cx| on_select(tab, window, cx))
             .child(
+                div()
+                    .w(px(ACTIVE_RULE))
+                    .self_stretch()
+                    .flex_shrink_0()
+                    .bg(if is_active {
+                        theme.accent
+                    } else {
+                        hsla(0., 0., 0., 0.)
+                    }),
+            )
+            .child(
                 Icon::new(tab_icon(tab))
-                    .with_size(px(ICON_SIZE))
+                    .with_size(px(m.icon))
                     .text_color(if is_active {
-                        theme.desktop.accent_on_rail
+                        theme.accent
                     } else {
                         theme.text_secondary
                     }),
             )
             .child(
                 div()
-                    .text_size(px(14.))
-                    .line_height(px(20.))
+                    .text_size(px(m.body))
+                    .line_height(px(m.body_line))
                     .font_weight(FontWeight::SEMIBOLD)
                     .whitespace_nowrap()
                     .child(tab.title()),
@@ -146,16 +171,33 @@ pub fn desktop_rail(
         div()
             .mt_auto()
             .flex_shrink_0()
-            .py(px(12.))
-            .px(px(ROW_INSET))
+            .py(px(m.space_3))
+            .px(px(m.space_4))
             .child(
                 div()
-                    .text_size(px(12.))
-                    .line_height(px(16.))
+                    .text_size(px(m.meta))
+                    .line_height(px(m.meta_line))
                     .text_color(theme.text_secondary)
                     .child(format!("Version {}", crate::desktop::product_version())),
             ),
     );
 
     column.into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ACTIVE_RULE, BRAND_HEIGHT, ROW_GAP};
+    use snackpilot_model::desktop::ROW_HEIGHT;
+
+    /// The rail keeps one 40 px flat row beside the hairline and the 3 px
+    /// active rule; no compact/expanded row or rail duplication remains.
+    /// @req REQ-UI-07
+    #[test]
+    fn rail_rows_use_the_flat_scale() {
+        assert_eq!(ROW_HEIGHT, 40.);
+        assert_eq!(ROW_GAP, 4.);
+        assert_eq!(BRAND_HEIGHT, 56.);
+        assert_eq!(ACTIVE_RULE, 3.);
+    }
 }

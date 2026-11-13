@@ -38,6 +38,5 @@ pub(crate) static BILLING_FETCHES: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 pub use session::AppModel;
 pub use state::{
-    AccentColor, Alert, BillingSource, ErrorText, ReminderTime, State, StateHub, Subscriber,
-    ThemePreference,
+    Alert, BillingSource, ErrorText, ReminderTime, State, StateHub, Subscriber, ThemePreference,
 };

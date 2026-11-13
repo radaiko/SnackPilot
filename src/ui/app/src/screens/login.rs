@@ -14,9 +14,11 @@ use gpui_kit::component::input::InputState;
 use snackpilot_model::desktop::ControlState;
 
 use crate::app::AppShell;
+use crate::components::button::{mobile_action_action, mobile_action_metrics, ButtonKind};
 use crate::components::dialog::Dialog;
+use crate::components::spinner::spinner;
 use crate::components::text_field::{desktop_field_with_state, field_with_state};
-use crate::theme::{self, AppTheme};
+use crate::theme::AppTheme;
 use snackpilot_model::{AppModel, PlatformError, State};
 
 /// Which credentials pair the form edits.
@@ -30,6 +32,10 @@ pub enum LoginKind {
 /// (iOS before 5.7); the model's own `error_text` wins when present.
 const FAILURE_TITLE: &str = "Login fehlgeschlagen";
 const FAILURE_FALLBACK: &str = "Anmeldung nicht möglich. Bitte Zugangsdaten prüfen.";
+
+/// The in-place busy glyph: the button keeps its 48 px frame and swaps the
+/// label for a 20 px spinner.
+pub const LOGIN_SPINNER: f32 = 20.;
 
 /// Whether a field renders masked. Both credential screens mask the password,
 /// so the pinned input disables copy/cut for it (REQ-UI-11).
@@ -113,18 +119,17 @@ pub fn login_screen(
             .id("login-form")
             .w_full()
             .max_w(px(440.))
+            .p(px(containment.unwrap_or(16.)))
             .flex()
             .flex_col()
-            .p(px(containment.unwrap_or(16.)))
-            .gap(px(16.))
+            .gap(px(theme.scale.space_4))
     } else {
         div()
             .id("login-form")
+            .w_full()
             .flex()
             .flex_col()
-            .p(px(20.))
-            .pb(px(100.))
-            .gap(px(16.))
+            .gap(px(theme.scale.space_4))
     };
 
     if !desktop {
@@ -134,37 +139,24 @@ pub fn login_screen(
             back,
         ));
     }
-    form = form.child(
-        div()
-            .flex()
-            .flex_col()
-            .child(
+    form = form
+        .child(
+            div()
+                .text_size(px(theme.scale.title))
+                .line_height(px(theme.scale.title_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.text_primary)
+                .child(kind.title()),
+        )
+        .when_some(kind.subtitle(), |d, sub| {
+            d.child(
                 div()
-                    .text_size(px(if desktop { 20. } else { 28. }))
-                    .line_height(px(if desktop { 26. } else { 34. }))
-                    .font_weight(if desktop {
-                        FontWeight::SEMIBOLD
-                    } else {
-                        FontWeight::BOLD
-                    })
-                    .text_color(if desktop {
-                        theme.desktop.ink
-                    } else {
-                        theme.text_primary
-                    })
-                    .child(kind.title()),
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
+                    .text_color(theme.text_secondary)
+                    .child(sub),
             )
-            .when_some(kind.subtitle(), |d, sub| {
-                d.child(
-                    div()
-                        .mt(px(4.))
-                        .mb(px(if desktop { 16. } else { 24. }))
-                        .text_size(px(14.))
-                        .text_color(theme.text_secondary)
-                        .child(sub),
-                )
-            }),
-    );
+        });
 
     let submit_on_enter = |field: Div| -> Div {
         if !desktop {
@@ -184,116 +176,121 @@ pub fn login_screen(
             submit_on_enter(desktop_field_with_state(pass, ControlState::Rest, theme)),
         )
     } else {
-        (field_with_state(user, theme), field_with_state(pass, theme))
+        (
+            field_with_state(user, theme, cx),
+            field_with_state(pass, theme, cx),
+        )
     };
     form = form
         .child(group(kind.username_label(), user_field, theme))
         .child(group(kind.password_label(), pass_field, theme));
 
-    let label = if kind.busy(state) {
-        "Speichern..."
-    } else {
-        "Speichern"
-    };
-    if desktop {
+    if let Some(error) = login_error(kind, state) {
         form = form.child(
-            crate::components::button::desktop_action_state(
+            div()
+                .w_full()
+                .p(px(theme.scale.space_3))
+                .rounded(px(theme.scale.radius_card))
+                .bg(theme.error_surface)
+                .border(px(1.))
+                .border_color(theme.error)
+                .child(
+                    div()
+                        .text_size(px(theme.scale.meta))
+                        .line_height(px(theme.scale.meta_line))
+                        .text_color(theme.error)
+                        .child(error),
+                ),
+        );
+    }
+
+    let busy = kind.busy(state);
+    let (height, radius) = mobile_action_metrics(ButtonKind::Primary);
+    if busy {
+        form = form.child(
+            div()
+                .id("login-save")
+                .w_full()
+                .h(px(height))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(radius))
+                .bg(theme.surface_alt)
+                .child(spinner(theme.text_tertiary, LOGIN_SPINNER)),
+        );
+    } else {
+        form = form.child(
+            mobile_action_action(
                 "login-save",
-                label,
-                crate::components::button::ButtonKind::Primary,
-                if kind.busy(state) {
-                    ControlState::Disabled
-                } else {
-                    ControlState::Rest
-                },
+                "Speichern",
+                ButtonKind::Primary,
                 theme,
                 cx,
                 move |_, window, cx| save(window, cx),
             )
-            .w_full(),
-        );
-    } else {
-        let primary = theme.button_primary();
-        let button = div().flex().items_center().justify_center().py(px(14.));
-        let button = theme::apply(button, &primary).id("login-save");
-        let button = if kind.busy(state) {
-            button
-        } else {
-            button
-                .cursor_pointer()
-                .on_click(move |_, window, cx| save(window, cx))
-        };
-        form = form.child(
-            button.rounded(px(14.)).child(
-                div()
-                    .text_size(px(15.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(theme.on_primary)
-                    .child(label),
-            ),
+            .w_full()
+            .justify_center(),
         );
     }
 
     if kind.authenticated(state) {
         form = form.child(
             div()
-                .mt(px(16.))
+                .mt(px(theme.scale.space_2))
                 .flex()
                 .flex_col()
+                .gap(px(theme.scale.space_2))
                 .child(
                     div()
-                        .mb(px(12.))
-                        .text_size(px(14.))
+                        .text_size(px(theme.scale.meta))
+                        .line_height(px(theme.scale.meta_line))
                         .text_color(theme.text_secondary)
                         .child(kind.session_text(state)),
                 )
-                .child(if desktop {
-                    crate::components::button::desktop_action(
-                        "login-logout",
-                        "Abmelden",
-                        crate::components::button::ButtonKind::Danger,
-                        theme,
-                        cx,
-                        move |_, window, cx| logout(window, cx),
-                    )
-                    .into_any_element()
-                } else {
-                    theme::apply(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .py(px(14.))
-                            .px(px(24.)),
-                        &theme.button_danger(),
-                    )
-                    .id("login-logout")
-                    .cursor_pointer()
-                    .on_click(move |_, window, cx| logout(window, cx))
-                    .child(
-                        div()
-                            .text_size(px(15.))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(theme.on_primary)
-                            .child("Abmelden"),
-                    )
-                    .into_any_element()
-                }),
+                .child(
+                    div()
+                        .id("login-logout")
+                        .w_full()
+                        .min_h(px(theme.scale.action_height))
+                        .flex()
+                        .items_center()
+                        .px(px(theme.scale.space_4))
+                        .cursor_pointer()
+                        .focus(crate::theme::desktop_focus(theme.accent))
+                        .on_click(move |_, window, cx| logout(window, cx))
+                        .child(
+                            div()
+                                .text_size(px(theme.scale.body))
+                                .line_height(px(theme.scale.body_line))
+                                .text_color(theme.error)
+                                .child("Abmelden"),
+                        ),
+                ),
         );
     }
 
     form.into_any_element()
 }
 
+/// The kind's own error, shown as one toned banner above the actions. The
+/// dialog copy stays the model's authority; this is the inline companion.
+fn login_error(kind: LoginKind, state: &State) -> Option<String> {
+    match kind {
+        LoginKind::Kantine => state.error_text.as_ref().map(|e| e.message.clone()),
+        LoginKind::Automaten => state.ventopay_error.as_ref().map(|e| e.message.clone()),
+    }
+}
+
 fn group(label: &'static str, field: Div, theme: &AppTheme) -> Div {
     div()
         .flex()
         .flex_col()
+        .gap(px(theme.scale.space_2))
         .child(
             div()
-                .mb(px(6.))
-                .text_size(px(13.))
-                .font_weight(FontWeight::SEMIBOLD)
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
                 .child(label),
         )
@@ -445,8 +442,11 @@ fn logout_handler(kind: LoginKind, cx: &mut Context<AppShell>) -> crate::navigat
 
 #[cfg(test)]
 mod tests {
-    use super::{password_is_masked, LoginKind, FAILURE_FALLBACK, FAILURE_TITLE};
+    use super::{
+        login_error, password_is_masked, LoginKind, FAILURE_FALLBACK, FAILURE_TITLE, LOGIN_SPINNER,
+    };
     use crate::components::text_field::clipboard_copyable;
+    use snackpilot_model::{ErrorText, State};
 
     /// The failure alert copy of §3.5, used for a rejected login and for the
     /// iOS path without a session model (before 5.7 wires it).
@@ -467,6 +467,34 @@ mod tests {
         assert!(
             !clipboard_copyable(false, false),
             "no selection, no command"
+        );
+    }
+
+    /// The inline error banner uses the kind's own diagnosis, and the busy
+    /// button keeps the 48 px frame with a 20 px spinner in place of the label
+    /// (REQ-SCR-05/REQ-SCR-06).
+    /// @req REQ-SCR-05 @req REQ-SCR-06
+    #[test]
+    fn login_inline_error_and_busy_spinner_are_kind_specific() {
+        assert_eq!(LOGIN_SPINNER, 20.);
+        let state = State {
+            error_text: Some(ErrorText {
+                message: "Kantine offline".into(),
+                retry: true,
+            }),
+            ventopay_error: Some(ErrorText {
+                message: "Automat offline".into(),
+                retry: true,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            login_error(LoginKind::Kantine, &state).as_deref(),
+            Some("Kantine offline")
+        );
+        assert_eq!(
+            login_error(LoginKind::Automaten, &state).as_deref(),
+            Some("Automat offline")
         );
     }
 

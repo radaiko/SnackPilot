@@ -3,16 +3,13 @@
 //! Menus-tab header: 48×48 `circleButton` arrows `❮`/`❯` (opacity 0.3 at the
 //! ends of the date list), centre shows `format_day_short` 19/600 with
 //! `"{i+1} / {count}"` 12 below; tapping the centre jumps to today.
-//! iOS uses a blur wrapper in v1 — gpui has no blur primitive, so the
-//! translucent `glass_surface` stands in (same approximation as the task 4.1
-//! banners), with the 0.5 px `glassShadowEdge` bottom hairline.
+//! One contained surface with a hairline boundary on every platform.
 
 use gpui::*;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{Icon, Sizable};
 use snackpilot_model::format_day_short;
 
-use crate::components::tab_bar::elevation_shadow;
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 
@@ -49,7 +46,7 @@ pub fn day_navigator(
         )
         .id(SharedString::from(id))
         .tab_index(0)
-        .focus(crate::theme::desktop_focus(theme.desktop.focus))
+        .focus(crate::theme::desktop_focus(theme.accent))
         .cursor_pointer();
         let button = if disabled {
             button.opacity(0.3)
@@ -66,20 +63,10 @@ pub fn day_navigator(
         .justify_between()
         .px(px(16.))
         .py(px(12.));
-    let container = if theme.flat {
-        // §4.4 Android: solid surface, 1 px bottom border, elevation 2.
-        container
-            .bg(theme.surface)
-            .border_b_1()
-            .border_color(theme.border)
-            .shadow(vec![elevation_shadow(2.)])
-    } else {
-        // §4.4 iOS: blur wrapper (approximated), 0.5 px bottom hairline.
-        container
-            .bg(theme.glass_surface)
-            .border(px(0.5))
-            .border_color(theme.glass_shadow_edge)
-    };
+    let container = container
+        .bg(theme.surface)
+        .border_b_1()
+        .border_color(theme.border);
 
     let center = div()
         .id("day-today")
@@ -88,12 +75,13 @@ pub fn day_navigator(
         .flex_col()
         .items_center()
         .tab_index(0)
-        .focus(crate::theme::desktop_focus(theme.desktop.focus))
+        .focus(crate::theme::desktop_focus(theme.accent))
         .cursor_pointer()
         .on_click(move |_, window, cx| on_today(window, cx))
         .child(
             div()
-                .text_size(px(19.))
+                .text_size(px(theme.scale.headline))
+                .line_height(px(theme.scale.headline_line))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text_primary)
                 .child(
@@ -118,40 +106,28 @@ pub fn day_navigator(
         .into_any_element()
 }
 
-/// The compact navigator's one control recipe, as data the builder paints: a
-/// contained group on the projected mobile fill with the option radius and a
-/// resolved boundary (never the full-bleed §4.4 band), each arrow a bare 48 px
-/// target carrying the 20 px Lucide glyph instead of the legacy circle disc, and
-/// a min-48 centre target with a 4 px gap under the headline date.
+/// The compact day row's one geometry, as data the builder paints: a 44 px
+/// chevron target, the 20 px Lucide glyph, an 8 px gap and a min-44 centre
+/// target holding the date in the headline role above the ordinal in the
+/// metadata role.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MobileDayNavigator {
-    /// Bare arrow target, both axes (48 px, above the 44 px floor).
+    /// Bare arrow target, both axes (44 px touch floor).
     pub arrow: f32,
     /// Arrow glyph (Lucide 20).
     pub glyph: f32,
+    /// Date-to-ordinal and row gap.
+    pub gap: f32,
     /// The centre target's minimum height.
     pub centre_min: f32,
-    /// Date-to-ordinal gap.
-    pub gap: f32,
-    /// The contained group's radius (the projected option radius).
-    pub radius: f32,
-    /// The group's resting fill (the projected card surface).
-    pub fill: Hsla,
-    /// The group's neutral boundary (the readable mobile secondary ink, at
-    /// least 3:1 on that fill). It is never the accent: the navigator is
-    /// chrome, and the accent belongs to the pending dock and real selections.
-    pub boundary: Hsla,
 }
 
 pub fn mobile_day_navigator_recipe(theme: &AppTheme) -> MobileDayNavigator {
     MobileDayNavigator {
-        arrow: theme.mobile.action_height,
-        glyph: theme.mobile.space_5,
-        centre_min: theme.mobile.action_height,
-        gap: theme.mobile.space_1,
-        radius: theme.mobile.radius_option,
-        fill: theme.mobile_card_fill(),
-        boundary: theme.mobile.secondary,
+        arrow: theme.scale.target,
+        glyph: theme.scale.icon,
+        gap: theme.scale.space_2,
+        centre_min: theme.scale.target,
     }
 }
 
@@ -162,12 +138,12 @@ pub fn day_edge(dates_len: usize, index: usize) -> (bool, bool) {
     (index == 0, index + 1 >= dates_len)
 }
 
-/// The compact Day Tray day navigator (task 1.3): a contained control group
-/// carrying bare 48 px arrows with the 20 px Lucide `ChevronLeft`/
-/// `ChevronRight`, and a min-48 centre target holding the day in the headline
-/// role with the ordinal in the metadata role 4 px below. The wide Ledger keeps
-/// [`day_navigator`] above exactly as before; selection, the today intent, the
-/// format and the disabled ends are unchanged.
+/// The compact Day Tray day row: surface, 1 px hairline, 12 radius, 16
+/// padding, bare 44 px arrows carrying the 20 px Lucide `ChevronLeft`/
+/// `ChevronRight`, and a min-44 centre target holding the day in the headline
+/// role with the ordinal in the metadata role 8 px below. Selection, the today
+/// intent, the formatter and the disabled ends are unchanged; the wide Ledger
+/// keeps [`day_navigator`] above exactly as before.
 /// @req REQ-SCR-01 @req REQ-UI-15 @req REQ-UI-16
 pub fn mobile_day_navigator(
     dates: &[String],
@@ -182,67 +158,69 @@ pub fn mobile_day_navigator(
         .unwrap_or(0);
     let (at_start, at_end) = day_edge(dates.len(), index);
     let recipe = mobile_day_navigator_recipe(theme);
-    let meta = theme.mobile_secondary_on(recipe.fill);
+    let meta = theme.text_secondary;
 
     let arrow = |id: &'static str, icon: IconName, disabled: bool, on: ClickHandler| {
         let ink = if disabled {
-            theme.mobile.disabled_ink
+            theme.text_tertiary
         } else {
             theme.text_primary
         };
-        // A bare target: the hit box is the 48 px arrow itself, with no disc
-        // behind it (the incumbent §4.4 `circle_button` stays on the Ledger).
         let button = div()
             .w(px(recipe.arrow))
             .h(px(recipe.arrow))
             .flex()
             .items_center()
             .justify_center()
+            .rounded(px(theme.scale.radius_chip))
             .child(Icon::new(icon).with_size(px(recipe.glyph)).text_color(ink))
             .id(SharedString::from(id))
             .tab_index(0)
-            .focus(crate::theme::desktop_focus(theme.mobile.focus))
-            .cursor_pointer();
+            .focus(crate::theme::desktop_focus(theme.accent));
         let button = if disabled {
             button
         } else {
-            button.on_click(move |_, window, cx| on(window, cx))
+            button
+                .cursor_pointer()
+                .hover(move |s| s.bg(theme.surface_alt))
+                .on_click(move |_, window, cx| on(window, cx))
         };
         button.into_any_element()
     };
 
-    // A contained group: the projected card fill, the option radius and the
-    // resolved boundary, inset by the 4 px grid rather than bleeding across the
-    // viewport. The shell supplies the outer 16 px gutter.
-    let container = div()
-        .w_full()
-        .flex()
-        .items_center()
-        .justify_between()
-        .p(px(recipe.gap))
-        .rounded(px(recipe.radius))
-        .border_1()
-        .border_color(recipe.boundary)
-        .bg(recipe.fill);
+    // The row is one surface: the shell supplies the outer 16 px gutter.
+    let container = theme::apply(
+        div()
+            .w_full()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(recipe.gap))
+            .p(px(theme.scale.space_4)),
+        &theme.card_surface(),
+    );
 
     let center = div()
         .id("day-today")
         .flex_1()
+        .min_w(px(0.))
         .min_h(px(recipe.centre_min))
         .flex()
         .flex_col()
         .items_center()
         .justify_center()
         .gap(px(recipe.gap))
+        .rounded(px(theme.scale.radius_chip))
         .tab_index(0)
-        .focus(crate::theme::desktop_focus(theme.mobile.focus))
         .cursor_pointer()
+        .hover(move |s| s.bg(theme.surface_alt))
+        .focus(crate::theme::desktop_focus(theme.accent))
         .on_click(move |_, window, cx| on_today(window, cx))
         .child(
             div()
-                .text_size(px(theme.mobile.headline))
-                .line_height(px(theme.mobile.headline_line))
-                .font_weight(FontWeight::BOLD)
+                .text_size(px(theme.scale.headline))
+                .line_height(px(theme.scale.headline_line))
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text_primary)
                 .text_center()
                 .child(
@@ -254,8 +232,8 @@ pub fn mobile_day_navigator(
         )
         .child(
             div()
-                .text_size(px(theme.mobile.meta))
-                .line_height(px(theme.mobile.meta_line))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(meta)
                 .child(format!("{} / {}", index + 1, dates.len())),
         );
@@ -272,74 +250,53 @@ mod tests {
     use super::{day_edge, mobile_day_navigator, mobile_day_navigator_recipe};
     use crate::theme::{to_rgb, AppTheme};
     use snackpilot_model::desktop::contrast_ratio;
-    use snackpilot_model::tokens::mobile;
-    use snackpilot_model::AccentColor;
+    use snackpilot_model::tokens;
     use std::cell::Cell;
     use std::rc::Rc;
 
-    /// The compact navigator is a contained control, not the incumbent
-    /// full-bleed §4.4 band (REQ-SCR-01/REQ-UI-16): the projected option radius
-    /// on the projected card fill with a boundary that reads at 3:1, bare 48 px
-    /// arrow targets carrying the 20 px Lucide glyph instead of the legacy grey
-    /// circle discs, and a min-48 centre target with a 4 px date/ordinal gap.
-    /// The edge state stays the model's one list, and building the navigator
-    /// activates nothing. The wide Ledger keeps its own `day_navigator`.
+    /// The compact day row (REQ-SCR-01/REQ-UI-16): one surface row with the
+    /// 1 px hairline, 12 radius and 16 padding, bare 44 px chevron targets
+    /// carrying the 20 px Lucide glyph, and a min-44 centre target with an
+    /// 8 px date/ordinal gap. The edge state stays the model's one list, and
+    /// building the navigator activates nothing.
     /// @req REQ-SCR-01 @req REQ-UI-16
     #[test]
-    fn mobile_day_navigator_is_a_contained_control_with_bare_arrow_targets() {
-        for (dark, accent, flat) in [
-            (false, AccentColor::Orange, false),
-            (false, AccentColor::Orange, true),
-            (true, AccentColor::Berry, false),
-            (true, AccentColor::Golden, true),
-        ] {
-            let theme = AppTheme::build(dark, accent, flat);
+    fn mobile_day_navigator_is_one_row_with_44_targets() {
+        for dark in [false, true] {
+            let theme = AppTheme::build(dark);
             let recipe = mobile_day_navigator_recipe(&theme);
 
-            // Contained: a rounded control on the card surface, not a square
-            // band on the page background, with a boundary that is visible on
-            // its own fill (the incumbent `border` does not reach 3:1).
-            assert_eq!(recipe.radius, theme.mobile.radius_option);
-            assert_eq!(recipe.radius, mobile::RADIUS_OPTION);
-            assert_eq!(recipe.fill, theme.mobile_card_fill());
-            assert_ne!(recipe.fill, theme.background, "the group is a surface");
-            assert_ne!(recipe.boundary, recipe.fill);
-            let fill = to_rgb(recipe.fill, recipe.fill);
-            assert!(
-                contrast_ratio(to_rgb(recipe.boundary, recipe.fill), fill)
-                    >= mobile::CONTROL_MIN_CONTRAST,
-                "the contained boundary reads on its fill"
-            );
-            assert_ne!(
-                recipe.boundary, theme.primary,
-                "the navigator is chrome: its boundary is neutral, not the accent"
-            );
-
-            // Bare targets: the 48 px arrow itself is the hit box, the glyph is
-            // the 20 px Lucide icon, and no disc is painted behind it.
-            assert_eq!(recipe.arrow, theme.mobile.action_height);
-            assert!(recipe.arrow >= theme.mobile.target);
+            assert_eq!(recipe.arrow, tokens::TARGET);
+            assert_eq!(recipe.arrow, 44.);
+            assert_eq!(recipe.centre_min, 44.);
             assert_eq!(recipe.glyph, 20.);
-            assert!(recipe.glyph < recipe.arrow);
-            assert_eq!(recipe.centre_min, theme.mobile.action_height);
-            assert_eq!(recipe.gap, mobile::SPACE_1);
-            assert_eq!(recipe.gap, 4.);
+            assert_eq!(recipe.glyph, tokens::ICON);
+            assert_eq!(recipe.gap, 8.);
+            assert_eq!(recipe.gap, tokens::SPACE_2);
+
+            // The row is the shared flat surface, not a full-bleed band.
+            let row = theme.card_surface();
+            assert_eq!(row.radius, gpui_kit::px(tokens::RADIUS_CARD));
+            assert_eq!(row.border.map(|(w, _)| w), Some(gpui_kit::px(1.)));
+            assert_eq!(theme.scale.space_4, 16.);
+            // The hairline stays quieter than the text it separates.
+            let fill = to_rgb(row.bg, row.bg);
+            assert!(
+                contrast_ratio(to_rgb(theme.border, row.bg), fill) < 3.,
+                "the hairline is a quiet border, not a control boundary"
+            );
         }
 
-        // The edge state is the model's list: a single day closes both ends,
-        // the first closes back only, the last closes forward only.
         assert_eq!(day_edge(1, 0), (true, true));
         assert_eq!(day_edge(3, 0), (true, false));
         assert_eq!(day_edge(3, 1), (false, false));
         assert_eq!(day_edge(3, 2), (false, true));
 
-        // Building the navigator activates nothing: it only projects the day
-        // the model already selected.
         let dates: Vec<String> = ["2026-11-16", "2026-11-17", "2026-11-18"]
             .into_iter()
             .map(str::to_string)
             .collect();
-        let theme = AppTheme::build(false, AccentColor::Orange, false);
+        let theme = AppTheme::build(false);
         let activations = Rc::new(Cell::new(0));
         let handler = {
             let activations = activations.clone();

@@ -4,14 +4,13 @@
 use snackpilot_core::notify::{DailyReminderSettings, NotificationCommand};
 use snackpilot_core::storage::Kv;
 
-use crate::state::{AccentColor, Alert, ReminderTime, ThemePreference};
+use crate::state::{Alert, ReminderTime, ThemePreference};
 use crate::AppModel;
 
 /// KV keys, exactly as the iOS `AppModel` persists them (AppModel.swift:647,659;
 /// the reminder time/enabled additionally mirror into core's own keys so its
 /// headless background callers read the same settings, §9).
 pub(crate) const THEME_KEY: &str = "theme_preference";
-pub(crate) const ACCENT_KEY: &str = "accent_color";
 pub(crate) const REMINDER_ENABLED_KEY: &str = "daily_reminder_enabled";
 pub(crate) const REMINDER_HOUR_KEY: &str = "daily_reminder_hour";
 pub(crate) const REMINDER_MINUTE_KEY: &str = "daily_reminder_minute";
@@ -24,8 +23,8 @@ pub const REMINDER_PICKER_DEFAULT_HOUR: u8 = 11;
 pub const REMINDER_PICKER_DEFAULT_MINUTE: u8 = 0;
 
 impl AppModel {
-    /// Reads the appearance keys at startup; defaults are System and Orange
-    /// (REQ-UI-05). Never calls the platform, so startup never switches the icon.
+    /// Reads the appearance key at startup; the default is System. Never
+    /// calls the platform.
     pub(crate) fn load_preferences(&self) {
         let theme = self
             .kv
@@ -34,35 +33,13 @@ impl AppModel {
             .flatten()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let accent = self
-            .kv
-            .get(ACCENT_KEY)
-            .ok()
-            .flatten()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_default();
-        self.hub.update("preferences", |s| {
-            s.theme = theme;
-            s.accent = accent;
-        });
+        self.hub.update("preferences", |s| s.theme = theme);
     }
 
-    /// Persists the theme (AppModel.swift:646-651); independent of the accent,
-    /// no icon side effect (REQ-UI-05).
+    /// Persists the theme (AppModel.swift:646-651).
     pub fn set_theme_preference(&self, theme: ThemePreference) {
         let _ = self.kv.set(THEME_KEY, theme.raw_value());
         self.hub.update("theme", |s| s.theme = theme);
-    }
-
-    /// Persists the accent and switches the app icon — the only icon call site,
-    /// mirroring v1 (AppModel.swift:655-659, themes §6; REQ-UI-05, REQ-PLT-05).
-    pub fn set_accent_color(&self, accent: AccentColor) {
-        if self.hub.get().accent == accent {
-            return;
-        }
-        let _ = self.kv.set(ACCENT_KEY, accent.raw_value());
-        self.hub.update("accent", |s| s.accent = accent);
-        let _ = self.platform.set_app_icon(accent.raw_value());
     }
 
     /// Reads the reminder keys at startup; the reminder is off and there is no
