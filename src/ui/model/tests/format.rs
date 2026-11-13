@@ -47,6 +47,32 @@ fn bill_card_date_and_time_use_vienna_local_time() {
 
 #[test]
 /// @req REQ-UI-06
+fn mobile_billing_samples_keep_the_incumbent_formatter() {
+    // Task 1.5 regression samples for the compact Abrechnung surface: full
+    // de-AT dates and month names through the existing helpers, and the
+    // currency form at zero, negative, large and sub-cent values. The
+    // formatter source is untouched; these are the strings a receipt card and
+    // the summary paint. Full month tab labels are `MonthOption.label` from the
+    // core and are asserted in the billing suite.
+    assert_eq!(format_date_long(1_768_474_800_000), "Do., 15. Jän. 2026");
+    assert_eq!(format_time(1_768_474_800_000), "12:00");
+    assert_eq!(format_date_long(1_772_439_300_000), "Mo., 2. März 2026");
+    assert_eq!(format_date_long(1_798_756_200_000), "Do., 31. Dez. 2026");
+    assert_eq!(format_time(1_798_756_200_000), "23:30");
+    assert_eq!(format_date_long(1_783_159_200_000), "Sa., 4. Juli 2026");
+
+    assert_eq!(format_eur(0.0), "€ 0,00", "an empty month stays zero");
+    assert_eq!(
+        format_eur(-1_234.5),
+        "-€ 1.234,50",
+        "a credit keeps its sign"
+    );
+    assert_eq!(format_eur(1_234_567.89), "€ 1.234.567,89", "large amount");
+    assert_eq!(format_eur(-0.004), "€ 0,00", "sub-cent rounds to zero");
+}
+
+#[test]
+/// @req REQ-UI-06
 fn today_key_is_a_vienna_day_key() {
     let key = today_key();
     assert!(

@@ -39,7 +39,7 @@ use crate::components::toast::{
 use crate::components::workspace::workspace_header;
 use crate::navigation::ClickHandler;
 use crate::screens::appearance::appearance_screen;
-use crate::screens::billing::{billing_tab, desktop_billing_tab};
+use crate::screens::billing::{billing_owns_progress, billing_tab, desktop_billing_tab};
 use crate::screens::login::{login_screen, LoginKind};
 use crate::screens::menus::{desktop_menus_tab, menus_dock, menus_dock_height, menus_tab};
 use crate::screens::notifications::notifications_screen;
@@ -433,10 +433,7 @@ pub(crate) fn cached_menu_refresh(
 /// tracked contract gap, not a second layout owner: once a screen drops its
 /// padding it also drops out of this list and the measured value applies.
 pub(crate) fn legacy_screen_owns_bottom_inset(top: Screen) -> bool {
-    matches!(
-        top,
-        Screen::Billing | Screen::Settings | Screen::SettingsDetail
-    )
+    matches!(top, Screen::Settings | Screen::SettingsDetail)
 }
 
 /// The inset a legacy screen already paints (`.pb(px(100.))`). The shell tops
@@ -1779,7 +1776,16 @@ impl Render for AppShell {
         // incumbent overlay).
         let keep_cached_menus =
             !desktop && cached_menu_refresh(nav.top(), state.menu_snapshot.as_ref());
-        if (state.busy || state.ventopay_busy || state.billing_loading) && !keep_cached_menus {
+        // The compact Abrechnung surface paints its own progress (A17): the quiet
+        // initial spinner36 inside the still-present filters, or the neutral
+        // 16 px row over a cached context. The blocking overlay must not cover
+        // it; every other surface keeps the incumbent overlay.
+        let keep_cached_billing =
+            !desktop && billing_owns_progress(nav.top(), state.billing_loading);
+        if (state.busy || state.ventopay_busy || state.billing_loading)
+            && !keep_cached_menus
+            && !keep_cached_billing
+        {
             root = root.child(if desktop {
                 desktop_loading_overlay(&theme)
             } else {
@@ -2098,11 +2104,12 @@ mod tests {
         assert_eq!(compact_frame(&pushed).heading, None);
     }
 
-    /// The compact column owns one bottom inset (REQ-UI-03/15). The Menüs and
-    /// Bestellungen screens migrated in tasks 1.3/1.4, so the shell supplies
-    /// exactly the measured reservation there — the Bestellungen selection
-    /// strip sits inside that measured content box, above navigation — while the
-    /// screens still on the legacy inset get only the shortfall topped up. The
+    /// The compact column owns one bottom inset (REQ-UI-03/15). The Menüs,
+    /// Bestellungen and Abrechnung screens migrated in tasks 1.3/1.4/1.5, so the
+    /// shell supplies exactly the measured reservation there — the Bestellungen
+    /// selection strip sits inside that measured content box, above navigation —
+    /// while the screens still on the legacy inset get only the shortfall
+    /// topped up. The
     /// real column arithmetic is what `render` uses, and the test fails if the
     /// two insets ever sum.
     /// @req REQ-UI-03 @req REQ-UI-15
@@ -2126,7 +2133,7 @@ mod tests {
             );
             // The migrated screens own no inset of their own any more: the
             // measured reservation alone clears the navigation.
-            for top in [Screen::Menus, Screen::Orders] {
+            for top in [Screen::Menus, Screen::Orders, Screen::Billing] {
                 assert!(
                     !legacy_screen_owns_bottom_inset(top),
                     "{top:?} dropped its legacy 16/100 px padding"
@@ -2135,7 +2142,7 @@ mod tests {
             }
             // The screens still to migrate own their inset; the shell only tops
             // up any shortfall.
-            for top in [Screen::Billing, Screen::Settings, Screen::SettingsDetail] {
+            for top in [Screen::Settings, Screen::SettingsDetail] {
                 assert!(legacy_screen_owns_bottom_inset(top), "{top:?}");
                 assert_eq!(
                     compact_content_bottom(&plan, true),

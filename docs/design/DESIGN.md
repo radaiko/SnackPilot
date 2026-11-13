@@ -363,12 +363,31 @@ measured height, so the same value is the content's inset on both dialects: the
 dock is painted over the content, 8 px above the bar, and the last card ends 8 px
 above the dock.
 
+### Abrechnung (task 1.5)
+
+| Component | Compact presentation |
+| --- | --- |
+| month choices (`mobile_month_row`) | Three equal min-48 targets with body-16 labels in the core's own full German month names; a full label may take a second line and is never truncated or reformatted. The selected month keeps the accent rule and the accent ink resolved to readable on the surface (`mobile_ink_on`), the others the readable secondary projection. The choices stay painted and usable while a fetch runs. |
+| source options (`mobile_source_row`) | The shared mobile option recipe (`chip::chip`): min-44 target, 12 px side padding, r8, 8 px gap, wrapping group, selected check 20 plus accent tint and resolved boundary, readable unselected ink. Labels `Alle`/`Kantine`/`Automaten` unchanged. |
+| summary (`mobile_summary_surface`) | One `banner_surface`, padding16: `Gesamt` in the metadata role above the body Semibold amount at the leading edge, then one wrapping metadata line with `Belege` and the conditional `Zuschuss` (pairs 16 px apart, governing ink `text_primary`, subsidy on the readable success projection). No three equal metric columns and no extra total heading. Values are the incumbent `billing_totals()` and `format_eur`, so the filtered totals and the Kantine-only subsidy condition are unchanged. |
+| `bill_card` | `card_surface`, padding16, gap8, 8 px after the card. Date in the body role Semibold, time and the neutral uppercase `KANTINE`/`AUTOMATEN` metadata in one wrapping line, the amount trailing in the body role `TEXT_PRIMARY`. A neutral hairline separates the header from the body. Kantine lines keep the 28 px quantity metadata column, the full wrapping description in the body role and the trailing metadata amount; Automaten paints only its supplied, non-empty restaurant line and no invented items. The card is read-only for both sources (`ReceiptInteraction::ReadOnly`): no pointer affordance, tab stop or handler. |
+| loading / refresh | The screen keeps its month and source controls while loading. Without a cache for the selected month it paints the quiet centred spinner36; over that cache it keeps the records/totals and paints the neutral 16 px `Aktualisiere...` row. `app::billing_owns_progress` keeps the shell's blocking overlay off the surface, so no elevated spinner card covers the filters. |
+| selected-context guard | `billing_context_matches`/`billing_context_cached` compare the published `month_key`s with the selected `MonthOption.key`: a month switch still in flight publishes the previous month, whose rows are withheld instead of painted under the new label. No cache, fetch, merge or totals code changes; a failed source simply contributes nothing while the other stays truthful. |
+
+The Abrechnung screen drops its legacy `.p(16)`/`.pb(100)` as well: the shell's
+centred column supplies the 16 px gutter and its measured reservation the
+scroll-end clearance, and `app::legacy_screen_owns_bottom_inset` no longer lists
+`Screen::Billing`. `pull_refresh` gains only the `min_h(0)` that lets it shrink
+inside that measured box; its 60 px trigger is unchanged, as are the month/
+source intents, the newest-first stable IDs and the de-AT formatter.
+
 `loading_overlay` keeps its initial 36 px spinner card. Screen bodies, the
 remaining screen contracts and their dock/navigator/card projections belong to
-tasks 1.5-1.11; the gallery gains one component **state board**
+tasks 1.6-1.11; the gallery gains one component **state board**
 (`SNACKPILOT_GALLERY_PAGE=mobile`) for the five accents in light/dark on the
-host dialect plus the Menüs cards/dock board and the Bestellungen
-segment/banner/card board, and is not proof of a working screen.
+host dialect plus the Menüs cards/dock board, the Bestellungen
+segment/banner/card board and the Abrechnung month/source/summary/receipt
+board, and is not proof of a working screen.
 
 ### Not changed here
 

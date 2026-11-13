@@ -1,0 +1,4 @@
+test app::tests::compact_shell_does_not_stack_a_screen_bottom_inset ... ok
+test components::bill_card::tests::mobile_receipt_lines_wrap_and_remain_read_only ... ok
+test screens::billing::mobile_tests::mobile_billing_controls_survive_loading_and_context_change ... ok
+test result: ok. 134 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s

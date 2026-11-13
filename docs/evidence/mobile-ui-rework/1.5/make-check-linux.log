@@ -1,0 +1,509 @@
+cd src/core && cargo fmt --all --check
+cd src/core && cargo clippy --all-targets --all-features -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+cd src/core && cargo test --workspace --all-targets --all-features
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/snackpilot_core-e1d1bf6ac99111c5)
+
+running 160 tests
+test broadcast::tests::parse_empty_and_whitespace_yield_none ... ok
+test broadcast::tests::fetch_empty_gist_is_none ... ok
+test broadcast::tests::fetch_transport_error_is_none ... ok
+test datetime::formats::tests::cutoff_future_never_blocked ... ok
+test broadcast::tests::fetch_returns_message_from_body ... ok
+test broadcast::tests::parse_trims_and_keeps_nonempty ... ok
+test datetime::formats::tests::cutoff_before_today_is_blocked ... ok
+test datetime::formats::tests::bill_date_accepts_dotnet_variants ... ok
+test datetime::formats::tests::cutoff_today_depends_on_0900_vienna ... ok
+test datetime::formats::tests::local_epoch_from_parts_matches_local_midnight_helper ... ok
+test datetime::formats::tests::ventopay_date_format ... ok
+test datetime::formats::tests::menu_date_roundtrip ... ok
+test datetime::formats::tests::orders_date_defaults_missing_time_to_midnight ... ok
+test demo::data::tests::billing_past_month_has_all_weekdays_and_is_deterministic ... ok
+test demo::data::tests::billing_non_numeric_offset_is_current_month ... ok
+test demo::data::tests::deterministic_within_a_day ... ok
+test demo::data::tests::transactions_deterministic_weekdays_only_kaffeeautomat ... ok
+test demo::gourmet::tests::login_returns_fixed_demo_user_and_never_fails ... ok
+test demo::data::tests::ten_distinct_weekdays_starting_monday ... ok
+test demo::gourmet::tests::confirm_then_cancel_workflow ... ok
+test demo::data::tests::produces_40_items_all_available_no_weekends ... ok
+test demo::gourmet::tests::billings_generate ... ok
+test demo::gourmet::tests::add_to_cart_creates_order_and_marks_menu_ordered ... ok
+test demo::prng::tests::known_answer_no_precision_loss ... ok
+test demo::prng::tests::deterministic_same_seed_same_sequence ... ok
+test demo::gourmet::tests::menus_are_40_items_stable_and_all_available ... ok
+test demo::prng::tests::large_seed_exercises_lossy_path_and_stays_in_range ... ok
+test domain::menu::tests::category_display_strings_match_v1 ... ok
+test demo::ventopay::tests::login_logout_toggles_auth ... ok
+test demo::prng::tests::values_in_unit_interval_and_seeds_differ ... ok
+test demo::ventopay::tests::transactions_are_deterministic_within_a_month ... ok
+test error::tests::display_strings_are_verbatim_v1 ... ok
+test demo::gourmet::tests::logout_clears_everything ... ok
+test features::billing::tests::month_options_are_three_with_austrian_labels ... ok
+test features::menus::tests::cutoff_delegates_to_datetime ... ok
+test features::menus::tests::find_nearest_prefers_on_or_after ... ok
+test features::menus::tests::merge_availability_updates_first_and_appends_new ... ok
+test features::billing::tests::ventopay_fetch_skipped_when_not_authenticated ... ok
+test features::menus::tests::submit_all_cutoff_blocked_sets_error_and_keeps_pending ... ok
+test features::menus::tests::toggle_pending_moves_between_orders_and_cancellations ... ok
+test features::menus::tests::submit_no_op_when_nothing_pending ... ok
+test features::billing::tests::past_month_with_data_is_not_refetched ... ok
+test features::billing::tests::fetch_billing_computes_totals_and_caches ... ok
+test features::orders::tests::fetch_on_failure_emits_no_commands ... ok
+test features::orders::tests::fetch_cancels_geofence_notice_when_order_today ... ok
+test features::orders::tests::fetch_failure_keeps_orders_and_sets_error ... ok
+test features::orders::tests::fetch_orders_parses_and_caches ... ok
+test features::orders::tests::run_order_sync_check_empty_cache_retracts_cancel_reminder ... ok
+test features::orders::tests::run_order_sync_check_excludes_geofence_cancel ... ok
+test features::orders::tests::split_upcoming_and_past_at_local_midnight ... ok
+test gourmet::api::tests::add_to_cart_failure_maps_message ... ok
+test features::orders::tests::fetch_emits_post_fetch_notification_commands ... ok
+test gourmet::api::tests::add_to_cart_requires_user_info ... ok
+test gourmet::api::tests::add_to_cart_groups_by_date_and_uses_lowercase_staffgroup_key ... ok
+test features::orders::tests::fetch_without_order_today_emits_no_geofence_cancel ... ok
+test gourmet::api::tests::confirm_orders_toggles_edit_mode_tokenless ... ok
+test gourmet::api::tests::get_billings_requires_user_info_before_any_request ... ok
+test gourmet::api::tests::cancel_orders_posts_tokenless_urlencoded_to_controller ... ok
+test gourmet::api::tests::get_billings_accepts_raw_array_and_empty ... ok
+test gourmet::api::tests::get_billings_probes_then_posts_and_maps_wrapper ... ok
+test gourmet::api::tests::login_failure_raises ... ok
+test gourmet::api::tests::login_posts_urlencoded_email_password_remember_and_caches_user_info ... ok
+test gourmet::api::tests::logout_clears_state_and_swallows_errors ... ok
+test gourmet::client::tests::get_appends_query_but_last_page_strips_it ... ok
+test gourmet::client::tests::get_sends_bare_url_and_records_last_page ... ok
+test gourmet::client::tests::post_form_carries_origin_referer_and_ordered_multipart ... ok
+test gourmet::client::tests::post_json_sets_json_body_and_referer_fallback ... ok
+test gourmet::api::tests::stale_session_triggers_pre_logout ... ok
+test gourmet::client::tests::post_urlencoded_carries_origin_referer_and_ordered_form_body ... ok
+test gourmet::client::tests::reset_clears_last_page_url ... ok
+test gourmet::api::tests::get_orders_parses_after_session_check ... ok
+test features::menus::tests::submit_failure_reverts_and_sets_error ... ok
+test features::menus::tests::submit_new_order_adds_confirms_refreshes_and_emits_analytics ... ok
+test gourmet::parser::tests::extracts_user_info_from_success_page ... ok
+test gourmet::parser::tests::is_logged_in_false_on_login_and_failed_pages ... ok
+test gourmet::parser::tests::is_logged_in_true_on_authenticated_page ... ok
+test gourmet::parser::tests::missing_ufprt_errors_with_exact_message ... ok
+test gourmet::parser::tests::edit_mode_value_present_on_orders_pages ... ok
+test gourmet::parser::tests::extracts_form_tokens_from_edit_mode_form ... ok
+test gourmet::parser::tests::next_page_detection ... ok
+test gourmet::parser::tests::rebuilt_login_page_has_no_form_tokens ... ok
+test gourmet::parser::tests::user_info_missing_ids_errors ... ok
+test gourmet::provider::tests::exit_demo_returns_to_live_backend ... ok
+test http::cookie_jar::tests::captures_name_value_ignoring_attributes ... ok
+test http::cookie_jar::tests::ignores_malformed_and_empty ... ok
+test http::cookie_jar::tests::no_header_when_empty ... ok
+test http::cookie_jar::tests::overwrite_preserves_insertion_position ... ok
+test http::fake::tests::capturing_transport_errors_when_queue_empty ... ok
+test http::fake::tests::capturing_transport_records_requests_and_returns_queued_bodies ... ok
+test gourmet::parser::tests::detects_categories ... ok
+test gourmet::parser::tests::cancel_form_extraction_or_clear_error ... ok
+test features::menus::tests::refresh_availability_merges_with_zero_min_visibility ... ok
+test gourmet::parser::tests::parses_ordered_menus ... ok
+test notify::cancel_reminder::tests::at_company_cancels ... ok
+test notify::cancel_reminder::tests::at_or_after_deadline_does_nothing ... ok
+test http::reqwest_transport::tests::sends_accept_and_mobile_user_agent ... ok
+test notify::cancel_reminder::tests::before_target_schedules_with_channel ... ok
+test notify::cancel_reminder::tests::in_window_fires_now_without_channel ... ok
+test notify::cancel_reminder::tests::no_order_today_cancels ... ok
+test notify::daily_reminder::tests::at_or_after_target_returns_none ... ok
+test notify::daily_reminder::tests::before_target_with_order_schedules_at_target ... ok
+test notify::daily_reminder::tests::disabled_or_unconfigured_returns_none ... ok
+test notify::fingerprint::tests::detection_rules ... ok
+test notify::daily_reminder::tests::no_order_today_cancels_pending ... ok
+test http::reqwest_transport::tests::status_400_maps_to_http_error ... ok
+test notify::fingerprint::tests::fingerprint_entry_shape ... ok
+test notify::fingerprint::tests::kv_persistence_and_latch ... ok
+test notify::fingerprint::tests::same_id_two_days_two_entries_same_day_last_wins ... ok
+test notify::geofence::tests::enter_no_order_cancels_cancel_reminder_and_schedules_no_order ... ok
+test notify::fingerprint::tests::serialize_round_trip_and_bad_json ... ok
+test notify::geofence::tests::exactly_1400_skips ... ok
+test notify::geofence::tests::enter_with_order_only_cancels_cancel_reminder ... ok
+test notify::geofence::tests::no_order_notification_windows ... ok
+test notify::geofence::tests::exit_cancels_geofence_then_schedules_cancel_reminder_when_order_today ... ok
+test notify::log::tests::append_records_entry_with_omitted_detail_and_iso_ts ... ok
+test notify::log::tests::activate_starts_fresh_and_window_is_strict ... ok
+test notify::log::tests::inactive_by_default_and_append_is_noop ... ok
+test notify::menu_check::tests::demo_credentials_skipped_without_network ... ok
+test notify::menu_check::tests::no_credentials_returns_no_credentials ... ok
+test storage::cache::tests::corrupt_billing_returns_none_but_keeps_key ... ok
+test storage::cache::tests::corrupt_menus_returns_none_and_removes_key ... ok
+test notify::menu_check::tests::login_failure_returns_failed ... ok
+test storage::cache::tests::daily_reminder_settings_round_trip ... ok
+test storage::cache::tests::daily_reminder_enabled_without_time_reads_unconfigured ... ok
+test storage::cache::tests::daily_reminder_time_ignores_garbage ... ok
+test storage::cache::tests::menus_round_trip ... ok
+test storage::cache::tests::month_key_from_offset_wraps_year ... ok
+test storage::cache::tests::month_label_uses_austrian_names ... ok
+test storage::file_kv::tests::file_kv_absent_key_is_none ... ok
+test gourmet::api::tests::get_menus_paginates_until_no_next_link ... ok
+test storage::file_kv::tests::file_kv_key_with_slash_or_colon_is_safe ... ok
+test storage::file_kv::tests::file_kv_persists_across_instances ... ok
+test storage::memory_kv::tests::absent_key_returns_none_not_error ... ok
+test storage::memory_kv::tests::remove_absent_key_is_ok ... ok
+test storage::memory_kv::tests::set_get_remove_roundtrip ... ok
+test ventopay::api::tests::get_transactions_without_creds_is_session_expired ... ok
+test ventopay::api::tests::login_failure_401_raises_ventopay_message ... ok
+test ventopay::api::tests::get_transactions_formats_dates_and_parses ... ok
+test ventopay::api::tests::get_transactions_retries_once_on_401 ... ok
+test ventopay::api::tests::login_with_2fa_fails ... ok
+test ventopay::api::tests::logout_clears_state ... ok
+test ventopay::client::tests::bearer_is_attached_after_set ... ok
+test ventopay::api::tests::login_posts_json_and_attaches_bearer ... ok
+test ventopay::client::tests::delete_sends_origin_and_referer ... ok
+test ventopay::client::tests::get_query_percent_encodes_colon_in_iso_dates ... ok
+test ventopay::client::tests::post_json_is_json_with_origin_and_referer ... ok
+test ventopay::client::tests::get_records_last_page_and_captures_cookie ... ok
+test ventopay::parser::tests::empty_list_yields_no_transactions ... ok
+test ventopay::parser::tests::access_token_extracted ... ok
+test ventopay::parser::tests::error_code_fails_parse ... ok
+test ventopay::client::tests::second_request_injects_captured_cookie ... ok
+test ventopay::parser::tests::login_response_rejects_otp ... ok
+test ventopay::parser::tests::login_response_ok_without_otp ... ok
+test ventopay::parser::tests::skips_idless_and_bad_date_uses_now ... ok
+test ventopay::parser::tests::scientific_notation_amount_parses ... ok
+test ventopay::parser::tests::parses_transactions_and_applies_gourmet_filter ... ok
+test features::menus::tests::fetch_menus_populates_and_caches_and_sets_last_fetched ... ok
+test gourmet::parser::tests::parses_desktop_meals_only_no_duplicates ... ok
+test notify::menu_check::tests::first_run_detects_and_fires_then_second_run_resets_latch ... ok
+test notify::log::tests::caps_at_200_dropping_oldest ... ok
+
+test result: ok. 160 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running unittests src/bin/uniffi-bindgen.rs (target/debug/deps/uniffi_bindgen-0b9642072b5a145e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/wire_audit.rs (target/debug/deps/wire_audit-f7d886ceff0a391e)
+
+running 2 tests
+test ventopay_client_keeps_302_session_cookie ... ok
+test wire_audit ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+ok: accepts 2.0.0
+ok: accepts 10.20.30
+ok: rejects 2.0
+ok: rejects v2.0.0
+ok: rejects 2.0.0-rc1
+ok: 2.0.1 > 2.0.0
+ok: 2.1.0 > 2.0.9
+ok: 2.0.0 !> 2.0.0
+ok: 2.0.0 !> 2.0.1
+ok: cargo package version bumped
+ok: cargo dep version untouched
+ok: cargo [package] version bumped with colliding dep
+ok: marketing version bumped
+ok: project version bumped
+ok: gradle versionName bumped
+ok: gradle versionCode bumped
+ok: stale when artifact missing
+ok: stale when source newer than artifact
+ok: fresh when artifact newer than source
+---
+ALL PASS
+ok: a fully configured package succeeds
+ok: the .app bundle and executable exist
+ok: the icon is an ICNS resource
+ok: Info.plist keeps the stable bundle identity
+ok: Info.plist carries the common version
+ok: Info.plist carries the common build
+ok: Info.plist requires macOS 26.0
+ok: Info.plist names the product icon
+ok: the receipt is written
+ok: receipt platform is macos
+ok: receipt architecture is aarch64
+ok: receipt version matches the build input
+ok: receipt build matches the build input
+ok: receipt trust is only claimed as developer-id-notarized-stapled
+ok: receipt uses the bundle-manifest checksum scheme
+ok: receipt checksum is SHA-256
+ok: no public ZIP or leftover notary archive
+ok: cargo runs the locked release build for aarch64-apple-darwin
+ok: the release build pins MACOSX_DEPLOYMENT_TARGET=26.0
+ok: nested code is signed with the hardened runtime and a secure timestamp
+ok: the outer app is signed with the hardened runtime and a secure timestamp
+ok: notarization uses the configured keychain profile and waits for the verdict
+ok: nested code is signed before the outer app
+ok: signing happens before notarization
+ok: notarization is accepted before stapling
+ok: the stapled app is validated
+ok: strict signature verification follows stapling
+ok: Gatekeeper assessment follows signature verification
+ok: the receipt checksum matches a fresh bundle manifest
+ok: changed bundle contents change the checksum
+ok: changed file modes change the checksum
+ok: the manifest is stable across identical bundle contents
+ok: an added symlink changes the checksum
+ok: modes are read on a GNU host where the BSD probe does not fail
+ok: DRY_RUN does not skip signing or notary submission
+ok: a missing signing identity fails the release
+ok: missing identity stops before any tool runs
+ok: a missing notary profile fails the release
+ok: missing profile stops before any tool runs
+ok: an ad-hoc identity is rejected
+ok: a rejected notarization fails closed
+ok: a failed signing stage fails closed
+ok: a failed staple/verify stage fails closed
+ok: a failed Gatekeeper assessment fails closed
+ok: an ad-hoc or non-Developer-ID signature fails closed
+ok: a non-arm64 slice fails closed
+ok: a wrong minimum macOS fails closed
+ok: a placeholder version fails closed
+ok: a zero build fails closed
+ok: a cargo build failure fails closed
+ok: no dry-run flag is accepted
+ok: an unsupported flag stops before any tool runs
+ok: a missing required tool fails closed
+---
+ALL PASS
+OPENSPEC_TELEMETRY=0 openspec validate --all --strict --no-interactive
+✓ change/desktop-ui-redesign
+✓ change/mobile-ui-rework
+✓ spec/notification-pipeline
+✓ spec/platform-bridge
+✓ spec/ui-screens
+✓ spec/ui-shell
+Totals: 6 passed, 0 failed (6 items)
+cd src/ui && cargo fmt --all --check
+cd src/ui && cargo clippy -p snackpilot-model --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s
+cd src/ui && cargo test -p snackpilot-model
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running unittests src/lib.rs (target/debug/deps/snackpilot_model-d0a07fe73e7be7df)
+
+running 4 tests
+test diagnostics::email_tests::email_export_matches_the_v1_format ... ok
+test lifecycle::tests::foreground_guard_drops_reentrant_calls ... ok
+test lifecycle::tests::cache_first_publishes_the_core_snapshot ... ok
+test lifecycle::tests::auto_login_fetches_billing_once ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/billing.rs (target/debug/deps/billing-e3246ef18b4914e5)
+
+running 11 tests
+test month_options_are_current_plus_two_past ... ok
+test mobile_billing_partial_source_preserves_truthful_context ... ok
+test empty_month_renders_no_entries_and_zero_totals ... ok
+test billing_context_clears_hidden_preview ... ok
+test same_date_amount_receipts_keep_distinct_ids ... ok
+test select_month_merges_both_sources_newest_first ... ok
+test receipt_identities_are_stable_and_context_change_clears_only_them ... ok
+test totals_combine_both_sources ... ok
+test source_filter_gates_entries_and_totals ... ok
+test mobile_summary_matches_existing_filtered_totals ... ok
+test reload_forces_refetch_past_the_cache_skip ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/desktop.rs (target/debug/deps/desktop-834e12fa9ea03f54)
+
+running 23 tests
+test app_model_is_send_and_sync ... ok
+test desktop_control_states_resolve_from_tokens ... ok
+test day_tray_keeps_wide_ledger_geometry ... ok
+test desktop_contrast_all_accents ... ok
+test desktop_accent_edges_use_the_resolved_boundary_ink ... ok
+test desktop_breakpoint_is_host_gated ... ok
+test context_change_clears_only_preview ... ok
+test orders_segment_is_model_state ... ok
+test host_layout_wiring_drives_geometry ... ok
+test escape_precedence_preserves_pending ... ok
+test begin_command_claims_a_flow_without_running_it ... ok
+test refresh_keeps_stable_identity ... ok
+test preview_does_not_mutate ... ok
+test desktop_geometry_at_boundaries ... ok
+test refresh_dispatches_the_flow_of_the_active_tab ... ok
+test resize_preserves_settings_projection ... ok
+test scoped_keys_do_not_capture_inputs ... ok
+test failing_flow_leaves_no_claim_behind ... ok
+test removed_identity_clears_preview ... ok
+test shell_push_and_pop_use_model_navigation ... ok
+test settings_containment_covers_compact_and_never_duplicates ... ok
+test settings_containment_never_pushes_twice_or_mutates ... ok
+test repeat_or_busy_command_is_rejected ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/errors.rs (target/debug/deps/errors-0890ab319435a193)
+
+running 10 tests
+test add_to_cart_failed_empty_detail_uses_german_fallback ... ok
+test add_to_cart_failed_shows_detail_verbatim ... ok
+test edit_mode_failed ... ok
+test http_maps_to_connectivity_sentence ... ok
+test login_failed_empty_detail_uses_german_fallback ... ok
+test login_failed_shows_detail_verbatim ... ok
+test not_logged_in ... ok
+test parse_maps_to_server_answer_sentence ... ok
+test session_expired ... ok
+test storage ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ffi_link.rs (target/debug/deps/ffi_link-a1df0689f36f21f1)
+
+running 1 test
+test core_links_as_plain_rust_and_serves_demo_menus ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/flows.rs (target/debug/deps/flows-c83a6d5e98206e8c)
+
+running 12 tests
+test geofence_exit_runs_core_decisions_and_updates_the_flag ... ok
+test clear_company_location_stops_geofence_and_clears_core ... ok
+test location_flow_aborts_without_always_authorisation ... ok
+test location_flow_aborts_when_notifications_are_denied ... ok
+test location_flow_alerts_fehler_when_the_fix_fails ... ok
+test location_flow_saves_the_fix_and_starts_the_geofence ... ok
+test diagnostic_log_state_machine ... ok
+test enabling_schedules_the_reminder_and_disabling_cancels_the_same_id ... ok
+test stored_garbage_reminder_time_loads_as_none ... ok
+test reminder_toggle_denied_leaves_switch_off_with_berechtigung_fehlt ... ok
+test reminder_time_persists_under_its_own_keys_and_in_core ... ok
+test out_of_range_reminder_times_are_rejected ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/format.rs (target/debug/deps/format-031c01b50b5bee97)
+
+running 5 tests
+test bill_card_date_and_time_use_vienna_local_time ... ok
+test today_key_is_a_vienna_day_key ... ok
+test day_short_matches_the_day_navigator_form ... ok
+test mobile_billing_samples_keep_the_incumbent_formatter ... ok
+test format_eur_uses_the_pinned_de_at_currency_form ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/lifecycle.rs (target/debug/deps/lifecycle-2cbcff71f8087c1c)
+
+running 9 tests
+test foreground_preserves_workspace_identities ... ok
+test evidence_harness_isolates_startup_and_normal_slots ... ok
+test mobile_evidence_never_touches_normal_credentials_or_live_hosts ... ok
+test mobile_evidence_resize_and_resume_retains_single_root ... ok
+test bootstrap_tracks_app_launched ... ok
+test bootstrap_gates_unavailable_desktop_capabilities ... ok
+test bootstrap_keeps_mobile_capability_order ... ok
+test geofence_restore_runs_once_across_two_launches ... ok
+test dismissed_broadcast_returns_on_the_next_foreground ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/menus.rs (target/debug/deps/menus-0184cfbd3d0aaa02)
+
+running 15 tests
+test desktop_menu_preview_is_read_only ... ok
+test categories_are_ordered_and_soup_heading_suppressed ... ok
+test cutoff_is_true_only_past_the_day ... ok
+test day_navigation_walks_and_clamps ... ok
+test menus_are_cached_to_disk_and_served_without_a_session ... ok
+test login_publishes_menus_and_syncs_selected_day ... ok
+test is_ordered_cross_references_the_orders_list ... ok
+test progress_labels_are_the_pinned_german_strings ... ok
+test desktop_submit_includes_pending_other_days ... ok
+test fab_label_follows_the_pending_queues ... ok
+test preview_and_pending_are_separate_sets ... ok
+test mobile_mixed_pending_submit_includes_other_days ... ok
+test submit_reports_progress_and_orders_the_item ... ok
+test toggle_tracks_pending_and_clear_pending_resets ... ok
+test desktop_menu_explicit_toggle_matches_mobile ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/navigation.rs (target/debug/deps/navigation-f588635b247accd2)
+
+running 9 tests
+test pop_on_the_root_screen_does_nothing ... ok
+test push_extends_the_stack_and_back_pops_it ... ok
+test multiple_pushes_pop_in_reverse_order ... ok
+test re_tapping_the_active_tab_is_a_no_op ... ok
+test starts_on_menus_tab_with_single_entry_stack ... ok
+test switching_to_another_tab_resets_the_stack_to_that_tab ... ok
+test tab_metadata_matches_the_spec ... ok
+test active_tab_activation_is_a_no_op ... ok
+test switching_tabs_resets_the_departing_tab ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/orders.rs (target/debug/deps/orders-11e910c151ca04d3)
+
+running 15 tests
+test banner_text_counts_unconfirmed_orders ... ok
+test cancel_order_removes_it_and_tracks_once ... ok
+test cancel_clears_single_flight_marker_when_the_flow_panics ... ok
+test cancel_selected_with_empty_selection_is_a_noop ... ok
+test cancel_is_single_flight ... ok
+test cancel_rejects_concurrent_tap_then_allows_retry ... ok
+test batch_cancel_emits_one_track_with_the_selection_count ... ok
+test cancellation_cutoff_follows_the_order_day ... ok
+test confirm_orders_approves_and_never_leaves_busy ... ok
+test checkbox_toggles_once_without_preview_change ... ok
+test selection_toggles_add_and_remove ... ok
+test order_preview_does_not_cancel_or_check ... ok
+test past_segment_exits_batch_without_cancel ... ok
+test cancelled_preview_restores_nearest_cursor ... ok
+test batch_cancel_covers_zero_one_and_many_checks ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/pins.rs (target/debug/deps/pins-cd6f72bd1d9ab039)
+
+running 2 tests
+test model_manifest_lists_no_http_client ... ok
+test gpui_dependencies_are_pinned ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/prefs.rs (target/debug/deps/prefs-3d6aefcc30778228)
+
+running 3 tests
+test defaults_are_system_orange_reminder_off_with_no_stored_time ... ok
+test accent_change_calls_set_app_icon_once_and_only_for_explicit_changes ... ok
+test theme_and_accent_round_trip_independently ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/session.rs (target/debug/deps/session-15f8bc0b2b90ea99)
+
+running 10 tests
+test failing_platform_returns_typed_error_without_panicking ... ok
+test subscribe_fires_after_multiple_changes ... ok
+test subscriber_can_subscribe_from_callback ... ok
+test login_saves_credentials_before_validating ... ok
+test analytics_failure_does_not_break_submit ... ok
+test analytics_forwards_core_events_to_platform ... ok
+test auto_login_ventopay_first_without_own_billing_fetch ... ok
+test notify_failure_does_not_leave_busy ... ok
+test logout_keeps_credentials ... ok
+test model_runtime_drives_the_timer_driver ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/tokens.rs (target/debug/deps/tokens-dbe5b0c911f4375e)
+
+running 10 tests
+test accents_match_spec_table ... ok
+test android_glass_fallbacks_match_spec ... ok
+test default_accent_constants_and_lookup ... ok
+test base_tokens_match_spec_table ... ok
+test blur_tokens_match_spec ... ok
+test desktop_extension_derives_from_pinned_tokens ... ok
+test mobile_day_tray_geometry ... ok
+test mobile_extension_preserves_base_values ... ok
+test mobile_rendered_projection_parity ... ok
+test mobile_day_tray_contrast_all_accents_and_composited_fills ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests snackpilot_model
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
