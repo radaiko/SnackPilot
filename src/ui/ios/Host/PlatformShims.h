@@ -40,6 +40,7 @@ typedef uint8_t (*SnackPilotOpenEmailFn)(const char *to, const char *subject,
 typedef uint8_t (*SnackPilotOpenSettingsFn)(void);
 typedef uint8_t (*SnackPilotOpenAppSettingsFn)(void);
 typedef uint8_t (*SnackPilotSetAppIconFn)(const char *icon);
+typedef uint8_t (*SnackPilotIsDarkFn)(void);
 
 // Every entry is required; size guards against table drift between the two
 // sides (must equal the number of function fields plus one).
@@ -60,7 +61,11 @@ typedef struct {
   SnackPilotOpenSettingsFn open_settings;
   SnackPilotOpenAppSettingsFn open_app_settings;
   SnackPilotSetAppIconFn set_app_icon;
+  SnackPilotIsDarkFn is_dark;
 } SnackPilotIosShimTable;
+
+/// Live UIKit interface style for the Rust shell; 1 = dark, 0 = light.
+uint8_t snackpilot_ios_is_dark(void);
 
 /// Registers the shim table plus the storage directory the Rust core uses.
 /// Returns 1 on success, 0 on a second registration or an invalid table.

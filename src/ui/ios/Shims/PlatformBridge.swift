@@ -169,6 +169,24 @@ private func cSetAppIcon(_ icon: UnsafePointer<CChar>?) -> UInt8 {
     return 1
 }
 
+// MARK: - Appearance
+
+/// Live UIKit interface style for the Rust shell (REQ-UI-05). UIKit reads are
+/// main-thread-only, so a call from elsewhere hops to the main queue; nothing
+/// is cached because the shell repaints continuously and reads this every
+/// frame. The window scene's trait collection follows the system appearance,
+/// unlike the host controller, which pins its own style.
+@_cdecl("snackpilot_ios_is_dark")
+public func snackpilotIosIsDark() -> UInt8 {
+    let read: () -> UInt8 = {
+        let style = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
+            .traitCollection.userInterfaceStyle ?? .light
+        return style == .dark ? 1 : 0
+    }
+    if Thread.isMainThread { return read() }
+    return DispatchQueue.main.sync(execute: read)
+}
+
 // MARK: - Bootstrap
 
 enum PlatformBridge {
@@ -193,7 +211,7 @@ enum PlatformBridge {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         var table = SnackPilotIosShimTable(
-            size: 16,
+            size: 17,
             keychain_set: cKeychainSet,
             keychain_get: cKeychainGet,
             keychain_delete: cKeychainDelete,
@@ -208,7 +226,8 @@ enum PlatformBridge {
             open_email: cOpenEmail,
             open_settings: cOpenSettings,
             open_app_settings: cOpenAppSettings,
-            set_app_icon: cSetAppIcon)
+            set_app_icon: cSetAppIcon,
+            is_dark: snackpilotIosIsDark)
         dir.path.withCString { _ = snackpilot_ios_register_shims(&table, $0) }
     }
 }
