@@ -151,15 +151,17 @@ fn pending_dock(state: &State, model: Option<&Arc<AppModel>>) -> Option<DockStat
 }
 
 /// The height the shell reserves for the dock above navigation: the dock
-/// recipe measured at the Day Tray column width, `0` when no dock is present.
+/// recipe measured at the Day Tray column width (the label shaped at the
+/// current metrics), `0` when no dock is present.
 pub(crate) fn menus_dock_height(
     state: &State,
     model: Option<&Arc<AppModel>>,
     column_width: f32,
     theme: &AppTheme,
+    text_system: &WindowTextSystem,
 ) -> f32 {
     pending_dock(state, model)
-        .map(|dock| dock_height(&dock, column_width, theme))
+        .map(|dock| dock_height(&dock, column_width, theme, text_system))
         .unwrap_or(0.)
 }
 
@@ -172,6 +174,7 @@ pub(crate) fn menus_dock(
     state: &State,
     model: Option<&Arc<AppModel>>,
     column_width: f32,
+    measured_height: f32,
     navigation_top: f32,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
@@ -188,11 +191,12 @@ pub(crate) fn menus_dock(
             .bottom(px(dock_bottom(navigation_top)))
             .flex()
             .justify_center()
-            .child(
-                div()
-                    .w(px(column_width))
-                    .child(mobile_dock(dock, handler, theme)),
-            )
+            .child(div().w(px(column_width)).child(mobile_dock(
+                dock,
+                measured_height,
+                handler,
+                theme,
+            )))
             .into_any_element(),
     )
 }

@@ -299,8 +299,12 @@ itself, so the old 480 px narrow-desktop cap is gone.
   top and 16 px above the screen controls (`app::shell_heading`,
   `shell_heading_row`). A pushed settings screen draws its own 48 px back row and
   title, so the tab heading is not repeated there.
-- The safe-area top is applied once, outside the centred column; the column is
-  `min(viewport - 32, 560)` (440 on a credential form).
+- The safe-area top is applied once, outside the centred column: it is the
+  inset the host platform reports for the view itself (`app::safe_area`), never a
+  device fallback. The iOS host anchors the view below the status band, so it
+  reports 0 there and the heading sits 16 px below the content origin; adding the
+  59/34 iPhone insets on top is a second status band, not a safer one. The column
+  is `min(viewport - 32, 560)` (440 on a credential form).
 - The bottom reservation is measured (`app::obstruction_reservation`): the
   navigation height only when it is painted over the content (the iOS pill),
   plus a present dock's measured height, plus the 16 px scroll-end gap. A bar in
@@ -331,15 +335,19 @@ itself, so the old 480 px narrow-desktop cap is gone.
 
 | Component | Compact presentation |
 | --- | --- |
-| `day_navigator` (`mobile_day_navigator`) | 48×48 arrows with 20 px Lucide `ChevronLeft`/`ChevronRight`, disabled ends use the readable disabled ink instead of 0.3 opacity; min-48 centre target with the date in the headline role and the `{i} / {n}` ordinal in the metadata role, 4 px gap; today/short-format/edge semantics unchanged. The wide Ledger keeps the incumbent toolbar. |
+| `day_navigator` (`mobile_day_navigator`) | A contained control group, not the incumbent full-bleed band: 4 px inset, `mobile.radius.option` r8, the projected card fill and a boundary resolved to >=3:1 on it (`mobile_day_navigator_recipe`). Bare 48×48 arrow targets carry the 20 px Lucide `ChevronLeft`/`ChevronRight` with no disc behind them, disabled ends use the readable disabled ink instead of 0.3 opacity; min-48 centre target with the date in the headline role and the `{i} / {n}` ordinal in the metadata role, 4 px gap; today/short-format/edge semantics unchanged. The wide Ledger keeps the incumbent toolbar. |
 | `menu_card` | 16 px padding, 8 px gaps, 8 px after the card, card radii 16/14; the dish is the `subtitle` (title only when empty) in the body role up to four lines under a neutral body Semibold category heading 8 px above the group (24 px after it); badge in the metadata role on its semantic surface at r8/8x4 with the precedence cancellation → ordered → unavailable → cutoff; pending selection is the accent tint + 1 px resolved boundary + inline 24 px `Check` slot and 8 px gap (never a floated check); pending-cancel is dashed and struck on readable ink, not whole-card opacity; allergens wrap above the unchanged right-aligned price; no state dims readable dish text; eligibility unchanged. |
-| `fab` (`mobile_dock`) | Replaces the absolute FAB column: full column minus the common gutters, min 48, r14 iOS/r12 Android, 16/12 padding, centred wrapping body text on `actionFill`/`actionInk`; exactly `model.fab_label()` while changes wait; during an operation the same band shows the existing exact phase with a 16 px spinner and no callback; painted 8 px above platform navigation inside the shell's measured reservation. |
+| `fab` (`mobile_dock`) | Replaces the absolute FAB column: full column minus the common gutters, min 48, r14 iOS/r12 Android, 16/12 padding, centred wrapping body text on `actionFill`/`actionInk`; exactly `model.fab_label()` while changes wait; during an operation the same band shows the existing exact phase with a 16 px spinner and no callback; painted 8 px above platform navigation inside the shell's measured reservation. Its height is the label's real wrapped line count at the column width and the current metrics (`fab::dock_label_lines`, shaped with the window's text system), 12/12 padding plus one 24 px line each, floored at 48; the shell reserves that measurement and hands the same value to the painted dock, so the two cannot disagree. |
 | `swipe` | Thresholds unchanged (claim 10, switch 50, edge damping 0.3); reduced motion suppresses the painted travel only, never the day decision or its events. |
 
 The Menüs screen drops its legacy `.p(16)`/`.pb(100)`: the shell's centred
 column supplies the 16 px gutter and its measured reservation (navigation +
 present dock + 16) supplies the scroll-end clearance. `app::navigation_top`
-gives the dock's 8 px separation on both navigation dialects.
+gives the dock's 8 px separation on both navigation dialects. The reservation
+already excludes an in-flow bar's own height and already includes the dock's
+measured height, so the same value is the content's inset on both dialects: the
+dock is painted over the content, 8 px above the bar, and the last card ends 8 px
+above the dock.
 
 `loading_overlay` keeps its initial 36 px spinner card. Screen bodies, the
 remaining screen contracts and their dock/navigator/card projections belong to

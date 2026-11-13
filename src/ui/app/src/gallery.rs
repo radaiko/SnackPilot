@@ -22,7 +22,7 @@ use snackpilot_model::{
 use crate::app::OrderCancelState;
 use crate::components::bill_card::{desktop_bill_detail, desktop_bill_header, desktop_bill_row};
 use crate::components::day_navigator::mobile_day_navigator;
-use crate::components::fab::{mobile_dock, DockState};
+use crate::components::fab::{dock_height_for_lines, mobile_dock, DockState};
 use crate::components::menu_card::{
     desktop_menu_row, menu_card, DesktopMenuRowState, MenuCardState,
 };
@@ -1711,6 +1711,9 @@ fn mobile_menus_case(width: f32, theme: &AppTheme) -> AnyElement {
         .child(list)
         .child(div().p(px(theme.mobile.space_2)).child(mobile_dock(
             DockState::Action("Änderungen bestätigen (3)".into()),
+            // The board's label is one body line; the running screen measures
+            // it from the shaped label instead (fab::dock_label_lines).
+            dock_height_for_lines(1, theme),
             Some(noop),
             theme,
         )));

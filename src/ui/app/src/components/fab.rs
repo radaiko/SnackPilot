@@ -16,13 +16,6 @@ use crate::theme::{self, AppTheme};
 /// by 8 px above navigation).
 pub const DOCK_GAP: f32 = 8.;
 
-/// Inter's average mixed-case advance at the body role, in em. It is chosen
-/// above the bundled face's ~0.5 em so a label that might not fit one line is
-/// reserved two lines instead of being covered by the dock. Every label the
-/// model can produce fits one line at the accepted column widths; the
-/// projection only grows as a protective bound.
-const DOCK_ADVANCE_EM: f32 = 0.6;
-
 /// What the compact dock presents for the current pending set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DockState {
@@ -72,23 +65,70 @@ pub fn dock_state(
     }
 }
 
-/// The dock's reserved height for one label at a column width (REQ-UI-15):
-/// the recipe's 12 px top/bottom plus one 24 px body line per wrapped line,
-/// never below the 48 px action floor. The shell feeds this into its measured
-/// obstruction reservation, so the dock owns real height instead of a blind
-/// 100 px inset.
-pub fn dock_height(state: &DockState, column_width: f32, theme: &AppTheme) -> f32 {
-    // The progress row leads with the 16 px spinner and its 8 px gap.
+/// The width the dock's label can wrap in: the column minus the recipe's
+/// horizontal 16 px padding, and the 16 px spinner plus its 8 px gap when the
+/// row is an operation phase instead of an action.
+pub fn dock_available_width(state: &DockState, column_width: f32, theme: &AppTheme) -> f32 {
     let lead = if state.is_action() {
         0.
     } else {
         theme.mobile.space_4 + theme.mobile.space_2
     };
-    let available = (column_width - 2. * theme.mobile.space_4 - lead).max(1.);
-    let advance = theme.mobile.body * DOCK_ADVANCE_EM;
-    let chars = state.text().chars().count().max(1) as f32;
-    let lines = (chars * advance / available).ceil().max(1.);
-    (theme.mobile.space_3 * 2. + lines * theme.mobile.body_line).max(theme.mobile.action_height)
+    (column_width - 2. * theme.mobile.space_4 - lead).max(1.)
+}
+
+/// The dock's height for a measured wrapped line count (REQ-UI-15): the
+/// recipe's 12 px top/bottom plus one 24 px body line per line, never below the
+/// 48 px action floor. The painted dock is given exactly this height, so the
+/// reservation and the dock cannot disagree.
+pub fn dock_height_for_lines(lines: usize, theme: &AppTheme) -> f32 {
+    (theme.mobile.space_3 * 2. + lines.max(1) as f32 * theme.mobile.body_line)
+        .max(theme.mobile.action_height)
+}
+
+/// How many lines the dock's label really wraps to at this column width: the
+/// label is shaped with the body metrics in the bundled face at the width the
+/// painted dock leaves for text, never estimated from a character count. This
+/// is what the shell reserves, so a long phase grows the band instead of being
+/// covered by it.
+pub fn dock_label_lines(
+    state: &DockState,
+    column_width: f32,
+    theme: &AppTheme,
+    text_system: &WindowTextSystem,
+) -> usize {
+    let text = state.text();
+    let mut font = gpui::font("Inter");
+    font.weight = FontWeight::SEMIBOLD;
+    let run = TextRun {
+        len: text.len(),
+        font,
+        color: theme.mobile.action_ink,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let wrap = px(dock_available_width(state, column_width, theme));
+    text_system
+        .shape_text(text.into(), px(theme.mobile.body), &[run], Some(wrap), None)
+        .map(|lines| lines.len().max(1))
+        .unwrap_or(1)
+}
+
+/// The dock's reserved height for one label at a column width (REQ-UI-15): the
+/// measured wrapped line count at the current text metrics, in the recipe the
+/// dock paints. The shell feeds this into its measured obstruction reservation,
+/// so the dock owns real height instead of a blind 100 px inset.
+pub fn dock_height(
+    state: &DockState,
+    column_width: f32,
+    theme: &AppTheme,
+    text_system: &WindowTextSystem,
+) -> f32 {
+    dock_height_for_lines(
+        dock_label_lines(state, column_width, theme, text_system),
+        theme,
+    )
 }
 
 /// Where the dock's bottom edge sits above the window bottom: the platform
@@ -98,12 +138,14 @@ pub fn dock_bottom(navigation_top: f32) -> f32 {
     navigation_top + DOCK_GAP
 }
 
-/// The compact dock surface: the full Day Tray column, min 48 high, r14 iOS /
-/// r12 Android, 16/12 padding, centred wrapping body text. An action is a real
-/// target with the resolved action fill/ink; a progress row is inert (no
-/// callback) and reads its phase on the same fill.
+/// The compact dock surface: the full Day Tray column, exactly `height` (the
+/// measured value the shell reserved), r14 iOS / r12 Android, 16/12 padding,
+/// centred wrapping body text. An action is a real target with the resolved
+/// action fill/ink; a progress row is inert (no callback) and reads its phase
+/// on the same fill.
 pub fn mobile_dock(
     state: DockState,
+    height: f32,
     on_click: Option<ClickHandler>,
     theme: &AppTheme,
 ) -> Stateful<Div> {
@@ -111,7 +153,7 @@ pub fn mobile_dock(
     let mut dock = div()
         .id("menus-dock")
         .w_full()
-        .min_h(px(theme.mobile.action_height))
+        .h(px(height))
         .px(px(theme.mobile.space_4))
         .py(px(theme.mobile.space_3))
         .rounded(px(radius))
@@ -146,7 +188,9 @@ pub fn mobile_dock(
 
 #[cfg(test)]
 mod tests {
-    use super::{dock_bottom, dock_height, dock_state, DockState, DOCK_GAP};
+    use super::{
+        dock_available_width, dock_bottom, dock_height_for_lines, dock_state, DockState, DOCK_GAP,
+    };
     use crate::theme::AppTheme;
     use snackpilot_model::AccentColor;
 
@@ -171,36 +215,54 @@ mod tests {
         assert_eq!(tail.action(), None);
     }
 
-    /// The dock's height is derived from its own recipe and the column width,
-    /// never a blind constant: 12/12 padding around one 24 px body line, at
-    /// least the 48 px action floor, one more line when the label cannot fit.
+    /// The dock's height is the measured wrapped line count in the recipe it
+    /// paints (REQ-SCR-01/REQ-UI-15), so the reservation and the painted band
+    /// cannot disagree: 12/12 padding around one 24 px body line per measured
+    /// line, floored at 48, and the wrap width is exactly the text width the
+    /// dock leaves after its padding (and the progress row's spinner).
     /// @req REQ-SCR-01 @req REQ-UI-15
     #[test]
-    fn dock_height_reserves_wrapped_recipe_height() {
+    fn dock_height_follows_the_measured_line_count_of_its_recipe() {
         for flat in [false, true] {
             let theme = AppTheme::build(false, AccentColor::Orange, flat);
-            for width in [328., 358., 560.] {
-                for label in [
-                    "Bestellen (1)",
-                    "Stornieren (2)",
-                    "Änderungen bestätigen (3)",
-                ] {
-                    let state = DockState::Action(label.into());
-                    let height = dock_height(&state, width, &theme);
-                    assert_eq!(
-                        height, theme.mobile.action_height,
-                        "{label} fits one 24 px line at {width}"
-                    );
-                }
+            assert_eq!(
+                theme.mobile.space_3 * 2.,
+                24.,
+                "the dock's vertical padding"
+            );
+            // One measured line is the 48 px action floor; every further line
+            // grows the band by exactly one body line, which is what the dock
+            // paints (fixed line height, same padding).
+            assert_eq!(dock_height_for_lines(1, &theme), theme.mobile.action_height);
+            for lines in 2..=4 {
+                let height = dock_height_for_lines(lines, &theme);
+                assert_eq!(
+                    height,
+                    theme.mobile.space_3 * 2. + lines as f32 * theme.mobile.body_line,
+                    "{lines} measured lines reserve their own height"
+                );
+                assert!(height > dock_height_for_lines(lines - 1, &theme));
             }
-            // A label beyond the one-line advance reserves its second line
-            // instead of letting the dock cover the last card.
-            let long = DockState::Action("Änderungen bestätigen (123456789012345678901234)".into());
-            let two = dock_height(&long, 328., &theme);
-            assert_eq!(two, theme.mobile.action_height + theme.mobile.body_line);
-            // The progress row loses the spinner's width, and is still floored.
+
+            // The width the label is shaped with is the width the dock leaves
+            // for text, not the column: 16 px padding on both sides, and the
+            // 16 px spinner plus its 8 px gap while an operation runs.
+            let action = DockState::Action("Bestellen (1)".into());
             let progress = DockState::Progress("Bestellung wird bestätigt...".into());
-            assert!(dock_height(&progress, 328., &theme) >= theme.mobile.action_height);
+            for column in [328., 358., 560.] {
+                assert_eq!(
+                    dock_available_width(&action, column, &theme),
+                    column - theme.mobile.space_4 * 2.
+                );
+                assert_eq!(
+                    dock_available_width(&progress, column, &theme),
+                    column
+                        - theme.mobile.space_4 * 2.
+                        - theme.mobile.space_4
+                        - theme.mobile.space_2,
+                    "the phase row loses the spinner and its gap"
+                );
+            }
         }
         // The separation above navigation is the design's 8 px.
         assert_eq!(DOCK_GAP, 8.);
