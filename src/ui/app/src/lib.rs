@@ -17,10 +17,13 @@ pub mod theme;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 mod mobile;
 
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use gpui_kit::component::button::Button;
 use gpui_kit::component::{Root, Theme, ThemeMode};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, App, Context, Entity, Window, WindowOptions};
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+use gpui_kit::{div, Context, Entity, Window};
+use gpui_kit::{App, WindowOptions};
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 
 /// The spike root view: tab labels plus a tappable counter.
@@ -38,6 +41,7 @@ pub extern "C" fn spike_count() -> usize {
     SPIKE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 impl SpikeRoot {
     fn counter_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity: Entity<Self> = cx.entity().clone();
@@ -54,6 +58,7 @@ impl SpikeRoot {
     }
 }
 
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 impl Render for SpikeRoot {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
@@ -373,7 +378,6 @@ pub(crate) fn init_kit(cx: &mut App) {
 /// phone column of at most 480 px; at and above it the shell takes the whole
 /// window, so the rail and the workspace fit and the old 480 px cap is gone.
 /// The breakpoint is the model's, never a second literal here.
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub(crate) fn desktop_content_width(window_width: f32) -> f32 {
     let host = snackpilot_model::desktop::HostKind::Desktop;
     if snackpilot_model::desktop::layout_mode(host, window_width)
