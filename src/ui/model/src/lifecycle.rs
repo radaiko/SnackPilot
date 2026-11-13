@@ -122,8 +122,10 @@ impl Platform for EvidencePlatform {
         Ok(())
     }
 
-    fn notify(&self, command: NotificationCommand) -> Result<(), PlatformError> {
-        self.inner.notify(command)
+    fn notify(&self, _command: NotificationCommand) -> Result<(), PlatformError> {
+        // An evidence capture never delivers a system notification, even when
+        // a foreground refresh asks for one (REQ-PLT-07 isolation).
+        Ok(())
     }
 
     fn request_notification_permission(&self) -> Result<bool, PlatformError> {
@@ -291,6 +293,111 @@ impl AppModel {
             self.load_billing(false).await;
         });
         self.refresh_broadcast();
+    }
+}
+
+/// Debug-only synthetic evidence scenarios (mobile-ui-rework task 1.1).
+///
+/// A capture run selects one *before* bootstrap and the host applies it after
+/// the launch order, so the isolated store shows a chosen state without any
+/// production state override: every variant below is either existing demo
+/// data or a fixture in this evidence store, and the entry is absent from a
+/// release build. No scenario sends credentials, reaches a host or arms a
+/// system service.
+#[cfg(debug_assertions)]
+impl AppModel {
+    /// Applies one named synthetic evidence scenario. Inert unless this store
+    /// is already isolated with [`AppModel::set_evidence_mode`], so a normal
+    /// launch can never be talked into fixture state. Unknown names are
+    /// ignored.
+    pub fn apply_evidence_scenario(&self, scenario: &str) {
+        if !self.evidence_mode() {
+            return;
+        }
+        match scenario
+            .trim()
+            .to_ascii_lowercase()
+            .replace('_', "-")
+            .as_str()
+        {
+            // The dummy evidence pair already logged into the offline demo
+            // core; republish its generated snapshot so a scenario sequence
+            // can return to the populated baseline.
+            "populated" => {
+                let menus = self.core().menu_snapshot();
+                let orders = self.core().split_orders();
+                let months = self.core().billing_month_options();
+                self.hub().update("evidence.populated", |s| {
+                    s.menu_snapshot = Some(menus);
+                    s.orders_split = Some(orders);
+                    if s.month_options.is_empty() {
+                        s.month_options = months;
+                    }
+                    s.error_text = None;
+                    s.busy = false;
+                });
+            }
+            // The permission *result* is a fake answer, not a provider call.
+            "permission-granted" => self.hub().update("evidence.permission", |s| {
+                s.location_alert = None;
+            }),
+            "empty" => self.hub().update("evidence.empty", |s| {
+                s.menu_snapshot = Some(snackpilot_core::domain::MenuSnapshot {
+                    items: Vec::new(),
+                    available_dates: Vec::new(),
+                    pending_orders: Vec::new(),
+                    pending_cancellations: Vec::new(),
+                    loading: false,
+                    refreshing: false,
+                    error: None,
+                });
+                s.orders_split = Some(snackpilot_core::domain::OrdersSplit {
+                    upcoming: Vec::new(),
+                    past: Vec::new(),
+                });
+                s.error_text = None;
+            }),
+            "loading" => self.hub().update("evidence.loading", |s| {
+                s.menu_snapshot = None;
+                s.orders_split = None;
+                s.error_text = None;
+                s.busy = true;
+            }),
+            "refresh" => self.hub().update("evidence.refresh", |s| {
+                if let Some(snapshot) = s.menu_snapshot.as_mut() {
+                    snapshot.loading = false;
+                    snapshot.refreshing = true;
+                    snapshot.error = None;
+                }
+                s.error_text = None;
+            }),
+            "error" => self.hub().update("evidence.error", |s| {
+                s.error_text = Some(crate::ErrorText {
+                    message: "Synthetischer Fehler (Evidence)".into(),
+                    retry: true,
+                });
+            }),
+            "pending" => {
+                let state = self.state();
+                if let (Some(day), Some(snapshot)) = (state.selected_day, state.menu_snapshot) {
+                    if let Some(item) = snapshot.items.iter().find(|i| i.day == day) {
+                        self.toggle(item);
+                    }
+                }
+            }
+            "progress" => self.hub().update("evidence.progress", |s| {
+                s.order_progress = Some(
+                    crate::progress_label(snackpilot_core::domain::OrderProgress::Confirming)
+                        .to_string(),
+                );
+            }),
+            // The fake permission *result* renders the existing exact denial
+            // alert; nothing asks the OS or a provider.
+            "permission-denied" => self.hub().update("evidence.permission", |s| {
+                s.location_alert = Some(crate::Alert::denied());
+            }),
+            _ => {}
+        }
     }
 }
 

@@ -284,3 +284,192 @@ fn bootstrap_keeps_mobile_capability_order() {
         "unchanged mobile order: launched < notification < geofence, got {calls:?}"
     );
 }
+
+/// The mobile evidence harness is offline end to end: it never reads or writes
+/// a normal credential slot, never asks a system service or provider, never
+/// sends analytics, and every synthetic scenario stays inside the isolated
+/// store. No failure fixture sends wrong credentials anywhere real.
+/// @req REQ-UI-08
+/// @req REQ-SCR-09
+#[test]
+fn mobile_evidence_never_touches_normal_credentials_or_live_hosts() {
+    use snackpilot_model::desktop::HostKind;
+
+    // The real host is the fake; the harness wraps it, so any leak shows up
+    // in its recorded calls or credentials.
+    let real = Arc::new(FakePlatform::new());
+    let model = AppModel::new(
+        temp_dir("mobile-evidence-isolation"),
+        AppModel::evidence_platform(real.clone()),
+    )
+    .unwrap();
+    model.set_evidence_mode(true);
+    model.set_host_kind(HostKind::Phone);
+    model.set_content_width(390.);
+    model.bootstrap();
+
+    assert!(
+        real.calls().is_empty(),
+        "an isolated launch must not call the host platform: {:?}",
+        real.calls()
+    );
+    assert!(
+        real.tracks().is_empty(),
+        "no analytics leaves an evidence run: {:?}",
+        real.tracks()
+    );
+    for slot in [
+        "gourmet_username",
+        "gourmet_password",
+        "ventopay_username",
+        "ventopay_password",
+    ] {
+        assert_eq!(real.credential(slot), None, "normal slot {slot} untouched");
+    }
+    assert!(
+        model.state().gourmet_authenticated,
+        "the in-memory dummy pair opens the offline demo session"
+    );
+    assert!(
+        model.state().broadcast_dismissed,
+        "no live broadcast banner in an evidence run"
+    );
+
+    // Every synthetic scenario stays synthetic: no credential access, no
+    // provider call, no analytics (including the permission result and the
+    // pending/progress fixtures).
+    for scenario in [
+        "populated",
+        "empty",
+        "loading",
+        "refresh",
+        "error",
+        "pending",
+        "progress",
+        "permission-granted",
+        "permission-denied",
+    ] {
+        model.apply_evidence_scenario(scenario);
+        assert!(
+            real.calls().is_empty(),
+            "{scenario:?} reached the host platform: {:?}",
+            real.calls()
+        );
+        assert!(
+            real.tracks().is_empty(),
+            "{scenario:?} sent analytics: {:?}",
+            real.tracks()
+        );
+    }
+    for slot in [
+        "gourmet_username",
+        "gourmet_password",
+        "ventopay_username",
+        "ventopay_password",
+    ] {
+        assert_eq!(
+            real.credential(slot),
+            None,
+            "scenario runs still leave {slot} untouched"
+        );
+    }
+
+    // A resume keeps the same isolation.
+    model.on_foreground();
+    assert!(real.calls().is_empty(), "resume must stay offline");
+    assert!(real.tracks().is_empty(), "resume must not send analytics");
+}
+
+/// The evidence run keeps one root across viewport changes and a foreground
+/// return: the phone layout stays single-column at 360/390/768/1280, and the
+/// selected day, pending selection and preview survive without a second model
+/// or a launch-order rerun.
+/// @req REQ-UI-03
+#[test]
+fn mobile_evidence_resize_and_resume_retains_single_root() {
+    use snackpilot_model::desktop::{HostKind, LayoutMode};
+
+    let real = Arc::new(FakePlatform::new());
+    let model = Arc::new(
+        AppModel::new(
+            temp_dir("mobile-evidence-root"),
+            AppModel::evidence_platform(real.clone()),
+        )
+        .unwrap(),
+    );
+    model.set_evidence_mode(true);
+    model.set_host_kind(HostKind::Phone);
+    model.set_content_width(390.);
+    model.bootstrap();
+
+    let day = model
+        .state()
+        .selected_day
+        .clone()
+        .expect("demo day selected");
+    let item = model
+        .state()
+        .menu_snapshot
+        .clone()
+        .expect("demo menus loaded")
+        .items
+        .into_iter()
+        .find(|i| i.day == day)
+        .expect("demo day has items");
+    let key = menu_key(&item);
+    model.toggle(&item);
+    model.open_preview(ListKind::Menus, &key);
+    assert!(model.has_pending_changes());
+
+    let root = Arc::clone(&model);
+    for width in [360., 768., 1280., 390.] {
+        model.set_content_width(width);
+        assert_eq!(
+            model.layout_mode(),
+            LayoutMode::Phone,
+            "a phone host keeps the single-column Day Tray at {width}"
+        );
+        assert_eq!(
+            model.state().selected_day.as_deref(),
+            Some(day.as_str()),
+            "selected day survives the resize to {width}"
+        );
+        assert!(
+            model.has_pending_changes(),
+            "pending selection survives the resize to {width}"
+        );
+        assert_eq!(
+            model.preview(ListKind::Menus).as_deref(),
+            Some(key.as_str()),
+            "menus preview survives the resize to {width}"
+        );
+        assert!(Arc::ptr_eq(&root, &model), "one model root at {width}");
+        assert!(model.evidence_mode(), "still the isolated store at {width}");
+    }
+
+    model.on_foreground();
+    assert!(
+        Arc::ptr_eq(&root, &model),
+        "resume keeps the one model root"
+    );
+    assert_eq!(
+        model.state().selected_day.as_deref(),
+        Some(day.as_str()),
+        "resume keeps the selected day"
+    );
+    assert!(
+        model.has_pending_changes(),
+        "resume keeps the pending selection"
+    );
+    assert_eq!(
+        model.preview(ListKind::Menus).as_deref(),
+        Some(key.as_str()),
+        "resume keeps the preview"
+    );
+    assert!(
+        real.calls().is_empty(),
+        "resize/resume stay offline: {:?}",
+        real.calls()
+    );
+    assert!(real.tracks().is_empty(), "no analytics on resume");
+}

@@ -44,15 +44,27 @@ mod android_host {
         // A debug evidence run gets isolated data and dummy credentials, and
         // the model runs offline before its launch order (task 1.5).
         let storage = crate::evidence::storage_dir(std::path::PathBuf::from(&storage_dir));
+        // Debug evidence selection, read once before bootstrap. The viewport
+        // is reported to the isolated model before its launch order; the
+        // synthetic scenario is applied after it (model lifecycle owns the
+        // fixtures). A release build selects neither.
+        let viewport = crate::evidence::viewport();
+        let scenario = crate::evidence::scenario();
         match crate::evidence::model(
             storage,
             std::sync::Arc::clone(&bridge) as std::sync::Arc<dyn snackpilot_model::Platform>,
         ) {
             Ok(model) => {
+                if let Some(viewport) = viewport {
+                    crate::evidence::install_viewport(&model, viewport);
+                }
                 // The shell renders from the same AppModel the geofence
                 // session pumps (task 4.2).
                 crate::install_shell_model(std::sync::Arc::clone(&model));
                 model.bootstrap();
+                if let Some(scenario) = scenario {
+                    crate::evidence::apply_scenario(&model, &scenario);
+                }
                 crate::platform::android::install_debug_session(model);
                 log::info!("android_main: geofence session ready");
             }

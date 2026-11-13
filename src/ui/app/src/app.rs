@@ -582,6 +582,17 @@ impl AppShell {
                 shell.show_toast(cx);
             }
         }
+        // Evidence fixture selection (debug only, desktop entry): the host
+        // bootstrap already ran, so the chosen synthetic scenario is applied
+        // here on an isolated store. A phone capture selects and applies it
+        // in `mobile.rs` before/after bootstrap respectively; a release build
+        // has neither the knob nor the model entry.
+        #[cfg(all(debug_assertions, not(any(target_os = "ios", target_os = "android"))))]
+        if let Some(model) = shell.model.as_ref() {
+            if let Some(scenario) = crate::evidence::scenario() {
+                crate::evidence::apply_scenario(model, &scenario);
+            }
+        }
         shell
     }
 
@@ -2215,5 +2226,151 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use snackpilot_model::{AppModel, FakePlatform};
+    use std::sync::Arc;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "snackpilot-app-evidence-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The isolated fixture entry renders every required synthetic state, and
+    /// a normal store ignores it. The wrapper host records zero normal-slot
+    /// accesses, notifications, permissions or analytics for the whole run.
+    /// @req REQ-UI-16
+    #[test]
+    fn evidence_fixture_states_apply_only_to_an_isolated_store() {
+        // A normal launch: the entry is inert, so fixture state cannot leak
+        // into production rendering or storage.
+        let normal_host = Arc::new(FakePlatform::new());
+        let normal = AppModel::new(temp_dir("normal"), normal_host.clone()).unwrap();
+        normal.apply_evidence_scenario("pending");
+        assert!(
+            !normal.has_pending_changes(),
+            "a normal store ignores the evidence fixture"
+        );
+        assert!(
+            normal.state().menu_snapshot.is_none(),
+            "a normal store has no synthetic snapshot"
+        );
+
+        // An isolated run: the same entry fills the selected state.
+        let host = Arc::new(FakePlatform::new());
+        let model = AppModel::new(
+            temp_dir("isolated"),
+            AppModel::evidence_platform(host.clone()),
+        )
+        .unwrap();
+        model.set_evidence_mode(true);
+        model.bootstrap();
+
+        model.apply_evidence_scenario("populated");
+        assert!(
+            model
+                .state()
+                .menu_snapshot
+                .is_some_and(|snapshot| !snapshot.items.is_empty()),
+            "populated shows the offline demo menu"
+        );
+
+        model.apply_evidence_scenario("empty");
+        assert!(
+            model
+                .state()
+                .menu_snapshot
+                .is_some_and(|snapshot| snapshot.items.is_empty()),
+            "empty has no menu rows"
+        );
+        assert!(
+            model
+                .state()
+                .orders_split
+                .is_some_and(|split| split.upcoming.is_empty() && split.past.is_empty()),
+            "empty has no order rows"
+        );
+
+        model.apply_evidence_scenario("loading");
+        assert!(model.state().menu_snapshot.is_none(), "loading has no rows");
+        assert!(model.state().busy, "loading shows the initial spinner");
+
+        model.apply_evidence_scenario("refresh");
+        model.apply_evidence_scenario("populated");
+        model.apply_evidence_scenario("refresh");
+        assert!(
+            model
+                .state()
+                .menu_snapshot
+                .is_some_and(|snapshot| snapshot.refreshing && !snapshot.items.is_empty()),
+            "refresh keeps the rows and adds the neutral refresh state"
+        );
+
+        model.apply_evidence_scenario("error");
+        assert!(
+            model.state().error_text.is_some(),
+            "error shows the inline model message"
+        );
+
+        model.apply_evidence_scenario("pending");
+        assert!(
+            model.has_pending_changes(),
+            "pending marks the selected day's menu"
+        );
+
+        model.apply_evidence_scenario("progress");
+        assert_eq!(
+            model.state().order_progress.as_deref(),
+            Some("Bestellung wird bestätigt..."),
+            "progress reuses the existing exact phase label"
+        );
+
+        model.apply_evidence_scenario("permission-denied");
+        assert_eq!(
+            model
+                .state()
+                .location_alert
+                .as_ref()
+                .map(|alert| alert.title.as_str()),
+            Some("Berechtigung fehlt"),
+            "the synthetic permission result is the existing alert"
+        );
+        model.apply_evidence_scenario("permission-granted");
+        assert!(
+            model.state().location_alert.is_none(),
+            "granted permission shows no alert"
+        );
+
+        // The whole fixture run stays inside the wrapper: no normal slot, no
+        // notification, no permission request, no geofence, no analytics.
+        assert!(
+            host.calls().is_empty(),
+            "evidence fixtures must not call the host platform: {:?}",
+            host.calls()
+        );
+        assert!(
+            host.tracks().is_empty(),
+            "evidence fixtures must not send analytics: {:?}",
+            host.tracks()
+        );
+        for slot in [
+            "gourmet_username",
+            "gourmet_password",
+            "ventopay_username",
+            "ventopay_password",
+        ] {
+            assert_eq!(host.credential(slot), None, "normal slot {slot} untouched");
+        }
     }
 }

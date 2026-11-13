@@ -1500,9 +1500,17 @@ pub fn mount_gallery(cx: &mut App, which: Section) {
 
 /// Debug-only window size for screenshot capture at specific widths:
 /// `SNACKPILOT_WINDOW=390x844` places the window at a fixed origin so
-/// `screencapture -R` can grab exactly it.
+/// `screencapture -R` can grab exactly it. The evidence viewport knob
+/// (`--viewport=390x844`) selects the same logical size, so a Day Tray
+/// baseline and its component boards share one viewport fact.
 #[cfg(debug_assertions)]
 fn gallery_window_size() -> Option<(gpui_kit::Pixels, gpui_kit::Pixels)> {
+    if let Some(viewport) = crate::evidence::viewport() {
+        return Some((
+            gpui_kit::px(viewport.width as f32),
+            gpui_kit::px(viewport.height as f32),
+        ));
+    }
     let s = std::env::var("SNACKPILOT_WINDOW").ok()?;
     let (w, h) = s.split_once('x')?;
     Some((gpui_kit::px(w.parse().ok()?), gpui_kit::px(h.parse().ok()?)))
