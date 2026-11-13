@@ -13,7 +13,7 @@
   of 2026-11-13 and superseded by this change. The original pre-rework state is
   unavailable and is never recreated, inferred or indexed as a baseline.
 - **No image was fabricated.** Every text row was produced by a command on the
-  Linux VM; the eight iOS PNGs in this directory are real `simctl` screenshots
+  Linux VM; the four iOS PNGs in this directory are real `simctl` screenshots
   from the MacBook simulator, indexed in *Captured baseline* below. Nothing else
   is claimed: dark appearance, Android, desktop and the wider matrices were not
   captured.
