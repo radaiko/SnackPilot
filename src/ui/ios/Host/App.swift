@@ -26,6 +26,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             snackpilot_ios_run_debug_exercise()
         }
         let window = UIWindow(frame: UIScreen.main.bounds)
+        // The system appearance flows through to the bands UIKit paints (launch,
+        // rotation, keyboard lift). Pinning light here left them white in dark
+        // mode; the GPUI surface follows the same trait collection.
+        window.overrideUserInterfaceStyle = .unspecified
+        window.backgroundColor = .systemBackground
         window.rootViewController = SpikeContainerController()
         window.makeKeyAndVisible()
         self.window = window
@@ -99,16 +104,26 @@ final class SpikeContainerController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        overrideUserInterfaceStyle = .light
-        view.backgroundColor = .systemBackground
+        // Adaptive fallback behind the GPUI surface, which paints the app's own
+        // background (`BG`): never the default white, and not pure white against
+        // the light `#F4F5F7` on the one frame before the first GPUI paint.
+        view.backgroundColor = .secondarySystemBackground
 
         gpui = GPUIView(frame: .zero)
         gpui.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(gpui)
         gpui.attach(to: self)
 
+        // The GPUI surface spans the window, status band and home-indicator strip
+        // included, so the shell applies the measured safe-area insets itself
+        // (`src/ui/app/src/app.rs` `safe_area`). `usesBottomSafeArea = false`
+        // keeps the keyboard guide at the window's bottom edge while the soft
+        // keyboard is hidden and at its top edge while it is shown, so the
+        // credential forms keep their keyboard avoidance without leaving the
+        // 34 pt home-indicator strip to UIKit.
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
         NSLayoutConstraint.activate([
-            gpui.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            gpui.topAnchor.constraint(equalTo: view.topAnchor),
             gpui.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             gpui.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             gpui.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
