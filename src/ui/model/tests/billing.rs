@@ -311,6 +311,179 @@ fn billing_context_clears_hidden_preview() {
 
 #[test]
 /// @req REQ-SCR-03
+fn mobile_summary_matches_existing_filtered_totals() {
+    // The compact summary (task 1.5) shows exactly the incumbent filtered
+    // totals: three months × three source filters, each against the stored
+    // source months and the existing `format_eur` strings. No new total,
+    // metric or rounding exists for the mobile projection.
+    let model = demo_model("mobile-summary");
+    for offset in [0u8, 1, 2] {
+        model.select_month(offset);
+        let option = model
+            .state()
+            .month_options
+            .iter()
+            .find(|m| m.offset == offset)
+            .cloned()
+            .expect("three month options");
+        assert!(
+            !option.label.is_empty() && option.label.ends_with(&option.key[..4]),
+            "month tab keeps the core's full label for {}: {}",
+            option.key,
+            option.label
+        );
+
+        for source in [
+            BillingSource::All,
+            BillingSource::Gourmet,
+            BillingSource::Ventopay,
+        ] {
+            model.set_billing_source(source);
+            let state = model.state();
+            let entries = model.merged_entries();
+            let totals = model.billing_totals();
+
+            let show_gourmet = source != BillingSource::Ventopay && state.gourmet_authenticated;
+            let show_ventopay = source != BillingSource::Gourmet && state.ventopay_authenticated;
+            let gourmet = if show_gourmet {
+                state
+                    .gourmet_month
+                    .as_ref()
+                    .map(|g| (g.total_billing, g.total_subsidy))
+                    .unwrap_or((0.0, 0.0))
+            } else {
+                (0.0, 0.0)
+            };
+            let ventopay = if show_ventopay {
+                state
+                    .ventopay_month
+                    .as_ref()
+                    .map(|v| v.total)
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            let expected = gourmet.0 + ventopay;
+
+            assert!(
+                (totals.gesamt - expected).abs() < 1e-9,
+                "{offset}/{source:?}: Gesamt {} must equal the filtered source totals {expected}",
+                totals.gesamt
+            );
+            assert_eq!(totals.belege, entries.len(), "{offset}/{source:?}: Belege");
+            assert!(
+                (totals.zuschuss - gourmet.1).abs() < 1e-9,
+                "{offset}/{source:?}: Zuschuss is the Kantine subsidy only while Kantine shows"
+            );
+            assert_eq!(
+                snackpilot_model::format_eur(totals.gesamt),
+                snackpilot_model::format_eur(expected),
+                "{offset}/{source:?}: the summary uses the incumbent EUR formatter"
+            );
+            assert!(
+                entries.iter().all(
+                    |entry| snackpilot_model::day_key_from_epoch_ms(entry.epoch_ms)
+                        .starts_with(&option.key)
+                ),
+                "{offset}/{source:?}: a filtered receipt set stays in the selected month"
+            );
+        }
+    }
+}
+
+#[test]
+/// @req REQ-SCR-03
+fn mobile_billing_partial_source_preserves_truthful_context() {
+    // Either service's authentication is enough, and the published months keep
+    // the selected month's identity, so the compact display guard can withhold
+    // a stale context instead of showing the previous month under a new label.
+    let model = demo_model("mobile-partial");
+    model.select_month(1);
+    let first = model
+        .state()
+        .month_options
+        .iter()
+        .find(|m| m.offset == 1)
+        .cloned()
+        .expect("a past month option");
+    let state = model.state();
+    assert_eq!(
+        state
+            .gourmet_month
+            .as_ref()
+            .expect("Kantine month")
+            .month_key,
+        first.key,
+        "the Kantine month carries the selected month identity"
+    );
+    assert_eq!(
+        state
+            .ventopay_month
+            .as_ref()
+            .expect("Automaten month")
+            .month_key,
+        first.key,
+        "the Automaten month carries the selected month identity"
+    );
+
+    // Signing out of Ventopay leaves the Kantine side truthful: its own rows
+    // and its own total, not a fabricated zero Automaten invoice set.
+    model.ventopay_logout();
+    let state = model.state();
+    assert!(!state.ventopay_authenticated);
+    let entries = model.merged_entries();
+    let totals = model.billing_totals();
+    assert!(
+        !entries.is_empty() && entries.iter().all(|entry| entry.id.starts_with("g-")),
+        "only the authenticated source contributes receipts"
+    );
+    let gourmet = state.gourmet_month.as_ref().expect("Kantine month");
+    assert_eq!(gourmet.month_key, first.key);
+    assert!(
+        (totals.gesamt - gourmet.total_billing).abs() < 1e-9,
+        "Gesamt stays the Kantine total: {}",
+        totals.gesamt
+    );
+    assert_eq!(
+        totals.belege,
+        entries.len(),
+        "Belege counts the shown receipts"
+    );
+    assert!(
+        (totals.zuschuss - gourmet.total_subsidy).abs() < 1e-9,
+        "the conditional subsidy is the Kantine month's own value"
+    );
+
+    // A month change republishes the new identity; the rows that remain are
+    // that month's, never the previous month's under the new label.
+    model.select_month(2);
+    let next = model
+        .state()
+        .month_options
+        .iter()
+        .find(|m| m.offset == 2)
+        .cloned()
+        .expect("the second past month option");
+    assert_ne!(next.key, first.key, "the option keys differ per month");
+    let state = model.state();
+    if let Some(gourmet) = state.gourmet_month.as_ref() {
+        assert_eq!(
+            gourmet.month_key, next.key,
+            "the published Kantine month follows the selection"
+        );
+    }
+    for entry in model.merged_entries() {
+        assert!(
+            snackpilot_model::day_key_from_epoch_ms(entry.epoch_ms).starts_with(&next.key),
+            "receipt {} must belong to the selected month {}",
+            entry.id,
+            next.key
+        );
+    }
+}
+
+#[test]
+/// @req REQ-SCR-03
 fn same_date_amount_receipts_keep_distinct_ids() {
     // Inject two Gourmet bills that share one day and one amount but carry
     // different receipt numbers. A past month is served from the cache, so

@@ -220,7 +220,7 @@ final class DesktopRegressionTests: XCTestCase {
 
         // A repeated activation of the same dock is one action trace; each tap
         // is followed by a real frame, never a fixed sleep.
-        for _ in 0..2 {
+        for _ in 0..<2 {
             app.coordinate(withNormalizedOffset: dock).tap()
         }
         waitForSettledFrame(app)
@@ -238,6 +238,50 @@ final class DesktopRegressionTests: XCTestCase {
         saveScreenshot("daytray-menus-cancellation-cleared")
         XCTAssertEqual(app.state, .runningForeground)
         XCTAssertTrue(app.windows.firstMatch.exists, "the shell is still one window")
+        app.terminate()
+    }
+
+    /// Mobile Day Tray 1.5 (REQ-SCR-03/REQ-UI-15): the compact Abrechnung
+    /// screen keeps its month and source controls while data settles, switches
+    /// month and then source, and paints one summary plus the read-only
+    /// receipts. GPUI renders without an accessibility tree, so the captures
+    /// and the bounded frame waits are the evidence here; the totals/subsidy
+    /// equality, the selected-context guard and the read-only cards are
+    /// asserted by the Rust model/app tests, not fabricated from coordinates.
+    /// The launches use the isolated synthetic evidence knobs only.
+    /// @req REQ-SCR-03 @req REQ-UI-15
+    func testDayTrayBillingMonthsSourcesAndReceipts() {
+        // Second of the three month choices: the row starts 16 pt below the
+        // shell heading (heading box top ≈ 78 pt on a 390-wide viewport).
+        let secondMonth = CGVector(dx: 0.5, dy: 0.172)
+        // The Kantine/Automaten source options in the row below the months
+        // (the chip band sits at ≈ 201..240 pt on the 874 pt device).
+        let kantineSource = CGVector(dx: 0.388, dy: 0.253)
+        let automatenSource = CGVector(dx: 0.657, dy: 0.253)
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--evidence", "--viewport=390x844", "--tab=2"]
+        app.launchEnvironment["SNACKPILOT_EVIDENCE"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: 30),
+            "the compact Abrechnung screen did not render")
+        XCTAssertEqual(app.state, .runningForeground)
+        saveScreenshot("daytray-billing-default")
+
+        app.coordinate(withNormalizedOffset: secondMonth).tap()
+        waitForSettledFrame(app)
+        saveScreenshot("daytray-billing-second-month")
+
+        app.coordinate(withNormalizedOffset: kantineSource).tap()
+        waitForSettledFrame(app)
+        saveScreenshot("daytray-billing-kantine")
+
+        app.coordinate(withNormalizedOffset: automatenSource).tap()
+        waitForSettledFrame(app)
+        saveScreenshot("daytray-billing-automaten")
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertTrue(app.windows.firstMatch.exists, "the shell stays one window")
         app.terminate()
     }
 

@@ -21,6 +21,7 @@ pub fn pull_refresh(id: &'static str, content: AnyElement, on_refresh: ClickHand
     div()
         .id(id)
         .flex_1()
+        .min_h(px(0.))
         .flex()
         .flex_col()
         .overflow_hidden()

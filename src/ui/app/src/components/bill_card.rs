@@ -1,7 +1,9 @@
 //! Bill card — docs/requirements/04-ui-ux.md §4.7.
 //!
-//! Header with date/time and the source badge plus amount; Gourmet cards list
-//! their item lines, Ventopay cards show the optional restaurant line only.
+//! The compact card paints a date/time header with the neutral source metadata
+//! and the trailing amount, then the Gourmet lines or the optional Ventopay
+//! restaurant line. Desktop keeps its own table row and detail below, so the
+//! wide Ledger is unchanged.
 
 use gpui::*;
 
@@ -25,131 +27,192 @@ pub const BILL_LINE_QTY: f32 = 28.;
 /// Gourmet line total column (brief "Receipt detail": 80 px).
 pub const BILL_LINE_AMOUNT: f32 = 80.;
 
-fn source_badge(source: EntrySource, theme: &AppTheme) -> Div {
-    let (label, bg) = match source {
-        EntrySource::Gourmet => (
-            "KANTINE",
-            if theme.flat {
-                theme.primary_surface
-            } else {
-                theme.glass_primary
-            },
-        ),
-        EntrySource::Ventopay => (
-            "AUTOMATEN",
-            if theme.flat {
-                theme.success_surface
-            } else {
-                theme.glass_success
-            },
-        ),
-    };
-    div()
-        .px(px(8.))
-        .py(px(2.))
-        .rounded(px(8.))
-        .bg(bg)
-        .text_size(px(10.))
-        .font_weight(FontWeight::BOLD)
-        .text_color(theme.text_secondary)
-        .child(label)
+/// The compact receipt's source words: the incumbent uppercase badge copy,
+/// now painted as neutral metadata instead of a tinted service badge.
+/// @req REQ-SCR-03 @req REQ-UI-15
+pub fn mobile_source_label(source: EntrySource) -> &'static str {
+    match source {
+        EntrySource::Gourmet => "KANTINE",
+        EntrySource::Ventopay => "AUTOMATEN",
+    }
 }
 
-fn item_row(line: &BillingLine, theme: &AppTheme) -> Div {
+/// Whether a compact receipt card is an activation target. It never is: a
+/// receipt is read-only content (design A12), so the card paints no pointer
+/// affordance, no tab stop and no handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiptInteraction {
+    ReadOnly,
+}
+
+/// @req REQ-SCR-03 @req REQ-UI-16
+pub fn mobile_receipt_interaction(source: EntrySource) -> ReceiptInteraction {
+    match source {
+        EntrySource::Gourmet | EntrySource::Ventopay => ReceiptInteraction::ReadOnly,
+    }
+}
+
+/// The lines a compact receipt paints: the Kantine bill's own items, and none
+/// for Automaten (a transaction carries no invented item list).
+/// @req REQ-SCR-03
+pub fn mobile_receipt_lines(entry: &BillingEntry) -> &[BillingLine] {
+    match entry.source {
+        EntrySource::Gourmet => &entry.items,
+        EntrySource::Ventopay => &[],
+    }
+}
+
+/// The optional Automaten restaurant line: only the supplied, non-empty text.
+/// @req REQ-SCR-03
+pub fn mobile_restaurant_line(entry: &BillingEntry) -> Option<&str> {
+    match entry.source {
+        EntrySource::Gourmet => None,
+        EntrySource::Ventopay => {
+            (!entry.description.is_empty()).then_some(entry.description.as_str())
+        }
+    }
+}
+
+/// One compact Gourmet receipt line: the `{count}x` quantity in its 28 px
+/// metadata column, the full wrapping description in the body role and the
+/// trailing formatted line amount in metadata.
+fn mobile_line_row(line: &BillingLine, ink: Hsla, meta: Hsla) -> Div {
     div()
         .flex()
-        .items_center()
-        .gap(px(6.))
+        .items_start()
+        .gap(px(8.))
         .child(
             div()
-                .w(px(28.))
-                .text_size(px(13.))
-                .text_color(theme.text_tertiary)
+                .w(px(BILL_LINE_QTY))
+                .flex_shrink_0()
+                .text_size(px(14.))
+                .line_height(px(20.))
+                .text_color(meta)
                 .child(format!("{}x", line.count)),
         )
         .child(
             div()
                 .flex_1()
-                .text_size(px(14.))
-                .text_color(theme.text_secondary)
+                .min_w_0()
+                .text_size(px(16.))
+                .line_height(px(24.))
+                .text_color(ink)
                 .child(line.description.clone()),
         )
         .child(
             div()
-                .ml(px(8.))
-                .text_size(px(13.))
-                .text_color(theme.text_tertiary)
+                .flex_shrink_0()
+                .text_size(px(14.))
+                .line_height(px(20.))
+                .text_color(meta)
                 .child(format_eur(line.total)),
         )
 }
 
-/// One §4.7 bill card.
+/// One compact §4.7 receipt card (mobile task 1.5): date in the body role,
+/// time/source in readable metadata, the amount trailing in the body role,
+/// then — after a neutral hairline — either the Kantine lines or the supplied
+/// Automaten restaurant. Padding16, gap8, `card_surface`; heights follow
+/// content and the card is never a button.
+/// @req REQ-SCR-03 @req REQ-UI-15 @req REQ-UI-16
 pub fn bill_card(entry: &BillingEntry, theme: &AppTheme) -> Div {
+    let m = &theme.mobile;
+    let card_fill = theme.mobile_card_fill();
+    let meta = theme.mobile_secondary_on(card_fill);
+    let amount = format_eur(entry.amount);
+
     let header = div()
         .flex()
         .items_start()
         .justify_between()
-        .mb(px(12.))
+        .gap(px(m.space_2))
         .child(
             div()
+                .flex_1()
+                .min_w_0()
                 .flex()
                 .flex_col()
+                .gap(px(m.space_1))
                 .child(
                     div()
-                        .text_size(px(14.))
+                        .text_size(px(m.body))
+                        .line_height(px(m.body_line))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.text_primary)
                         .child(format_date_long(entry.epoch_ms)),
                 )
                 .child(
                     div()
-                        .text_size(px(12.))
-                        .text_color(theme.text_tertiary)
-                        .child(format_time(entry.epoch_ms)),
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(px(m.space_2))
+                        .child(
+                            div()
+                                .text_size(px(m.meta))
+                                .line_height(px(m.meta_line))
+                                .text_color(meta)
+                                .child(format_time(entry.epoch_ms)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(m.meta))
+                                .line_height(px(m.meta_line))
+                                .text_color(meta)
+                                .child(mobile_source_label(entry.source)),
+                        ),
                 ),
         )
         .child(
             div()
-                .flex()
-                .flex_col()
-                .items_end()
-                .gap(px(4.))
-                .child(source_badge(entry.source, theme))
-                .child(
-                    div()
-                        .text_size(px(18.))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(theme.primary)
-                        .child(format_eur(entry.amount)),
-                ),
+                .flex_shrink_0()
+                .text_size(px(m.body))
+                .line_height(px(m.body_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.text_primary)
+                .whitespace_nowrap()
+                .child(amount),
         );
 
     let mut card = theme::apply(
-        div().flex().flex_col().p(px(16.)).mb(px(8.)),
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(m.space_2))
+            .p(px(m.space_4))
+            .mb(px(m.space_2)),
         &theme.card_surface(),
     )
     .child(header);
 
-    match entry.source {
-        EntrySource::Gourmet => {
-            let mut rows = div().flex().flex_col().gap(px(6.));
-            for line in &entry.items {
-                rows = rows.child(item_row(line, theme));
-            }
-            card = card.child(rows);
-        }
-        EntrySource::Ventopay => {
-            if !entry.description.is_empty() {
-                card = card.child(
-                    div()
-                        .text_size(px(13.))
-                        .text_color(theme.text_secondary)
-                        .child(entry.description.clone()),
-                );
-            }
-        }
+    let lines = mobile_receipt_lines(entry);
+    if !lines.is_empty() {
+        card = card
+            .child(div().h(px(1.)).w_full().bg(theme.divider()))
+            .child(
+                div().flex().flex_col().gap(px(m.space_2)).children(
+                    lines
+                        .iter()
+                        .map(|line| mobile_line_row(line, theme.text_primary, meta)),
+                ),
+            );
     }
-    card
+    if let Some(restaurant) = mobile_restaurant_line(entry) {
+        card = card
+            .child(div().h(px(1.)).w_full().bg(theme.divider()))
+            .child(
+                div()
+                    .text_size(px(m.body))
+                    .line_height(px(m.body_line))
+                    .text_color(theme.text_primary)
+                    .child(restaurant.to_string()),
+            );
+    }
+
+    // Read-only content: no pointer affordance on either source.
+    match mobile_receipt_interaction(entry.source) {
+        ReceiptInteraction::ReadOnly => card.cursor_default(),
+    }
 }
 
 /// The amount column width of the table density (brief columns).
@@ -398,10 +461,118 @@ pub fn desktop_bill_detail(entry: &BillingEntry, compact: bool, theme: &AppTheme
 #[cfg(test)]
 mod tests {
     use super::{
-        bill_amount_width, bill_source_label, BILL_AMOUNT_COMPACT, BILL_AMOUNT_EXPANDED,
-        BILL_DATE_EXPANDED, BILL_LINE_AMOUNT, BILL_LINE_QTY,
+        bill_amount_width, bill_source_label, mobile_receipt_interaction, mobile_receipt_lines,
+        mobile_restaurant_line, mobile_source_label, ReceiptInteraction, BILL_AMOUNT_COMPACT,
+        BILL_AMOUNT_EXPANDED, BILL_DATE_EXPANDED, BILL_LINE_AMOUNT, BILL_LINE_QTY,
     };
-    use snackpilot_model::EntrySource;
+    use snackpilot_model::{format_eur, BillingEntry, BillingLine, EntrySource};
+
+    /// The compact receipt (task 1.5) renders every supplied Gourmet line in
+    /// full, never invents a Ventopay item, shows the existing optional
+    /// restaurant only when it is non-empty, and is read-only for both
+    /// sources with the neutral uppercase source words. Amounts use the
+    /// incumbent `format_eur`, including negative credits and large values.
+    /// @req REQ-SCR-03 @req REQ-UI-15 @req REQ-UI-16
+    #[test]
+    fn mobile_receipt_lines_wrap_and_remain_read_only() {
+        const LONG: &str =
+            "Rindsgulasch mit Serviettenknödel, Rahmsauce und Blattsalat mit Kürbiskernöl";
+        let gourmet = BillingEntry {
+            id: "g-1001".into(),
+            epoch_ms: 1_794_308_400_000,
+            source: EntrySource::Gourmet,
+            description: String::new(),
+            amount: -6.4,
+            items: vec![
+                BillingLine {
+                    count: 2,
+                    description: LONG.into(),
+                    total: 6.4,
+                },
+                BillingLine {
+                    count: 1,
+                    description: "Kürbiskernöl".into(),
+                    total: 0.5,
+                },
+            ],
+        };
+        let lines = mobile_receipt_lines(&gourmet);
+        assert_eq!(lines.len(), 2, "every supplied Kantine line is shown");
+        assert_eq!(
+            lines[0].description, LONG,
+            "the description is rendered in full, never truncated or replaced"
+        );
+        assert_eq!(
+            BILL_LINE_QTY, 28.,
+            "the quantity stays in its 28 px metadata column"
+        );
+        assert_eq!(
+            format_eur(gourmet.amount),
+            "-€ 6,40",
+            "credit keeps its sign"
+        );
+        assert_eq!(
+            format_eur(lines[0].total),
+            "€ 6,40",
+            "a line amount uses the incumbent formatter"
+        );
+        assert_eq!(
+            format_eur(1_234_567.89),
+            "€ 1.234.567,89",
+            "a large amount keeps the pinned thousands grouping"
+        );
+
+        // Ventopay carries transactions, not items: nothing is invented even
+        // if a line were present, and only a supplied non-empty restaurant
+        // becomes a line.
+        let ventopay = BillingEntry {
+            id: "v-77".into(),
+            epoch_ms: 1_794_222_000_000,
+            source: EntrySource::Ventopay,
+            description: "Kaffeeautomat Foyer".into(),
+            amount: -1.2,
+            items: vec![BillingLine {
+                count: 1,
+                description: "invented".into(),
+                total: 1.2,
+            }],
+        };
+        assert!(
+            mobile_receipt_lines(&ventopay).is_empty(),
+            "no receipt item is fabricated for Automaten"
+        );
+        assert_eq!(
+            mobile_restaurant_line(&ventopay),
+            Some("Kaffeeautomat Foyer"),
+            "the supplied restaurant line is kept"
+        );
+        let without = BillingEntry {
+            description: String::new(),
+            ..ventopay.clone()
+        };
+        assert_eq!(
+            mobile_restaurant_line(&without),
+            None,
+            "an absent restaurant paints no empty line"
+        );
+
+        // Read-only receipts: neither source is an activation target, and the
+        // source is neutral uppercase metadata, not a success-tinted badge.
+        for source in [EntrySource::Gourmet, EntrySource::Ventopay] {
+            assert_eq!(
+                mobile_receipt_interaction(source),
+                ReceiptInteraction::ReadOnly,
+                "a receipt is never a button"
+            );
+        }
+        assert_eq!(mobile_source_label(EntrySource::Gourmet), "KANTINE");
+        assert_eq!(mobile_source_label(EntrySource::Ventopay), "AUTOMATEN");
+        assert_eq!(
+            bill_source_label(EntrySource::Gourmet),
+            "Kantine",
+            "the desktop detail keeps its sentence-case service name"
+        );
+    }
 
     /// The two table densities use the brief's exact receipt columns.
     /// @req REQ-SCR-03

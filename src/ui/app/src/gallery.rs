@@ -12,7 +12,7 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{Icon, StyledExt};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, AnyElement, App, Context, Entity, SharedString, Window};
-use snackpilot_core::domain::{MenuCategory, MenuItem, OrderedMenu};
+use snackpilot_core::domain::{MenuCategory, MenuItem, MonthOption, OrderedMenu};
 use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
 use snackpilot_model::navigation::Tab;
 use snackpilot_model::{
@@ -20,7 +20,9 @@ use snackpilot_model::{
 };
 
 use crate::app::OrderCancelState;
-use crate::components::bill_card::{desktop_bill_detail, desktop_bill_header, desktop_bill_row};
+use crate::components::bill_card::{
+    bill_card, desktop_bill_detail, desktop_bill_header, desktop_bill_row,
+};
 use crate::components::day_navigator::mobile_day_navigator;
 use crate::components::fab::{dock_height_for_lines, mobile_dock, DockState};
 use crate::components::menu_card::{
@@ -36,7 +38,10 @@ use crate::components::{
     text_field, toast, workspace,
 };
 use crate::navigation::ClickHandler;
-use crate::screens::billing::desktop_summary_line;
+use crate::screens::billing::{
+    desktop_summary_line, mobile_month_row, mobile_source_row, mobile_summary_surface, MonthSelect,
+    SourceSelect,
+};
 use crate::screens::menus::{desktop_menu_detail, desktop_submit_action};
 use crate::screens::orders::confirm_banner;
 use crate::theme::{self, use_flat_style, AppTheme};
@@ -1666,6 +1671,7 @@ fn mobile_state_board(dark: bool, cx: &mut Context<GalleryRoot>) -> AnyElement {
     let menus_theme = AppTheme::build(dark, AccentColor::Orange, use_flat_style());
     board = board.child(mobile_menus_case(328., &menus_theme));
     board = board.child(mobile_orders_case(328., &menus_theme));
+    board = board.child(mobile_billing_case(328., &menus_theme));
 
     board.into_any_element()
 }
@@ -1820,6 +1826,87 @@ fn mobile_orders_case(width: f32, theme: &AppTheme) -> AnyElement {
                 .text_color(theme.text_secondary)
                 .child(format!(
                     "Bestellungen · {width} px Inhalt · Segmente, Banner, Karten"
+                )),
+        )
+        .child(column)
+        .into_any_element()
+}
+
+/// Offline Abrechnung board for task 1.5 (billing scenarios only): the real
+/// compact month choices, source options, summary surface and receipt cards
+/// over static receipts, including a long Kantine description, a large credit,
+/// the Automaten restaurant with and without text, and the empty text. It is a
+/// component board, not proof of a running screen.
+/// @req REQ-SCR-03 @req REQ-UI-15
+fn mobile_billing_case(width: f32, theme: &AppTheme) -> AnyElement {
+    let month: MonthSelect = Rc::new(|_, _, _| {});
+    let source: SourceSelect = Rc::new(|_, _, _| {});
+    let mut entries = gallery_receipts();
+    // An Automaten transaction without a restaurant line: the header alone.
+    entries.push(BillingEntry {
+        id: "v-78".to_string(),
+        epoch_ms: 1_794_135_600_000,
+        source: EntrySource::Ventopay,
+        description: String::new(),
+        amount: -999.99,
+        items: Vec::new(),
+    });
+    let totals = BillingTotals {
+        gesamt: entries.iter().map(|entry| entry.amount).sum(),
+        belege: entries.len(),
+        zuschuss: 1.25,
+    };
+    let options: Vec<MonthOption> = ["2026-11", "2026-10", "2026-09"]
+        .into_iter()
+        .enumerate()
+        .map(|(offset, key)| MonthOption {
+            key: key.to_string(),
+            label: format!("{} 2026", ["November", "Oktober", "September"][offset]),
+            offset: offset as u8,
+        })
+        .collect();
+
+    let mut cards = div().flex().flex_col();
+    for entry in &entries {
+        cards = cards.child(bill_card(entry, theme));
+    }
+
+    let column = div()
+        .w(px(width))
+        .flex()
+        .flex_col()
+        .bg(theme.background)
+        .child(mobile_month_row(&options, 0, month, theme))
+        .child(mobile_source_row(BillingSource::All, source, theme))
+        .child(mobile_summary_surface(
+            &entries,
+            &totals,
+            BillingSource::All,
+            theme,
+        ))
+        .child(cards)
+        .child(
+            div().p(px(theme.mobile.space_4)).child(
+                div()
+                    .text_size(px(theme.mobile.body))
+                    .line_height(px(theme.mobile.body_line))
+                    .text_color(theme.mobile_secondary_on(theme.mobile_card_fill()))
+                    .child("Keine Abrechnungsdaten für diesen Monat"),
+            ),
+        );
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(theme.mobile.space_2))
+        .child(
+            div()
+                .text_size(px(theme.mobile.meta))
+                .line_height(px(theme.mobile.meta_line))
+                .font_semibold()
+                .text_color(theme.text_secondary)
+                .child(format!(
+                    "Abrechnung · {width} px Inhalt · Monate, Quellen, Summe, Belege"
                 )),
         )
         .child(column)
