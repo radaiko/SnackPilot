@@ -2,7 +2,7 @@
 //! selected/unselected chip and badge recipes.
 
 use gpui_kit::assets::IconName;
-use gpui_kit::component::{tag::Tag, Icon};
+use gpui_kit::component::{tag::Tag, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, Div, SharedString};
 use snackpilot_model::desktop::{ControlState, TARGET_MIN};
@@ -31,24 +31,53 @@ fn chip_inner(
     selected: bool,
     theme: &AppTheme,
 ) -> Div {
-    let r = if selected {
-        theme.selected_chip()
+    // Compact option recipe (REQ-UI-15): `mobile.option` — 44 px two-axis
+    // target, 12 px side padding, r8, and the accent tint plus an independent
+    // 8 px check slot when selected. The colour cue is never the only one.
+    let radius = theme.mobile.radius_option;
+    let fill = if selected {
+        theme.mobile.selection_fill
     } else {
-        theme.unselected_chip()
+        theme.mobile_card_fill()
     };
     let fg = if selected {
-        theme.primary
+        theme.mobile.selection_ink
     } else {
-        theme.text_secondary
+        theme.mobile_secondary_on(fill)
     };
-    let mut chip = theme::apply(
-        div().flex().items_center().gap(px(6.)).px_3().py(px(6.)),
-        &r,
-    );
+    let mut chip = div()
+        .flex()
+        .items_center()
+        .gap(px(theme.mobile.space_2))
+        .min_h(px(theme.mobile.target))
+        .px(px(theme.mobile.space_3))
+        .py(px(theme.mobile.space_1))
+        .rounded(px(radius))
+        .bg(fill)
+        .border(px(1.))
+        .border_color(if selected {
+            theme.mobile.selection_boundary
+        } else {
+            theme.border
+        });
+    if selected {
+        chip = chip.child(
+            Icon::new(IconName::Check)
+                .with_size(px(theme.mobile.space_5))
+                .text_color(fg),
+        );
+    }
     if let Some(icon) = icon {
         chip = chip.child(icon.text_color(fg));
     }
-    chip.child(div().text_size(px(13.)).text_color(fg).child(label.into()))
+    chip.child(
+        div()
+            .text_size(px(theme.mobile.body))
+            .line_height(px(theme.mobile.body_line))
+            .font_semibold()
+            .text_color(fg)
+            .child(label.into()),
+    )
 }
 
 /// Desktop filter option (brief `desktop.filterOption`): a 44 px target, 12 px
@@ -119,7 +148,7 @@ pub fn chip_row(chips: impl IntoIterator<Item = Div>) -> Div {
         .flex()
         .flex_row()
         .flex_wrap()
-        .gap(px(8.))
+        .gap(px(snackpilot_model::tokens::mobile::SPACE_2))
         .children(chips)
 }
 

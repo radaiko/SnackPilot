@@ -53,4 +53,30 @@ final class DialogOcclusionTests: XCTestCase {
         sleep(1)
         saveScreenshot("occl-after")
     }
+
+    /// Mobile Day Tray 1.2 (REQ-SCR-04/REQ-UI-16): on the compact shell the
+    /// modal is painted last and covers the whole shell, so the tab-bar
+    /// coordinate never reaches the bar while it is open. A second tap at the
+    /// same point after the first resolution must go through the one dialog
+    /// dispatch only — the backdrop owns index 0 and the modal is removed once,
+    /// which the before/after captures show. GPUI exposes no accessibility
+    /// tree, so this records real frames and the app staying foreground instead
+    /// of claiming assistive traversal.
+    /// @req REQ-SCR-04 @req REQ-UI-16
+    func testDayTrayModalOccludesAndResolvesOnce() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--evidence", "--viewport=360x780", "--tab=0", "--dialog"]
+        app.launchEnvironment["SNACKPILOT_EVIDENCE"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: 30),
+            "the compact shell did not render")
+        saveScreenshot("daytray-modal-open")
+        let point = app.coordinate(withNormalizedOffset: settingsTab)
+        point.tap()
+        point.tap()
+        sleep(1)
+        saveScreenshot("daytray-modal-after")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
 }

@@ -20,12 +20,19 @@ pub fn switch(
     div()
         .flex()
         .items_center()
-        .gap(px(8.))
+        .gap(px(theme.mobile.space_2))
+        .min_h(px(theme.mobile.target))
         .child(
             Switch::new(id)
                 .checked(checked)
                 .color(theme.primary)
                 .on_change(on_change),
         )
-        .child(div().text_color(theme.text_primary).child(label.into()))
+        .child(
+            div()
+                .text_size(px(theme.mobile.body))
+                .line_height(px(theme.mobile.body_line))
+                .text_color(theme.text_primary)
+                .child(label.into()),
+        )
 }

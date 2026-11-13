@@ -77,11 +77,15 @@ fn tab_button(
     theme: &AppTheme,
     on_select: TabSelect,
 ) -> AnyElement {
-    let color = if active {
-        theme.primary
+    // Active destination keeps the accent; an inactive one uses the readable
+    // secondary projection on the bar's own fill, never tertiary (REQ-UI-15).
+    let bar_fill = if flat {
+        theme.surface
     } else {
-        theme.text_tertiary
+        theme.glass_surface
     };
+    let inactive = theme.mobile_secondary_on(bar_fill);
+    let color = if active { theme.primary } else { inactive };
 
     let icon = div()
         .relative()
@@ -134,11 +138,7 @@ fn tab_button(
                 div()
                     .text_size(px(12.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(if active {
-                        theme.primary
-                    } else {
-                        theme.text_tertiary
-                    })
+                    .text_color(if active { theme.primary } else { inactive })
                     .child(tab.title()),
             )
             .into_any_element()

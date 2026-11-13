@@ -152,6 +152,42 @@ pub fn dialog_move(focused: usize, button_count: usize, forward: bool) -> usize 
     }
 }
 
+/// Which compact modal action is being painted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialogActionKind {
+    Primary,
+    Danger,
+    Neutral,
+}
+
+/// The compact modal action recipe (REQ-SCR-04/REQ-UI-15): the primary action
+/// on the token-derived action fill with its readable ink, the destructive one
+/// on the pinned error fill, and cancel on the neutral outline. Every action is
+/// at least `mobile.target` (44 px) high with radius 8.
+pub fn mobile_dialog_action(
+    kind: DialogActionKind,
+    theme: &AppTheme,
+) -> (Option<Hsla>, Option<Hsla>, Hsla) {
+    match kind {
+        DialogActionKind::Primary => (
+            Some(theme.mobile.action_fill),
+            None,
+            theme.mobile.action_ink,
+        ),
+        DialogActionKind::Danger => (Some(theme.error), None, theme.on_primary),
+        DialogActionKind::Neutral => (None, Some(theme.border), theme.text_primary),
+    }
+}
+
+/// The compact modal's vertical split: the body is the flexible scroll region
+/// and the action row keeps its target height, so a long message scrolls while
+/// the actions stay visible (REQ-SCR-04).
+pub const MOBILE_DIALOG_BODY_MIN: f32 = 0.;
+
+pub fn mobile_dialog_action_height(theme: &AppTheme) -> f32 {
+    theme.mobile.target
+}
+
 /// A §4.1 dialog button: `py 10`, `radius 8`, fontSize 15 weight 600.
 #[allow(clippy::too_many_arguments)]
 fn dialog_button(
@@ -171,9 +207,9 @@ fn dialog_button(
         .items_center()
         .justify_center()
         .py(px(10.))
-        .min_h(px(snackpilot_model::desktop::TARGET_MIN))
-        .rounded(px(8.))
-        .text_size(px(15.))
+        .min_h(px(mobile_dialog_action_height(theme)))
+        .rounded(px(theme.mobile.radius_option))
+        .text_size(px(theme.mobile.body))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(fg)
         .cursor_pointer()
@@ -181,7 +217,7 @@ fn dialog_button(
         .when_some(border, |d, c| d.border_1().border_color(c))
         .when(grow, |d| d.flex_1())
         .track_focus(focus)
-        .focus(theme::desktop_focus(theme.desktop.focus))
+        .focus(theme::desktop_focus(theme.mobile.focus))
         .child(label)
         .on_click(move |_, window, cx| on_click(window, cx))
 }
@@ -207,13 +243,12 @@ pub fn dialog_overlay(
             (Dialog::Confirm { .. }, 0) => "dialog-cancel",
             _ => "dialog-confirm",
         };
-        let (fill, border, fg) = match dialog {
-            Dialog::Alert { .. } => (Some(theme.primary), None, theme.on_primary),
-            Dialog::Confirm { .. } if index == 0 => {
-                (None, Some(theme.border), theme.text_secondary)
-            }
-            Dialog::Confirm { .. } => (Some(theme.error), None, theme.on_primary),
+        let kind = match dialog {
+            Dialog::Alert { .. } => DialogActionKind::Primary,
+            Dialog::Confirm { .. } if index == 0 => DialogActionKind::Neutral,
+            Dialog::Confirm { .. } => DialogActionKind::Danger,
         };
+        let (fill, border, fg) = mobile_dialog_action(kind, theme);
         buttons.push(
             dialog_button(
                 id,
@@ -267,7 +302,9 @@ pub fn dialog_overlay(
                 .flex_col()
                 .items_center()
                 .rounded(px(14.))
-                .p(px(24.))
+                .p(px(theme.mobile.space_6))
+                .pt(px(theme.mobile.space_6))
+                .pb(px(theme.mobile.space_6))
                 .bg(theme.surface)
                 .border(px(0.5))
                 .border_color(theme.border)
@@ -275,8 +312,8 @@ pub fn dialog_overlay(
                 .on_click(|_, _, cx| cx.stop_propagation())
                 .child(
                     div()
-                        .text_size(px(17.))
-                        .line_height(px(22.))
+                        .text_size(px(theme.mobile.body))
+                        .line_height(px(theme.mobile.body_line))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.text_primary)
                         .text_center()
@@ -286,25 +323,28 @@ pub fn dialog_overlay(
                     d.child(
                         div()
                             .id("dialog-message")
-                            .mt(px(8.))
-                            .text_size(px(14.))
-                            .line_height(px(20.))
-                            .text_color(theme.text_secondary)
+                            .mt(px(theme.mobile.space_2))
+                            .w_full()
+                            .flex_1()
+                            .min_h(px(MOBILE_DIALOG_BODY_MIN))
+                            .text_size(px(theme.mobile.meta))
+                            .line_height(px(theme.mobile.meta_line))
+                            .text_color(theme.mobile_secondary_on(theme.surface))
                             .text_center()
-                            // A long message scrolls; the action row stays
-                            // visible (brief "short window").
-                            .max_h(px(320.))
+                            // The body owns the scroll region; the action row
+                            // below it keeps its targets visible however long
+                            // the message is (REQ-SCR-04).
                             .overflow_y_scroll()
                             .child(m),
                     )
                 })
                 .child(
                     div()
-                        .mt(px(20.))
+                        .mt(px(theme.mobile.space_5))
                         .w_full()
                         .flex()
                         .flex_wrap()
-                        .gap(px(10.))
+                        .gap(px(theme.mobile.space_2))
                         .items_center()
                         .justify_center()
                         .children(buttons),
@@ -372,6 +412,65 @@ mod tests {
         resolution.reset();
         assert_eq!(resolution.begin(0, 2), Some(0));
         assert_eq!(resolution.begin(2, 2), None, "index outside the row");
+    }
+
+    /// A compact modal stays reachable and single (REQ-SCR-04): the body is the
+    /// scroll region (it may shrink to zero), the action row keeps its 44 px
+    /// targets visible, the backdrop/Esc path resolves index 0 (cancel) exactly
+    /// once, and the narrow shell keeps its incumbent focus restore — the
+    /// dialog's one resolution owns it, so a second tap runs nothing.
+    /// @req REQ-SCR-04
+    #[test]
+    fn mobile_long_dialog_resolves_once_and_restores_focus() {
+        use super::{
+            mobile_dialog_action, mobile_dialog_action_height, DialogActionKind,
+            MOBILE_DIALOG_BODY_MIN,
+        };
+        use crate::theme::AppTheme;
+        use snackpilot_model::AccentColor;
+
+        // The body can shrink to nothing (scroll region) while the actions keep
+        // their target height, so a long message never pushes them out.
+        assert_eq!(MOBILE_DIALOG_BODY_MIN, 0.);
+        for flat in [false, true] {
+            let theme = AppTheme::build(false, AccentColor::Orange, flat);
+            assert_eq!(
+                mobile_dialog_action_height(&theme),
+                44.,
+                "modal actions meet the touch floor"
+            );
+            let (fill, border, ink) = mobile_dialog_action(DialogActionKind::Primary, &theme);
+            assert_eq!(fill, Some(theme.mobile.action_fill));
+            assert_eq!(border, None);
+            assert_eq!(ink, theme.mobile.action_ink);
+            let (_, border, ink) = mobile_dialog_action(DialogActionKind::Neutral, &theme);
+            assert!(border.is_some(), "cancel keeps its neutral outline");
+            assert_eq!(ink, theme.text_primary);
+            let (fill, _, ink) = mobile_dialog_action(DialogActionKind::Danger, &theme);
+            assert_eq!(fill, Some(theme.error), "destructive keeps the error fill");
+            assert_eq!(ink, theme.on_primary);
+        }
+
+        // The confirm's cancel side is index 0, which is also what the backdrop
+        // and Esc resolve; one resolution claims it.
+        assert_eq!(confirm().label_at(0), "Behalten");
+        assert_eq!(
+            super::dialog_key("escape", false, false, 1, 2),
+            super::DialogKey::Dismiss
+        );
+        let mut resolution = super::DialogResolution::default();
+        assert_eq!(resolution.begin(0, 2), Some(0));
+        assert_eq!(
+            resolution.begin(0, 2),
+            None,
+            "the backdrop cannot resolve twice"
+        );
+        assert_eq!(resolution.begin(1, 2), None, "a late confirm cannot run");
+        // Focus ownership stays the narrow shell's incumbent restore.
+        assert_eq!(
+            crate::app::focus_restore(false, false, false),
+            crate::app::FocusRestore::Origin
+        );
     }
 
     /// The alert focuses OK; a confirm focuses its visible confirm action,

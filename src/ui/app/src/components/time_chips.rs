@@ -6,6 +6,7 @@
 use std::rc::Rc;
 
 use gpui::*;
+use gpui_kit::component::{Icon, Sizable};
 
 use crate::theme::AppTheme;
 
@@ -25,60 +26,74 @@ pub fn label(hour: u8, minute: u8) -> String {
     format!("{hour:02}:{minute:02}")
 }
 
-/// The chip row; `selected` is the persisted time (if any).
+/// The chip row; `selected` is the persisted time (if any). Each option is a
+/// 44 px tall r8 target with 12 px padding and an 8 px gap; the selected one
+/// adds the accent tint, a visible boundary and a 20 px Lucide check, so colour
+/// is never the only cue (REQ-UI-15). The twelve existing options and the
+/// horizontal strip are unchanged.
 pub fn time_chips(
     selected: Option<(u8, u8)>,
     on_pick: Rc<dyn Fn(u8, u8, &mut Window, &mut App)>,
     theme: &AppTheme,
 ) -> Stateful<Div> {
+    let card = theme.mobile_card_fill();
     let mut row = div()
         .id("reminder-times")
         .flex()
-        .gap(px(8.))
+        .gap(px(theme.mobile.space_2))
         .overflow_x_scroll();
     for (hour, minute) in times() {
         let is_selected = selected == Some((hour, minute));
         let handler = on_pick.clone();
         let fill = if is_selected {
-            if theme.flat {
-                theme.primary_surface
-            } else {
-                theme.glass_primary
-            }
+            theme.mobile.selection_fill
         } else {
-            theme.banner_surface().bg
+            card
         };
+        let ink = if is_selected {
+            theme.mobile.selection_ink
+        } else {
+            theme.mobile_secondary_on(fill)
+        };
+        let mut chip = div()
+            .id(SharedString::from(format!(
+                "reminder-{}",
+                label(hour, minute)
+            )))
+            .flex()
+            .items_center()
+            .gap(px(theme.mobile.space_2))
+            .min_h(px(theme.mobile.target))
+            .px(px(theme.mobile.space_3))
+            .py(px(theme.mobile.space_3))
+            .rounded(px(theme.mobile.radius_option))
+            .bg(fill)
+            .border_b_3()
+            .border_color(if is_selected {
+                theme.mobile.selection_boundary
+            } else {
+                hsla(0., 0., 0., 0.)
+            })
+            .tab_index(0)
+            .focus(crate::theme::desktop_focus(theme.mobile.focus))
+            .cursor_pointer()
+            .on_click(move |_, window, cx| handler(hour, minute, window, cx));
+        if is_selected {
+            chip = chip.child(
+                Icon::new(gpui_kit::assets::IconName::Check)
+                    .with_size(px(theme.mobile.space_5))
+                    .text_color(ink),
+            );
+        }
         row = row.child(
-            div()
-                .id(SharedString::from(format!(
-                    "reminder-{}",
-                    label(hour, minute)
-                )))
-                .px(px(14.))
-                .py(px(10.))
-                .rounded(px(10.))
-                .bg(fill)
-                .border_b_3()
-                .border_color(if is_selected {
-                    theme.primary
-                } else {
-                    hsla(0., 0., 0., 0.)
-                })
-                .tab_index(0)
-                .focus(crate::theme::desktop_focus(theme.desktop.focus))
-                .cursor_pointer()
-                .on_click(move |_, window, cx| handler(hour, minute, window, cx))
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if is_selected {
-                            theme.primary
-                        } else {
-                            theme.text_secondary
-                        })
-                        .child(label(hour, minute)),
-                ),
+            chip.child(
+                div()
+                    .text_size(px(theme.mobile.meta))
+                    .line_height(px(theme.mobile.meta_line))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(ink)
+                    .child(label(hour, minute)),
+            ),
         );
     }
     row

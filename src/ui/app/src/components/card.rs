@@ -9,10 +9,20 @@ use snackpilot_model::desktop::ControlState;
 
 use crate::theme::{self, AppTheme};
 
-/// A §4 card: rounded surface holding arbitrary child elements.
+/// A §4 card: rounded surface holding arbitrary child elements. The compact
+/// presentation uses the pinned card recipe (16 iOS/14 Android radius) with the
+/// named 16 px padding and 8 px gap (REQ-UI-15).
 pub fn card(theme: &AppTheme, children: impl IntoIterator<Item = gpui_kit::AnyElement>) -> Div {
     let r = theme.card_surface();
-    theme::apply(div().flex().flex_col().gap(px(10.)).p_3(), &r).children(children)
+    theme::apply(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_4)),
+        &r,
+    )
+    .children(children)
 }
 
 /// Desktop ledger card (brief `desktop.panelSurface`): the opaque panel at
@@ -49,17 +59,24 @@ pub fn desktop_card(
 /// spinner for the loading variants ("Aktualisiere...", "Wird in den
 /// Warenkorb gelegt...").
 pub fn empty_state(text: impl Into<SharedString>, spinner: bool, theme: &AppTheme) -> Div {
-    let mut row = div().flex().items_center().gap(px(8.)).p_2();
+    let card_fill = theme.mobile_card_fill();
+    let mut row = div()
+        .flex()
+        .items_center()
+        .gap(px(theme.mobile.space_2))
+        .p(px(theme.mobile.space_2));
     if spinner {
+        // The compact cached-refresh row is a neutral 16 px spinner (REQ-UI-15).
         row = row.child(crate::components::spinner::spinner(
-            theme.text_secondary,
-            14.,
+            theme.mobile_secondary_on(card_fill),
+            16.,
         ));
     }
     row.child(
         div()
-            .text_size(px(14.))
-            .text_color(theme.text_secondary)
+            .text_size(px(theme.mobile.body))
+            .line_height(px(theme.mobile.body_line))
+            .text_color(theme.mobile_secondary_on(card_fill))
             .child(text.into()),
     )
 }
@@ -74,14 +91,16 @@ pub fn titled_card(
         theme,
         [
             div()
-                .text_size(px(16.))
+                .text_size(px(theme.mobile.body))
+                .line_height(px(theme.mobile.body_line))
                 .font_semibold()
                 .text_color(theme.text_primary)
                 .child(title.into())
                 .into_any_element(),
             div()
-                .text_size(px(14.))
-                .text_color(theme.text_secondary)
+                .text_size(px(theme.mobile.meta))
+                .line_height(px(theme.mobile.meta_line))
+                .text_color(theme.mobile_secondary_on(theme.mobile_card_fill()))
                 .child(body.into())
                 .into_any_element(),
         ],

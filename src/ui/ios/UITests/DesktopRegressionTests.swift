@@ -118,6 +118,48 @@ final class DesktopRegressionTests: XCTestCase {
         XCTAssertTrue(app.state == .runningForeground)
     }
 
+    /// Mobile Day Tray 1.2 (REQ-UI-03/REQ-UI-04/REQ-UI-07/REQ-UI-15): the
+    /// compact shell is one root with the platform navigation at360, 390, 768
+    /// and1280 — the wide widths show the same centred column, never a desktop
+    /// rail, table or split. Each launch records a real frame; GPUI has no
+    /// accessibility tree, so the rail's absence is a visual review fact and is
+    /// never asserted from coordinates.
+    /// @req REQ-UI-03 @req REQ-UI-04 @req REQ-UI-07
+    func testDayTrayCompactShellAtEveryWidth() {
+        for viewport in ["360x780", "390x844", "768x1024", "1280x1024"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["--evidence", "--viewport=\(viewport)", "--tab=0"]
+            app.launchEnvironment["SNACKPILOT_EVIDENCE"] = "1"
+            app.launch()
+            let window = app.windows.firstMatch
+            XCTAssertTrue(
+                window.waitForExistence(timeout: 30),
+                "\(viewport): the compact shell did not render")
+            XCTAssertGreaterThan(window.frame.width, 0, "\(viewport): no frame")
+            XCTAssertEqual(app.state, .runningForeground)
+            saveScreenshot("daytray-shell-\(viewport)")
+            app.terminate()
+        }
+    }
+
+    /// Mobile Day Tray 1.2 (REQ-UI-06): the in-app new-menu toast uses the
+    /// approved C1 copy without the exclamation mark, at its unchanged
+    /// 300/4000/300 ms timing. The toast is a painted overlay with no
+    /// accessibility node, so the capture is the evidence and no label
+    /// assertion is fabricated.
+    /// @req REQ-UI-06
+    func testDayTrayToastCopy() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--evidence", "--viewport=390x844", "--tab=0", "--toast"]
+        app.launchEnvironment["SNACKPILOT_EVIDENCE"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: 30),
+            "the compact shell did not render")
+        saveScreenshot("daytray-toast")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     /// A stale notification route on the phone keeps the mobile screen, not
     /// the desktop unavailable fallback (REQ-SCR-08).
     /// @req REQ-SCR-08

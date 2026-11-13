@@ -373,51 +373,134 @@ pub(crate) fn init_kit(cx: &mut App) {
     Theme::global_mut(cx).font_family = "Inter".into();
 }
 
-/// Desktop content width rule (desktop-ui-redesign task 1.2, REQ-UI-07).
-/// Below the model's 720 px desktop breakpoint the shell stays the centred
-/// phone column of at most 480 px; at and above it the shell takes the whole
-/// window, so the rail and the workspace fit and the old 480 px cap is gone.
-/// The breakpoint is the model's, never a second literal here.
+/// Desktop content width rule (desktop-ui-redesign task 1.2, REQ-UI-07;
+/// mobile-ui-rework task 1.2). The frame reports the window's own content
+/// width at every width, because the Day Tray column (`min(viewport − 32,
+/// 560)`) is now centred by the shell through the model's geometry — the old
+/// 480 px cap below the 720 px breakpoint is gone, and the breakpoint itself
+/// stays the model's (`layout_mode`), never a second literal here.
 pub(crate) fn desktop_content_width(window_width: f32) -> f32 {
-    let host = snackpilot_model::desktop::HostKind::Desktop;
-    if snackpilot_model::desktop::layout_mode(host, window_width)
-        == snackpilot_model::desktop::LayoutMode::Phone
-    {
-        window_width.min(snackpilot_model::desktop::PHONE_CONTENT_MAX)
+    window_width
+}
+
+/// The width a compact surface is laid out at (REQ-UI-07): the host-reported
+/// content width when there is one (a desktop frame or an evidence viewport),
+/// otherwise the live window viewport — a phone host reports no width, so it
+/// must never fall back to zero.
+pub(crate) fn compact_width(reported: f32, viewport: f32) -> f32 {
+    if reported > 0. {
+        reported
     } else {
-        window_width
+        viewport
     }
+}
+
+/// The compact single-column projection for this host and reported content
+/// width (REQ-UI-07): 16 px gutters under the 560 px cap, 104 at 768, and
+/// `None` for the wide Desktop Ledger, which this presentation never restyles.
+pub(crate) fn compact_column(
+    host: snackpilot_model::desktop::HostKind,
+    width: f32,
+) -> Option<snackpilot_model::tokens::mobile::Geometry> {
+    snackpilot_model::tokens::mobile::geometry(host, width)
 }
 
 #[cfg(all(test, not(any(target_os = "ios", target_os = "android"))))]
 mod tests {
-    use super::desktop_content_width;
+    use super::{compact_column, compact_width, desktop_content_width};
 
-    /// The desktop frame drops the 480 px cap exactly at the model's 720 px
-    /// breakpoint and centres a phone column below it.
+    /// The desktop frame reports the live window width at every width, so the
+    /// shell can centre the Day Tray column itself; the old 480 px cap below
+    /// the 720 px breakpoint is gone (REQ-UI-07).
     /// @req REQ-UI-07
     #[test]
     fn desktop_frame_width_follows_the_breakpoint() {
+        for width in [360., 390., 719., 720., 768., 1280.] {
+            assert_eq!(
+                desktop_content_width(width),
+                width,
+                "the frame reports the live content width at {width}"
+            );
+        }
+    }
+
+    /// The compact shell projection is host-safe (REQ-UI-07): the Day Tray
+    /// column is `min(viewport − 32, 560)` with 16/16/104 gutters and a 440 px
+    /// form cap for a phone/tablet host at any width and for a narrow desktop,
+    /// while the wide Desktop Ledger (desktop at 720 and above) is never given
+    /// this presentation. The accepted widths and caps are exactly the shared
+    /// token table, so no screen derives a second column.
+    /// @req REQ-UI-07
+    #[test]
+    fn compact_projection_is_host_safe() {
+        use snackpilot_model::desktop::HostKind;
+
+        // (viewport, gutter, content, form)
+        let cases = [
+            (360., 16., 328., 328.),
+            (390., 16., 358., 358.),
+            (768., 104., 560., 440.),
+            (1280., 360., 560., 440.),
+        ];
+        for (width, gutter, content, form) in cases {
+            for host in [HostKind::Phone, HostKind::Tablet] {
+                let geometry = compact_column(host, width)
+                    .unwrap_or_else(|| panic!("{host:?} gets the Day Tray column at {width}"));
+                assert_eq!(geometry.gutter, gutter, "{host:?} gutter at {width}");
+                assert_eq!(geometry.content, content, "{host:?} content at {width}");
+                assert_eq!(geometry.form, form, "{host:?} form cap at {width}");
+                // The column always leaves its 16 px outer inset, except where
+                // the 560 cap produces the larger centred gutter.
+                assert!(geometry.gutter >= 16., "outer inset at {width}");
+            }
+        }
+        // Narrow desktop is the same flat Day Tray column as a phone.
+        for (width, content) in [(360., 328.), (390., 358.), (719., 560.)] {
+            let desktop = compact_column(HostKind::Desktop, width).expect("narrow desktop");
+            let phone = compact_column(HostKind::Phone, width).expect("phone");
+            assert_eq!(desktop, phone, "same column at {width}");
+            assert_eq!(
+                desktop.content, content,
+                "narrow desktop content at {width}"
+            );
+        }
+
+        // The compact form cap never exceeds the content column.
+        for width in [360., 390., 768., 1280.] {
+            let geometry = compact_column(HostKind::Phone, width).expect("phone column");
+            assert!(geometry.form <= geometry.content);
+            assert_eq!(geometry.form, geometry.content.min(440.));
+        }
+
+        // A phone host reports no content width, so the live viewport is the
+        // layout width; a reported width (desktop frame, evidence viewport)
+        // wins over the window size.
+        assert_eq!(compact_width(0., 390.), 390., "no report uses the viewport");
+        assert_eq!(compact_width(390., 402.), 390., "the report wins");
         assert_eq!(
-            desktop_content_width(360.),
-            360.,
-            "narrow keeps the window width"
+            compact_column(HostKind::Phone, compact_width(0., 390.))
+                .expect("phone column")
+                .content,
+            358.,
+            "a phone shell never collapses to a zero-width column"
         );
-        assert_eq!(
-            desktop_content_width(719.),
-            480.,
-            "below 720 stays a phone column"
-        );
-        assert_eq!(
-            desktop_content_width(720.),
-            720.,
-            "720 is the inclusive gate"
-        );
-        assert_eq!(
-            desktop_content_width(1280.),
-            1280.,
-            "no cap above the breakpoint"
-        );
+
+        // The wide Ledger is not this presentation: on a desktop host the
+        // projection exists only below the model's 720 px breakpoint.
+        assert!(compact_column(HostKind::Desktop, 719.).is_some());
+        for width in [720., 768., 1280.] {
+            assert!(
+                compact_column(HostKind::Desktop, width).is_none(),
+                "desktop at {width} keeps the Desktop Ledger"
+            );
+        }
+        // A phone host never leaves the Day Tray, whatever width it reports.
+        for width in [360., 720., 1280.] {
+            assert!(
+                compact_column(HostKind::Phone, width).is_some(),
+                "a phone host keeps the Day Tray at {width}"
+            );
+        }
     }
 
     /// Evidence viewport/scenario selection is explicit and debug-only: it

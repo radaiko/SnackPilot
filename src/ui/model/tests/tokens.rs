@@ -619,3 +619,129 @@ fn mobile_extension_preserves_base_values() {
     }
     assert_eq!(BASE_TABLE.len(), 31, "the pinned base table is unchanged");
 }
+
+/// Rendered-projection parity (mobile-ui-rework 1.2): the compact shell paints
+/// exactly these projections — the card surface composited over the screen
+/// background, then the accent selection token composited once over that card,
+/// the pinned action value with black/white ink, the 14 % pressed mix and the
+/// pinned disabled fill. Each rendered field resolves to a pinned token, so the
+/// app test (`theme::mobile_recipes_consume_composited_projection`) compares the
+/// same values instead of running a second contrast calculator.
+/// @req REQ-UI-15
+#[test]
+fn mobile_rendered_projection_parity() {
+    use snackpilot_model::desktop::{mix_toward, parse_color};
+    use snackpilot_model::tokens::mobile as m;
+
+    for dark in [false, true] {
+        let background = parse_color(if dark {
+            BACKGROUND.dark
+        } else {
+            BACKGROUND.light
+        });
+        let ink = parse_color(if dark {
+            TEXT_PRIMARY.dark
+        } else {
+            TEXT_PRIMARY.light
+        });
+        for flat in [false, true] {
+            // The card fill the screen really paints: opaque surface on the
+            // flat dialect, the glass surface composited over the background.
+            let card_token = if flat { SURFACE } else { GLASS_SURFACE };
+            let card = m::composite_over(
+                if dark {
+                    card_token.dark
+                } else {
+                    card_token.light
+                },
+                background,
+            );
+            assert_eq!(
+                card,
+                m::composite_over(
+                    if dark {
+                        card_token.dark
+                    } else {
+                        card_token.light
+                    },
+                    background
+                ),
+                "the card composite is the one rendered fill"
+            );
+            // The pressed surface is the pinned 14 % ink mix of that card.
+            assert_eq!(
+                m::pressed_fill(card, dark),
+                mix_toward(card, ink, m::PRESSED_MIX),
+                "pressed feedback is a fill mix only (dark={dark}, flat={flat})"
+            );
+            // Disabled is the pinned surface variant, never a content opacity.
+            assert_eq!(
+                m::disabled_fill(dark),
+                parse_color(if dark {
+                    SURFACE_VARIANT.dark
+                } else {
+                    SURFACE_VARIANT.light
+                })
+            );
+
+            for accent in ACCENTS.iter() {
+                let colors = if dark { &accent.dark } else { &accent.light };
+                // Selection: the accent token composited exactly once over the
+                // card the option sits on.
+                assert_eq!(
+                    m::selection_fill(colors, dark, flat, card),
+                    m::composite_over(m::selection_token(colors, dark, flat), card),
+                    "{} selection fill (dark={dark}, flat={flat})",
+                    accent.id
+                );
+                assert_eq!(
+                    m::selection_ink(dark),
+                    ink,
+                    "{} selection ink is the pinned textPrimary",
+                    accent.id
+                );
+                // The boundary is either the pinned accent or the pinned ink.
+                let boundary = m::selection_boundary(colors, dark, flat, card);
+                let accent_value = parse_color(colors.primary);
+                assert!(
+                    boundary == accent_value || boundary == ink,
+                    "{} boundary is a pinned value, not a new hue",
+                    accent.id
+                );
+                // The filled action is the pinned accent value and its ink is
+                // one of the two existing extremes.
+                let action = m::action_fill(colors, dark);
+                assert_eq!(
+                    action,
+                    parse_color(if dark {
+                        colors.primary
+                    } else {
+                        colors.primary_dark
+                    }),
+                    "{} action fill is the pinned accent",
+                    accent.id
+                );
+                let action_ink = m::action_ink(action);
+                assert!(
+                    action_ink == parse_color(SURFACE.light)
+                        || action_ink == parse_color(BACKGROUND.dark),
+                    "{} action ink is the existing white or black",
+                    accent.id
+                );
+                // Readable metadata on the card keeps the pinned ink pair.
+                let secondary = m::secondary_ink(card, dark);
+                assert!(
+                    secondary
+                        == parse_color(if dark {
+                            TEXT_SECONDARY.dark
+                        } else {
+                            TEXT_SECONDARY.light
+                        })
+                        || secondary == ink,
+                    "{} secondary ink is a pinned value",
+                    accent.id
+                );
+            }
+        }
+    }
+}

@@ -254,3 +254,89 @@ the rendered containment and the model's navigation stack cannot disagree.
 - **Capabilities:** notifications/geofence remain unsupported on desktop; the
   settings row is hidden at every width and a stale/debug route shows only the
   truthful unavailable sentence.
+
+## 3. Mobile Day Tray extension (approved 2026-11-13)
+
+Status: an **approved extension**, not a replacement system. Section 1 (the
+incumbent token inventory) and section 2 (the Desktop Ledger) are unchanged and
+stay pinned; this section only records what the compact presentation adds and
+which shared components task 1.2 moved onto it. The approved brief is
+[`mobile-ui-rework.md`](mobile-ui-rework.md); the requirements are
+`docs/requirements/04-ui-ux.md` plus this change's `REQ-UI-15` and `REQ-UI-16`.
+
+The extension is a **presentation projection**, never `theme.desktop`: the wide
+Desktop Ledger keeps the recipes and palette of section 2, and no base colour,
+radius, type size or public component signature changes.
+
+### Extension tokens
+
+| Extension token | Implementation |
+| --- | --- |
+| `mobile.space.1/2/3/4/5/6/8` | `tokens::mobile::SPACE_*` (4/8/12/16/20/24/32), exposed as `AppTheme::mobile.space_*` |
+| `mobile.contentMax`, `mobile.formMax` | `CONTENT_MAX = 560`, `FORM_MAX = 440` |
+| `mobile.target`, `mobile.actionHeight` | `TARGET = 44`, `ACTION_HEIGHT = 48` |
+| `mobile.type.headline/body/meta` | `TYPE_*` 24/32, 16/24, 14/20 (bundled Inter; the 12 px Android tab labels stay the one exception) |
+| `mobile.radius.option/status` | `RADIUS_OPTION = 8`, `RADIUS_STATUS = 8` |
+| `mobile.focusWidth/focusGap/focusInk` | `FOCUS_WIDTH = 2`, `FOCUS_GAP = 2`, `focus_ink` = pinned `TEXT_PRIMARY` |
+| `mobile.secondaryInk(fill)` | `secondary_ink(fill, dark)`: pinned `TEXT_SECONDARY` at >=4.5:1 on the painted fill, else `TEXT_PRIMARY` |
+| `mobile.statusInk(fill, preferred)` | `status_ink(fill, preferred, dark)`: the existing semantic ink at >=4.5:1, else `TEXT_PRIMARY`; no new hue |
+| `mobile.selectionFill/Ink/Boundary` | `selection_fill` (iOS `GLASS_PRIMARY`, Android the accent's `PRIMARY_SURFACE`, composited over the card), `selection_ink` = `TEXT_PRIMARY`, `selection_boundary` = accent `PRIMARY` at >=3:1 on fill and neighbour, else `TEXT_PRIMARY` |
+| `mobile.actionFill/Ink` | `action_fill` = accent `PRIMARY_DARK` light / `PRIMARY` dark; `action_ink` = whichever of `SURFACE.light`/`BACKGROUND.dark` reads better |
+| `mobile.dangerInk(fill)` | `danger_ink(fill, dark)`: `ERROR_TEXT` at >=4.5:1, else `TEXT_PRIMARY` |
+| `mobile.pressedFill(fill)` | `pressed_fill` = 14 % `TEXT_PRIMARY` mixed into the resting fill; fill-only, no scale/bounce |
+| `mobile.disabledFill/Ink` | `SURFACE_VARIANT` and its readable secondary projection; never a whole-content opacity |
+
+Geometry is a pure host/width projection: `mobile::geometry(host, width)` is
+`min(viewport - 32, 560)` with the 440 px form cap, `Some` for a phone/tablet
+host at any width and for a desktop host below the model's 720 px breakpoint,
+`None` for the wide Ledger. `lib.rs::compact_width` uses the host-reported width
+when there is one and the live viewport otherwise; `AppShell` centres the column
+itself, so the old 480 px narrow-desktop cap is gone.
+
+### Shell
+
+- One heading in the active tab's name at 24/32 Bold, 16 px below the safe-area
+  top and 16 px above the screen controls (`app::shell_heading`,
+  `shell_heading_row`). A pushed settings screen draws its own 48 px back row and
+  title, so the tab heading is not repeated there.
+- The safe-area top is applied once, outside the centred column; the column is
+  `min(viewport - 32, 560)` (440 on a credential form).
+- The bottom reservation is measured (`app::obstruction_reservation`): the
+  navigation height only when it is painted over the content (the iOS pill),
+  plus a present dock's measured height, plus the 16 px scroll-end gap. A bar in
+  normal flow already owns its height and is never counted twice; the shell adds
+  no blind 100 px padding.
+- iOS keeps its 248x56 r28 icons-only pill with the active dot, Android its 64 px
+  labelled bar with the system inset reserved below it; no mobile rail appears at
+  768 or 1280 and pushed screens keep the existing navigation topology.
+
+### Components moved onto the projection (task 1.2 only)
+
+| Component | Compact presentation |
+| --- | --- |
+| `card` | 16 px padding, 8 px gap, pinned `card_surface` radii (16 iOS/14 Android); body/meta roles and readable ink |
+| `chip` / `chip_row` | 44 px option recipe, r8, accent tint + 20 px `Check` + 1 px resolved boundary when selected, readable unselected ink, 8 px gap |
+| `button` (`mobile_action`) | 48 px high, primary on `actionFill`/`actionInk`, destructive on the pinned `ERROR` fill, neutral outlined secondary, 14/12 radii, no coloured shadow; disabled swaps to `disabledFill`/`disabledInk` and installs no callback; press is fill-only and cancels on outside release or scroll claim |
+| `text_field` | 48 px minimum, r12, 16/12 inner padding, `input_field` fill and `borderInput` boundary; one input entity |
+| `banner` | named spacing, meta role, readable neutral/semantic ink on the painted fill; `Aktualisiere...` is a neutral 16 px spinner row |
+| `broadcast_banner` | warning tint with readable status ink; dismissal is a real 44x44 target with the Lucide `X` at 20 px |
+| `dialog` | 44 px actions with the compact action/neutral recipes, r8; the body is the flexible scroll region so the action row stays visible; index 0 stays cancel on backdrop/Esc with one resolution |
+| `toast` | approved C1 copy `Neue Menüs verfügbar`, 300/4000/300 ms unchanged, reduced motion drops the travel (0 px) without changing the lifetime |
+| `switch` | 44 px row target, body-role label, accent track when on |
+| `time_chips` | 44 px tall r8 options, 12 px padding/8 px gap, selected tint + boundary + 20 px `Check`, horizontal strip unchanged |
+| `tab_bar` | incumbent pill/bar geometry; inactive destinations use the readable secondary projection on the bar fill instead of tertiary; 12 px Android labels retained |
+| `navigation` (back) | 48 px minimum row, `ChevronLeft` 24, primary ink, no blind 100 px padding |
+
+`loading_overlay` keeps its initial 36 px spinner card. Screen bodies, the
+pending dock, the day navigator, menu/order/receipt cards and the nine screen
+contracts belong to tasks 1.3-1.11; the gallery gains one component **state
+board** (`SNACKPILOT_GALLERY_PAGE=mobile`) for the five accents in light/dark on
+the host dialect and is not proof of a working screen.
+
+### Not changed here
+
+Base palette values, accent values, `AppTheme`'s incumbent recipes, the Desktop
+Ledger geometry/palette/components, host capabilities (native editing, keyboard,
+off-thread dispatch, desktop notification hiding), all German copy except the
+approved C1 in-app toast and C2 log hint, formatter output, and every motion
+constant except the reduced-motion removal of toast travel.

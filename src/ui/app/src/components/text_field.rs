@@ -62,12 +62,22 @@ pub fn clipboard_copyable(masked: bool, has_selection: bool) -> bool {
     has_selection && !masked
 }
 
-/// Style an existing `InputState` with the §7 `inputField` recipe.
+/// Style an existing `InputState` with the compact input recipe (REQ-UI-15):
+/// 48 px minimum height, 12 px radius, 16 px horizontal / 12 px vertical inner
+/// padding, `input_field` fill and `borderInput` boundary. The kit's Input
+/// paints its own theme background and a 1 px `theme.input` border (a bright
+/// ring in dark mode), so it is switched off and the wrapper carries the recipe.
 pub fn field_with_state(state: &Entity<InputState>, theme: &AppTheme) -> Div {
     let r = theme.input_field();
-    // The kit's Input paints its own theme background and a 1 px
-    // `theme.input` border (a bright ring in dark mode), so it is switched
-    // off; the §7 fill, radius and border all come from the wrapper.
-    theme::apply(div().w_full(), &r)
-        .child(Input::new(state).bg(r.bg).rounded(r.radius).bordered(false))
+    theme::apply(
+        div()
+            .w_full()
+            .min_h(px(theme.mobile.action_height))
+            .flex()
+            .items_center()
+            .px(px(theme.mobile.space_4))
+            .py(px(theme.mobile.space_2)),
+        &r,
+    )
+    .child(Input::new(state).bg(r.bg).rounded(r.radius).bordered(false))
 }
