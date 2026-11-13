@@ -327,11 +327,26 @@ itself, so the old 480 px narrow-desktop cap is gone.
 | `tab_bar` | incumbent pill/bar geometry; inactive destinations use the readable secondary projection on the bar fill instead of tertiary; 12 px Android labels retained |
 | `navigation` (back) | 48 px minimum row, `ChevronLeft` 24, primary ink, no blind 100 px padding |
 
+### Menüs (task 1.3)
+
+| Component | Compact presentation |
+| --- | --- |
+| `day_navigator` (`mobile_day_navigator`) | 48×48 arrows with 20 px Lucide `ChevronLeft`/`ChevronRight`, disabled ends use the readable disabled ink instead of 0.3 opacity; min-48 centre target with the date in the headline role and the `{i} / {n}` ordinal in the metadata role, 4 px gap; today/short-format/edge semantics unchanged. The wide Ledger keeps the incumbent toolbar. |
+| `menu_card` | 16 px padding, 8 px gaps, 8 px after the card, card radii 16/14; the dish is the `subtitle` (title only when empty) in the body role up to four lines under a neutral body Semibold category heading 8 px above the group (24 px after it); badge in the metadata role on its semantic surface at r8/8x4 with the precedence cancellation → ordered → unavailable → cutoff; pending selection is the accent tint + 1 px resolved boundary + inline 24 px `Check` slot and 8 px gap (never a floated check); pending-cancel is dashed and struck on readable ink, not whole-card opacity; allergens wrap above the unchanged right-aligned price; no state dims readable dish text; eligibility unchanged. |
+| `fab` (`mobile_dock`) | Replaces the absolute FAB column: full column minus the common gutters, min 48, r14 iOS/r12 Android, 16/12 padding, centred wrapping body text on `actionFill`/`actionInk`; exactly `model.fab_label()` while changes wait; during an operation the same band shows the existing exact phase with a 16 px spinner and no callback; painted 8 px above platform navigation inside the shell's measured reservation. |
+| `swipe` | Thresholds unchanged (claim 10, switch 50, edge damping 0.3); reduced motion suppresses the painted travel only, never the day decision or its events. |
+
+The Menüs screen drops its legacy `.p(16)`/`.pb(100)`: the shell's centred
+column supplies the 16 px gutter and its measured reservation (navigation +
+present dock + 16) supplies the scroll-end clearance. `app::navigation_top`
+gives the dock's 8 px separation on both navigation dialects.
+
 `loading_overlay` keeps its initial 36 px spinner card. Screen bodies, the
-pending dock, the day navigator, menu/order/receipt cards and the nine screen
-contracts belong to tasks 1.3-1.11; the gallery gains one component **state
-board** (`SNACKPILOT_GALLERY_PAGE=mobile`) for the five accents in light/dark on
-the host dialect and is not proof of a working screen.
+remaining screen contracts and their dock/navigator/card projections belong to
+tasks 1.4-1.11; the gallery gains one component **state board**
+(`SNACKPILOT_GALLERY_PAGE=mobile`) for the five accents in light/dark on the
+host dialect plus the Menüs cards/dock board, and is not proof of a working
+screen.
 
 ### Not changed here
 

@@ -177,6 +177,70 @@ final class DesktopRegressionTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    /// Mobile Day Tray 1.3 (REQ-SCR-01/REQ-UI-16): the compact Menüs screen
+    /// selects dishes across two days, shows the mixed pending dock, a repeated
+    /// activation of that dock records its action trace, and the now-ordered
+    /// dish toggles to a queued cancellation in the same dock. GPUI renders
+    /// without an accessibility tree, so the captures plus the bounded frame
+    /// waits are the evidence; the phase strings and the single-flight guard
+    /// are asserted by the Rust model/app tests, not fabricated here. The
+    /// launches use the isolated synthetic scenario knobs only.
+    /// @req REQ-SCR-01 @req REQ-UI-16
+    func testDayTrayMenusDayNavigationAndMixedDock() {
+        // The first card of the selected day's first group (below the heading
+        // row, the day navigator and the shell heading).
+        let firstCard = CGVector(dx: 0.5, dy: 0.30)
+        // The right day arrow of the navigator (48 pt target at the column's
+        // trailing edge, below the shell heading).
+        let nextDay = CGVector(dx: 0.90, dy: 0.18)
+        // The measured dock band: 8 pt above the pill, 48 pt tall.
+        let dock = CGVector(dx: 0.5, dy: 0.855)
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--evidence", "--viewport=390x844", "--tab=0", "--scenario=pending",
+        ]
+        app.launchEnvironment["SNACKPILOT_EVIDENCE"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: 30),
+            "the compact Menüs screen did not render")
+        XCTAssertEqual(app.state, .runningForeground)
+        saveScreenshot("daytray-menus-pending")
+
+        // Select a dish on the first day, then one on the next day: the dock
+        // carries both, the all-days set the model owns.
+        app.coordinate(withNormalizedOffset: firstCard).tap()
+        waitForSettledFrame(app)
+        app.coordinate(withNormalizedOffset: nextDay).tap()
+        waitForSettledFrame(app)
+        app.coordinate(withNormalizedOffset: firstCard).tap()
+        waitForSettledFrame(app)
+        saveScreenshot("daytray-menus-dock-two-days")
+
+        // A repeated activation of the same dock is one action trace; each tap
+        // is followed by a real frame, never a fixed sleep.
+        for _ in 0..2 {
+            app.coordinate(withNormalizedOffset: dock).tap()
+        }
+        waitForSettledFrame(app)
+        saveScreenshot("daytray-menus-dock-phases")
+
+        // The submitted dish is now ordered: activating it queues the
+        // cancellation and the dock switches to the `Stornieren` label; a
+        // second activation unselects it again, so the trace shows the toggle
+        // both ways.
+        app.coordinate(withNormalizedOffset: firstCard).tap()
+        waitForSettledFrame(app)
+        saveScreenshot("daytray-menus-cancellation-dock")
+        app.coordinate(withNormalizedOffset: firstCard).tap()
+        waitForSettledFrame(app)
+        saveScreenshot("daytray-menus-cancellation-cleared")
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertTrue(app.windows.firstMatch.exists, "the shell is still one window")
+        app.terminate()
+    }
+
     /// A stale notification route on the phone keeps the mobile screen, not
     /// the desktop unavailable fallback (REQ-SCR-08).
     /// @req REQ-SCR-08

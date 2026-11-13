@@ -558,3 +558,91 @@ fn desktop_submit_includes_pending_other_days() {
         "submission includes the pending item of every day: {dishes:?}"
     );
 }
+
+#[test]
+/// @req REQ-SCR-01
+fn mobile_mixed_pending_submit_includes_other_days() {
+    let (model, _fake) = demo_model();
+    let dates = snapshot(&model).available_dates;
+    let ordered_day = dates.last().unwrap().clone();
+    let other_day = dates[dates.len() - 2].clone();
+    assert_ne!(ordered_day, other_day);
+
+    // One placed order gives the mixed set a real cancellation candidate.
+    let ordered = item_in(&model, &ordered_day, MenuCategory::Menu1);
+    model.toggle(&ordered);
+    model.submit_orders();
+    assert!(model.is_ordered(&ordered), "the demo order landed");
+    assert_eq!(
+        model
+            .state()
+            .orders_split
+            .expect("orders loaded")
+            .upcoming
+            .len(),
+        1
+    );
+
+    // The compact dock's set: a cancellation queued on the ordered day and a
+    // new order queued on another day, with the day selection moving between.
+    let fresh = item_in(&model, &other_day, MenuCategory::Menu2);
+    model.select_day(&ordered_day);
+    model.toggle(&ordered);
+    model.select_day(&other_day);
+    model.toggle(&fresh);
+    let snap = snapshot(&model);
+    assert_eq!(
+        snap.pending_cancellations.len(),
+        1,
+        "one cancellation queued"
+    );
+    assert_eq!(
+        snap.pending_orders.len(),
+        1,
+        "one order queued on another day"
+    );
+    assert_eq!(
+        model.fab_label(),
+        "Änderungen bestätigen (2)",
+        "the dock keeps the exact incumbent mixed label"
+    );
+
+    // One dock activation submits the whole all-days set, not just the
+    // selected day: the old order is gone and the new dish is upcoming.
+    let phases = Arc::new(Mutex::new(Vec::<String>::new()));
+    model.subscribe(Box::new({
+        let phases = phases.clone();
+        move |s: &snackpilot_model::State| {
+            if let Some(p) = &s.order_progress {
+                phases.lock().unwrap().push(p.clone());
+            }
+        }
+    }));
+    model.submit_orders();
+
+    let got = phases.lock().unwrap();
+    assert!(
+        got.iter().any(|l| l == "Wird in den Warenkorb gelegt...")
+            && got.iter().any(|l| l == "Bestellung wird bestätigt..."),
+        "the existing phases report the whole set: {got:?}"
+    );
+    drop(got);
+    let split = model.state().orders_split.expect("orders reloaded");
+    assert!(
+        !model.is_ordered(&ordered),
+        "the queued cancellation of another day was submitted"
+    );
+    assert!(
+        model.is_ordered(&fresh),
+        "the queued order of another day was submitted"
+    );
+    assert_eq!(split.upcoming.len(), 1, "exactly the new order remains");
+    assert_eq!(
+        model.dish(&split.upcoming[0]).as_deref(),
+        Some(fresh.subtitle.as_str())
+    );
+    assert!(
+        !model.has_pending_changes(),
+        "the whole pending set was consumed once"
+    );
+}

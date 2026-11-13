@@ -5,6 +5,9 @@
 //! decided by the caller from the model (`ordered || (available && !cutoff)`).
 
 use gpui::*;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::prelude::Styled;
 
 use crate::components::button::ButtonKind;
 use crate::components::record_table::RowFocus;
@@ -22,44 +25,80 @@ pub struct MenuCardState {
     pub cutoff: bool,
 }
 
+/// The dish a compact card presents: the required dish `subtitle`, falling
+/// back to the title only when the subtitle is empty (sample M2). The category
+/// stays the neutral group heading, so the card never repeats `MENÜ I`.
+pub fn mobile_dish(item: &MenuItem) -> String {
+    if item.subtitle.trim().is_empty() {
+        item.title.clone()
+    } else {
+        item.subtitle.clone()
+    }
+}
+
+/// The one badge label in the §4.5 precedence
+/// cancellation → ordered → unavailable → cutoff. It is a status word, never
+/// the pending check: no glyph, and a badge and the inline check can appear
+/// together without being confused.
+pub fn mobile_badge_label(state: &MenuCardState) -> Option<&'static str> {
+    if state.pending_cancel {
+        Some("Wird storniert")
+    } else if state.ordered {
+        Some("Bestellt")
+    } else if !state.available {
+        Some("Ausverkauft")
+    } else if state.cutoff {
+        Some("Geschlossen")
+    } else {
+        None
+    }
+}
+
+/// Whether a compact card is one selection target, exactly as the incumbent
+/// model gate: an ordered item stays tappable so its cancellation can be
+/// queued, an unavailable or cutoff new item cannot be added. Appearance never
+/// changes this.
+pub fn mobile_menu_tappable(state: &MenuCardState) -> bool {
+    state.ordered || (state.available && !state.cutoff) || state.selected
+}
+
 fn badge(state: &MenuCardState, theme: &AppTheme) -> Option<(&'static str, Hsla, Hsla, Hsla)> {
     // (label, background, border, text) in the §4.5 order.
-    if state.pending_cancel {
+    let label = mobile_badge_label(state)?;
+    let (bg, border, text) = if state.pending_cancel {
         let bg = if theme.flat {
             theme.warning_surface
         } else {
             theme.glass_warning
         };
-        return Some(("Wird storniert", bg, theme.warning, theme.warning_text));
-    }
-    if state.ordered {
+        (bg, theme.warning, theme.warning_text)
+    } else if state.ordered {
         let bg = if theme.flat {
             theme.success_surface
         } else {
             theme.glass_success
         };
-        return Some(("Bestellt", bg, theme.success, theme.success_text));
-    }
-    if !state.available {
-        return Some((
-            "Ausverkauft",
-            theme.error_surface,
-            theme.error,
-            theme.error_text,
-        ));
-    }
-    if state.cutoff {
+        (bg, theme.success, theme.success_text)
+    } else if !state.available {
+        (theme.error_surface, theme.error, theme.error_text)
+    } else {
         let bg = if theme.flat {
             theme.warning_surface
         } else {
             theme.glass_warning
         };
-        return Some(("Geschlossen", bg, theme.warning, theme.warning_text));
-    }
-    None
+        (bg, theme.warning, theme.warning_text)
+    };
+    Some((label, bg, border, text))
 }
 
-/// One §4.5 card.
+/// One compact §4.5 card, dish-first (task 1.3): 16 px padding, 8 px gaps and
+/// 8 px after the card, the pinned card radii, the dish in the body role up to
+/// four lines, a status badge on its semantic surface, a wrapping allergen line
+/// above the right-aligned unchanged price, and — when pending — the accent
+/// selection tint, the 1 px resolved boundary and an inline 24 px check slot.
+/// Tappability comes from [`mobile_menu_tappable`]; no state dims readable text.
+/// @req REQ-SCR-01 @req REQ-UI-15
 pub fn menu_card(
     item: &MenuItem,
     state: MenuCardState,
@@ -67,47 +106,44 @@ pub fn menu_card(
     theme: &AppTheme,
 ) -> Stateful<Div> {
     let selected = state.selected;
-    let dim =
-        (state.pending_cancel || (!state.available && !state.ordered) || state.cutoff) && !selected;
-
+    let card_fill = if selected {
+        theme.mobile.selection_fill
+    } else {
+        theme.mobile_card_fill()
+    };
     let text = if selected {
-        theme.on_primary
-    } else if state.pending_cancel {
-        theme.text_tertiary
+        theme.mobile.selection_ink
     } else {
         theme.text_primary
     };
     let meta = if selected {
-        theme.on_primary
+        theme.mobile.selection_ink
     } else {
-        theme.text_secondary
+        theme.mobile_secondary_on(card_fill)
     };
 
     let mut card = theme::apply(
-        div().flex().flex_col().p(px(16.)).mb(px(10.)),
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_4))
+            .mb(px(theme.mobile.space_2)),
         &theme.card_surface(),
     )
     .id(SharedString::from(format!("menu-{}|{}", item.id, item.day)));
 
     if selected {
+        // Pending selection is the accent tint plus the 1 px resolved
+        // boundary; it is not a saved status and not the old orange field.
         card = card
-            .bg(theme.primary)
+            .bg(theme.mobile.selection_fill)
             .border_1()
-            .border_color(theme.primary_dark);
-        if !theme.flat {
-            // iOS: white highlight on top/left, primaryDark below (§4.5).
-            card = card
-                .border_t_2()
-                .border_l_2()
-                .border_b_2()
-                .border_color(theme.primary_dark);
-        }
+            .border_color(theme.mobile.selection_boundary);
     } else if state.pending_cancel {
-        card = card
-            .border_dashed()
-            .border_1()
-            .border_color(theme.warning)
-            .opacity(0.55);
+        // Dashed and struck through, on readable ink rather than a blanket
+        // opacity reduction.
+        card = card.border_dashed().border_1().border_color(theme.warning);
     } else if state.ordered {
         let bg = if theme.flat {
             theme.success_surface
@@ -115,96 +151,269 @@ pub fn menu_card(
             theme.glass_success
         };
         card = card.bg(bg).border_1().border_color(theme.success_border);
-    } else if dim {
-        card = card.opacity(0.5);
     }
 
     if let Some(on_tap) = on_tap {
         card = card
             .tab_index(0)
-            .focus(crate::theme::desktop_focus(theme.desktop.focus))
+            .focus(crate::theme::desktop_focus(theme.mobile.focus))
             .cursor_pointer()
             .on_click(move |_, window, cx| on_tap(window, cx));
     }
 
     if let Some((label, bg, border, fg)) = badge(&state, theme) {
         card = card.child(
-            div().mb(px(2.)).flex().child(
+            div().flex().child(
                 div()
-                    .px(px(8.))
-                    .py(px(2.))
-                    .rounded(px(12.))
+                    .px(px(theme.mobile.space_2))
+                    .py(px(theme.mobile.space_1))
+                    .rounded(px(theme.mobile.radius_status))
                     .border_1()
                     .border_color(border)
                     .bg(bg)
-                    .text_size(px(10.))
-                    .font_weight(FontWeight::BOLD)
+                    .text_size(px(theme.mobile.meta))
+                    .line_height(px(theme.mobile.meta_line))
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(fg)
                     .child(label),
             ),
         );
     }
 
-    let mut title = div()
-        .text_size(px(16.))
-        .line_height(px(21.))
-        .max_h(px(84.))
+    let dish = div()
+        .flex_1()
+        .min_w(px(0.))
+        .max_h(px(theme.mobile.body_line * 4.))
         .overflow_hidden()
+        .text_size(px(theme.mobile.body))
+        .line_height(px(theme.mobile.body_line))
         .text_color(text)
-        .child(item.title.clone());
-    if state.pending_cancel {
-        title = title.line_through();
+        .child(mobile_dish(item));
+    let dish = if state.pending_cancel {
+        dish.line_through()
+    } else {
+        dish
+    };
+    let mut dish_row = div().flex().items_start().gap(px(theme.mobile.space_2));
+    if selected {
+        // The inline 24 px slot is reserved for the check, never floated over
+        // the text.
+        dish_row = dish_row.child(
+            div()
+                .w(px(theme.mobile.space_6))
+                .h(px(theme.mobile.space_6))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    Icon::new(IconName::Check)
+                        .with_size(px(theme.mobile.space_5))
+                        .text_color(text),
+                ),
+        );
     }
-
-    card = card.child(title);
+    card = card.child(dish_row.child(dish));
 
     let allergens = if item.allergens.is_empty() {
         String::new()
     } else {
         format!("Allergene: {}", item.allergens.join(", "))
     };
-    let bottom = div()
-        .mt(px(6.))
+    // Allergens wrap on the left and the price keeps its exact string on the
+    // right; a long price drops to its own right-aligned line instead of
+    // squeezing the letters away.
+    let mut footer = div()
         .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(8.))
-        .child(
+        .flex_wrap()
+        .items_end()
+        .gap(px(theme.mobile.space_2));
+    if !allergens.is_empty() {
+        footer = footer.child(
             div()
                 .flex_1()
-                .text_size(px(11.))
+                .min_w(px(0.))
+                .text_size(px(theme.mobile.meta))
+                .line_height(px(theme.mobile.meta_line))
                 .text_color(meta)
                 .child(allergens),
-        )
-        .child(
-            div()
-                .text_size(px(13.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(meta)
-                .child(item.price.clone()),
-        );
-    let mut card = card.relative().child(bottom);
-    if selected {
-        // §4.5: 24×24 white disc, ✓ in colors.primary, top-right 8.
-        card = card.child(
-            div()
-                .absolute()
-                .top(px(8.))
-                .right(px(8.))
-                .w(px(24.))
-                .h(px(24.))
-                .rounded(px(12.))
-                .bg(hsla(0., 0., 1., 1.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(14.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(theme.primary)
-                .child("✓"),
         );
     }
+    card = card.child(
+        footer.child(
+            div()
+                .ml_auto()
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .text_size(px(theme.mobile.body))
+                .line_height(px(theme.mobile.body_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(text)
+                .child(item.price.clone()),
+        ),
+    );
     card
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{mobile_badge_label, mobile_dish, mobile_menu_tappable, MenuCardState};
+    use snackpilot_core::domain::{MenuCategory, MenuItem};
+
+    fn item(title: &str, subtitle: &str) -> MenuItem {
+        MenuItem {
+            id: "m1".into(),
+            day: "2026-11-16".into(),
+            title: title.into(),
+            subtitle: subtitle.into(),
+            allergens: vec!["A".into(), "C".into(), "G".into()],
+            available: true,
+            ordered: false,
+            category: MenuCategory::Menu1,
+            price: "6,40 €".into(),
+        }
+    }
+
+    fn state() -> MenuCardState {
+        MenuCardState {
+            selected: false,
+            pending_cancel: false,
+            ordered: false,
+            available: true,
+            cutoff: false,
+        }
+    }
+
+    /// Sample M2's defect fix (REQ-SCR-01/REQ-UI-15): the compact card's main
+    /// text is the dish `subtitle`, and only an empty subtitle falls back to the
+    /// title. The category heading above the group stays the sole MENÜ label,
+    /// so the card never repeats `MENÜ I` over its own lunch.
+    /// @req REQ-SCR-01 @req REQ-UI-15
+    #[test]
+    fn mobile_menu_uses_subtitle_and_empty_fallback() {
+        let dish = "Rindsgulasch mit Serviettenknödel, Rahmsauce und Blattsalat mit Kürbiskernöl";
+        let full = item("MENÜ I", dish);
+        assert_eq!(mobile_dish(&full), dish, "the card shows the actual dish");
+        assert_ne!(mobile_dish(&full), "MENÜ I", "the category is not the dish");
+
+        for subtitle in ["", "   "] {
+            let empty = item("MENÜ II", subtitle);
+            assert_eq!(
+                mobile_dish(&empty),
+                "MENÜ II",
+                "an empty subtitle falls back to the title, never a blank card"
+            );
+        }
+        // Allergens and the price string are carried unchanged: nothing here
+        // rewrites the domain text.
+        assert_eq!(full.allergens, vec!["A", "C", "G"]);
+        assert_eq!(full.price, "6,40 €");
+    }
+
+    /// The badge and the pending check stay distinct (REQ-SCR-01): the badge is
+    /// one status word in the §4.5 precedence cancellation → ordered →
+    /// unavailable → cutoff, carries no check glyph, and eligibility is the
+    /// incumbent model gate including the ordered-item cancellation edge case.
+    /// @req REQ-SCR-01
+    #[test]
+    fn mobile_menu_badge_check_and_eligibility_projection() {
+        // Precedence: every later flag loses to the earlier one.
+        let all = MenuCardState {
+            pending_cancel: true,
+            ordered: true,
+            available: false,
+            cutoff: true,
+            ..state()
+        };
+        assert_eq!(mobile_badge_label(&all), Some("Wird storniert"));
+        assert_eq!(
+            mobile_badge_label(&MenuCardState {
+                ordered: true,
+                available: false,
+                cutoff: true,
+                ..state()
+            }),
+            Some("Bestellt")
+        );
+        assert_eq!(
+            mobile_badge_label(&MenuCardState {
+                available: false,
+                cutoff: true,
+                ..state()
+            }),
+            Some("Ausverkauft")
+        );
+        assert_eq!(
+            mobile_badge_label(&MenuCardState {
+                cutoff: true,
+                ..state()
+            }),
+            Some("Geschlossen")
+        );
+        assert_eq!(
+            mobile_badge_label(&state()),
+            None,
+            "a plain dish has no badge"
+        );
+
+        // A badge is a status word, never a check mark: the pending check is
+        // the inline Lucide slot, and the two can coexist.
+        let badged = [
+            MenuCardState {
+                pending_cancel: true,
+                ..state()
+            },
+            MenuCardState {
+                ordered: true,
+                ..state()
+            },
+            MenuCardState {
+                available: false,
+                ..state()
+            },
+            MenuCardState {
+                cutoff: true,
+                ..state()
+            },
+        ];
+        for flags in badged {
+            let label = mobile_badge_label(&flags).unwrap();
+            assert!(
+                !label.contains('✓') && !label.contains("Vorgemerkt"),
+                "{label} must not read as the check"
+            );
+        }
+        let selected_and_badged = MenuCardState {
+            selected: true,
+            ordered: true,
+            ..state()
+        };
+        assert!(selected_and_badged.selected);
+        assert_eq!(mobile_badge_label(&selected_and_badged), Some("Bestellt"));
+
+        // Eligibility is unchanged: ordered items stay tappable for their
+        // cancellation, available-and-open items are, an unavailable or closed
+        // new item is not, and a pending selection is always tappable.
+        assert!(mobile_menu_tappable(&state()));
+        assert!(mobile_menu_tappable(&MenuCardState {
+            ordered: true,
+            cutoff: true,
+            ..state()
+        }));
+        assert!(!mobile_menu_tappable(&MenuCardState {
+            available: false,
+            ..state()
+        }));
+        assert!(!mobile_menu_tappable(&MenuCardState {
+            cutoff: true,
+            ..state()
+        }));
+        assert!(mobile_menu_tappable(&MenuCardState {
+            selected: true,
+            available: false,
+            ..state()
+        }));
+    }
 }
 
 /// Desktop row state: the same domain facts as [`MenuCardState`] plus the

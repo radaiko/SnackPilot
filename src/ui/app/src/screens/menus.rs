@@ -1,10 +1,11 @@
 //! Menus tab — docs/requirements/04-ui-ux.md §3.1.
 //!
-//! The DayNavigator is rendered by the shell above; this module owns the
-//! swipeable area: refresh/progress/error banners, the grouped `MenuCard`
-//! list, the empty and auth states, the FAB and the 50 px day swipe. Every
-//! value comes from `AppModel`; the only view-local state is the transient
-//! drag offset stored on [`AppShell`].
+//! Task 1.3 reworks the compact Day Tray screen: the day navigator, the
+//! neutral refresh row, the inline error, the dish-first grouped cards and the
+//! 50 px day swipe. The pending dock lives in the shell, which reserves its
+//! measured height above platform navigation. The wide Desktop Ledger path in
+//! this module is unchanged. Every value comes from `AppModel`; the only
+//! view-local state is the transient drag offset stored on [`AppShell`].
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -12,15 +13,19 @@ use std::sync::Arc;
 use gpui::*;
 
 use crate::app::{desktop_mutation_blocked, run_blocking, AppShell};
+use crate::components::banner::refresh_banner as mobile_refresh_row;
 use crate::components::button::desktop_action_state;
-use crate::components::fab::fab;
+use crate::components::day_navigator::mobile_day_navigator;
+use crate::components::fab::{dock_bottom, dock_height, dock_state, mobile_dock, DockState};
 use crate::components::menu_card::{
-    desktop_menu_action, desktop_menu_row, desktop_menu_status, menu_card, DesktopMenuRowState,
-    MenuCardState,
+    desktop_menu_action, desktop_menu_row, desktop_menu_status, menu_card, mobile_menu_tappable,
+    DesktopMenuRowState, MenuCardState,
 };
 use crate::components::record_table::{detail_entry, RecordListFocus};
 use crate::components::spinner::spinner;
-use crate::components::swipe::{swipe_days, SwipeHandlers, CLAIM_PX, EDGE_DAMPING, SWITCH_PX};
+use crate::components::swipe::{
+    claims_horizontal, swipe_day, swipe_days, swipe_offset, SwipeHandlers,
+};
 use crate::components::workspace::{action_strip, detail_prompt, split_workspace_scrolled};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
@@ -29,7 +34,11 @@ use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind, TARGET
 use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{category_heading, format_day_short, menu_key, AppModel, State};
 
-/// The Menus tab content below the DayNavigator.
+/// The compact Menüs screen below the shell heading (task 1.3): the Day Tray
+/// day navigator, the neutral refresh row, the inline error, and the swipeable
+/// dish list. The pending dock is placed by the shell, which owns its measured
+/// height above platform navigation; nothing here adds a second inset.
+/// @req REQ-SCR-01 @req REQ-UI-15
 pub fn menus_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
@@ -43,19 +52,39 @@ pub fn menus_tab(
 
     let mut column = div().size_full().flex().flex_col();
 
+    if let Some(snapshot) = &state.menu_snapshot {
+        if !snapshot.available_dates.is_empty() {
+            let dates = snapshot.available_dates.clone();
+            let selected = state.selected_day.clone();
+            column = column.child(mobile_day_navigator(
+                &dates,
+                selected.as_deref(),
+                theme,
+                day_handler(cx, DayStep::Prev),
+                day_handler(cx, DayStep::Next),
+                day_handler(cx, DayStep::Today),
+            ));
+        }
+    }
+
     if state.order_progress.is_none() {
         if let Some(snapshot) = &state.menu_snapshot {
             if snapshot.refreshing {
-                column = column.child(refresh_banner(theme));
+                column = column.child(
+                    div()
+                        .pb(px(theme.mobile.space_2))
+                        .child(mobile_refresh_row(theme)),
+                );
             }
         }
     }
-    if let Some(progress) = &state.order_progress {
-        column = column.child(progress_banner(progress, theme));
-    }
     let host = state.host_kind;
     if let Some(error) = &state.error_text {
-        column = column.child(error_banner(&error.message, retry_handler(host, cx), theme));
+        column = column.child(mobile_error_banner(
+            &error.message,
+            retry_handler(host, cx),
+            theme,
+        ));
     }
 
     let busy = state.busy;
@@ -70,25 +99,108 @@ pub fn menus_tab(
         }
         _ => (false, false, 0.),
     };
+    let reduce_motion = cx.reduce_motion();
 
     column = column.child(swipe_days(
         "menus-swipe",
         content,
-        offset,
-        swipe_handlers(can_back, can_forward, cx),
+        swipe_offset(offset, can_back, can_forward, reduce_motion),
+        swipe_handlers(can_back, can_forward, reduce_motion, cx),
     ));
-
-    if let (Some(model), Some(snapshot)) = (model, &state.menu_snapshot) {
-        let pending = snapshot.pending_orders.len() + snapshot.pending_cancellations.len();
-        if pending > 0 && state.order_progress.is_none() {
-            column = column.child(fab(model.fab_label(), submit_handler(host, cx), theme));
-        }
-    }
 
     column.into_any_element()
 }
 
-/// Grouped, scrollable cards for the selected day.
+/// One day-navigation intent wired to the model, exactly as the incumbent
+/// shell wired it. Nothing is refetched and no request is added.
+enum DayStep {
+    Prev,
+    Next,
+    Today,
+}
+
+fn day_handler(cx: &mut Context<AppShell>, step: DayStep) -> ClickHandler {
+    let shell = cx.entity().clone();
+    Rc::new(move |_: &mut Window, cx: &mut App| {
+        shell.update(cx, |s, cx| {
+            if let Some(model) = &s.model {
+                match step {
+                    DayStep::Prev => model.prev_day(),
+                    DayStep::Next => model.next_day(),
+                    DayStep::Today => model.go_to_today(),
+                }
+            }
+            cx.notify();
+        });
+    })
+}
+
+/// The dock's content for the current state, under exactly the incumbent
+/// pending/progress conditions, with the label taken verbatim from the model.
+fn pending_dock(state: &State, model: Option<&Arc<AppModel>>) -> Option<DockState> {
+    if !state.gourmet_authenticated {
+        return None;
+    }
+    let model = model?;
+    let pending = state
+        .menu_snapshot
+        .as_ref()
+        .map(|s| s.pending_orders.len() + s.pending_cancellations.len())
+        .unwrap_or(0);
+    dock_state(pending, state.order_progress.as_deref(), model.fab_label())
+}
+
+/// The height the shell reserves for the dock above navigation: the dock
+/// recipe measured at the Day Tray column width, `0` when no dock is present.
+pub(crate) fn menus_dock_height(
+    state: &State,
+    model: Option<&Arc<AppModel>>,
+    column_width: f32,
+    theme: &AppTheme,
+) -> f32 {
+    pending_dock(state, model)
+        .map(|dock| dock_height(&dock, column_width, theme))
+        .unwrap_or(0.)
+}
+
+/// The compact pending dock, painted by the shell in the band it reserved
+/// above platform navigation (8 px clear). It submits the same all-days set as
+/// the incumbent FAB through the shell's one synchronous gate; during an
+/// operation it shows the existing phase and offers no repeat action.
+/// @req REQ-SCR-01 @req REQ-UI-15 @req REQ-UI-16
+pub(crate) fn menus_dock(
+    state: &State,
+    model: Option<&Arc<AppModel>>,
+    column_width: f32,
+    navigation_top: f32,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) -> Option<AnyElement> {
+    let dock = pending_dock(state, model)?;
+    let handler = dock
+        .is_action()
+        .then(|| submit_handler(state.host_kind, cx));
+    Some(
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom(px(dock_bottom(navigation_top)))
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .w(px(column_width))
+                    .child(mobile_dock(dock, handler, theme)),
+            )
+            .into_any_element(),
+    )
+}
+
+/// Grouped, scrollable cards for the selected day. The shell owns the column
+/// gutter and the measured bottom reservation, so this list adds neither: no
+/// legacy 16/100 px inset remains on the Menüs screen.
+/// @req REQ-SCR-01 @req REQ-UI-15
 fn menu_list(
     state: &State,
     model: Option<&Arc<AppModel>>,
@@ -105,7 +217,11 @@ fn menu_list(
 
     let groups = model.categories_for_day(day);
     if groups.is_empty() {
-        return if busy {
+        let cached = state
+            .menu_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| !snapshot.items.is_empty());
+        return if busy && !cached {
             div()
                 .size_full()
                 .flex()
@@ -129,8 +245,7 @@ fn menu_list(
         .size_full()
         .flex()
         .flex_col()
-        .p(px(16.))
-        .pb(px(100.))
+        .pt(px(theme.mobile.space_4))
         .overflow_y_scroll();
 
     for (category, items) in groups {
@@ -147,6 +262,10 @@ fn menu_list(
     list.into_any_element()
 }
 
+/// One category group: a neutral body Semibold heading 8 px above its cards,
+/// 24 px after the group. The heading carries the MENÜ label, so the cards no
+/// longer repeat it (sample M2); SUPPE & SALAT stays suppressed by the model.
+/// @req REQ-SCR-01 @req REQ-UI-15
 fn group(
     category: MenuCategory,
     items: Vec<MenuItem>,
@@ -156,15 +275,15 @@ fn group(
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> Div {
-    let mut group = div().flex().flex_col().mb(px(16.));
+    let mut group = div().flex().flex_col().mb(px(theme.mobile.space_6));
     if let Some(heading) = category_heading(category) {
         group = group.child(
             div()
-                .mb(px(8.))
-                .pl(px(4.))
-                .text_size(px(22.))
+                .mb(px(theme.mobile.space_2))
+                .text_size(px(theme.mobile.body))
+                .line_height(px(theme.mobile.body_line))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.primary)
+                .text_color(theme.text_primary)
                 .child(heading),
         );
     }
@@ -177,23 +296,26 @@ fn group(
             available: item.available,
             cutoff: model.is_cutoff(&item.day),
         };
-        let tappable = state.ordered || (item.available && !state.cutoff) || state.selected;
-        let handler = tappable.then(|| tap_handler(cx, item.clone()));
+        let handler = mobile_menu_tappable(&state).then(|| tap_handler(cx, item.clone()));
         group = group.child(menu_card(&item, state, handler, theme));
     }
     group
 }
 
 fn empty_state(theme: &AppTheme) -> AnyElement {
+    let fill = theme.background;
     div()
         .size_full()
         .flex()
         .items_center()
         .justify_center()
+        .p(px(theme.mobile.space_4))
         .child(
             div()
-                .text_size(px(16.))
-                .text_color(theme.text_tertiary)
+                .text_size(px(theme.mobile.body))
+                .line_height(px(theme.mobile.body_line))
+                .text_color(theme.mobile_secondary_on(fill))
+                .text_center()
                 .child("Keine Menüs verfügbar"),
         )
         .into_any_element()
@@ -221,6 +343,53 @@ fn auth_gate(theme: &AppTheme) -> AnyElement {
                 .child("Gehe zu Einstellungen, um Zugangsdaten einzugeben"),
         )
         .into_any_element()
+}
+
+/// The compact inline error: the exact model message on the error tint with
+/// the existing `Erneut versuchen` target at the 44 px floor and readable ink.
+/// @req REQ-SCR-01 @req REQ-UI-16
+fn mobile_error_banner(message: &str, retry: ClickHandler, theme: &AppTheme) -> AnyElement {
+    let r = theme.tinted_banner(theme.glass_error);
+    let fill = theme.mobile_composited(r.bg);
+    let ink = theme.mobile_status_on(fill, "error");
+    theme::apply(
+        div()
+            .mb(px(theme.mobile.space_2))
+            .p(px(theme.mobile.space_3))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(theme.mobile.space_2)),
+        &r,
+    )
+    .child(
+        div()
+            .flex_1()
+            .min_w(px(0.))
+            .text_size(px(theme.mobile.meta))
+            .line_height(px(theme.mobile.meta_line))
+            .text_color(ink)
+            .child(message.to_string()),
+    )
+    .child(
+        div()
+            .id("menus-retry")
+            .min_h(px(theme.mobile.target))
+            .flex()
+            .items_center()
+            .px(px(theme.mobile.space_2))
+            .cursor_pointer()
+            .on_click(move |_, window, cx| retry(window, cx))
+            .child(
+                div()
+                    .text_size(px(theme.mobile.meta))
+                    .line_height(px(theme.mobile.meta_line))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(ink)
+                    .child("Erneut versuchen"),
+            ),
+    )
+    .into_any_element()
 }
 
 fn refresh_banner(theme: &AppTheme) -> AnyElement {
@@ -359,8 +528,14 @@ fn tap_handler(cx: &mut Context<AppShell>, item: MenuItem) -> ClickHandler {
 }
 
 /// Drag handlers: claim past 10 px horizontal, damp at the edges, switch at
-/// 50 px on release.
-fn swipe_handlers(can_back: bool, can_forward: bool, cx: &mut Context<AppShell>) -> SwipeHandlers {
+/// 50 px on release. The thresholds and events are unchanged; reduced motion
+/// only suppresses the painted travel.
+fn swipe_handlers(
+    can_back: bool,
+    can_forward: bool,
+    reduce_motion: bool,
+    cx: &mut Context<AppShell>,
+) -> SwipeHandlers {
     let shell = cx.entity().clone();
     let down = Rc::new(move |e: &MouseDownEvent, _: &mut Window, cx: &mut App| {
         let x = f32::from(e.position.x);
@@ -387,16 +562,12 @@ fn swipe_handlers(can_back: bool, can_forward: bool, cx: &mut Context<AppShell>)
             let dy = y - start_y;
             if !s.swipe_claimed {
                 // Claim only when horizontal movement dominates (§3.1).
-                if dx.abs() <= CLAIM_PX || dx.abs() <= dy.abs() {
+                if !claims_horizontal(dx, dy) {
                     return;
                 }
                 s.swipe_claimed = true;
             }
-            let mut offset = dx;
-            if (offset > 0. && !can_back) || (offset < 0. && !can_forward) {
-                offset *= EDGE_DAMPING;
-            }
-            s.swipe_dx = offset;
+            s.swipe_dx = swipe_offset(dx, can_back, can_forward, reduce_motion);
             cx.notify();
         });
     });
@@ -414,10 +585,10 @@ fn swipe_handlers(can_back: bool, can_forward: bool, cx: &mut Context<AppShell>)
             s.swipe_dx = 0.;
             if claimed {
                 if let Some(model) = &s.model {
-                    if dx > SWITCH_PX && can_back {
-                        model.prev_day();
-                    } else if dx < -SWITCH_PX && can_forward {
-                        model.next_day();
+                    match swipe_day(dx, can_back, can_forward) {
+                        Some(-1) => model.prev_day(),
+                        Some(1) => model.next_day(),
+                        _ => {}
                     }
                 }
             }

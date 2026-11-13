@@ -21,7 +21,11 @@ use snackpilot_model::{
 
 use crate::app::OrderCancelState;
 use crate::components::bill_card::{desktop_bill_detail, desktop_bill_header, desktop_bill_row};
-use crate::components::menu_card::{desktop_menu_row, DesktopMenuRowState};
+use crate::components::day_navigator::mobile_day_navigator;
+use crate::components::fab::{mobile_dock, DockState};
+use crate::components::menu_card::{
+    desktop_menu_row, menu_card, DesktopMenuRowState, MenuCardState,
+};
 use crate::components::order_item::{
     desktop_order_detail, desktop_order_header, desktop_order_row, DesktopOrderRowState,
 };
@@ -1655,7 +1659,78 @@ fn mobile_state_board(dark: bool, cx: &mut Context<GalleryRoot>) -> AnyElement {
         );
     }
 
+    // Task 1.3's Menüs board: the compact navigator, cards and dock at the
+    // 360 px content width, with the Orange appearance the loop ends on.
+    let menus_theme = AppTheme::build(dark, AccentColor::Orange, use_flat_style());
+    board = board.child(mobile_menus_case(328., &menus_theme));
+
     board.into_any_element()
+}
+
+/// Offline Menüs board for task 1.3 (menu scenarios only): the real compact
+/// navigator, cards and dock over static items, so the dish-first hierarchy,
+/// the four-line dish, wrapping allergens, the inline check, the four status
+/// badges and the longest mixed dock are visible without a host or a request.
+/// It is a component board, not proof of a running screen.
+/// @req REQ-SCR-01 @req REQ-UI-15
+fn mobile_menus_case(width: f32, theme: &AppTheme) -> AnyElement {
+    let noop: ClickHandler = Rc::new(|_, _| {});
+    let dates: Vec<String> = ["2026-11-16", "2026-11-17", "2026-11-18"]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let states: Vec<MenuCardState> = gallery_menu_rows()
+        .into_iter()
+        .map(|(_, row)| MenuCardState {
+            selected: row.pending_order || row.selected,
+            pending_cancel: row.pending_cancel,
+            ordered: row.ordered,
+            available: row.available,
+            cutoff: row.cutoff,
+        })
+        .collect();
+
+    let mut list = div().flex().flex_col().pt(px(theme.mobile.space_4));
+    for ((item, _), state) in gallery_menu_rows().into_iter().zip(states) {
+        list = list.child(menu_card(&item, state, Some(noop.clone()), theme));
+    }
+
+    let column = div()
+        .w(px(width))
+        .flex()
+        .flex_col()
+        .bg(theme.background)
+        .child(mobile_day_navigator(
+            &dates,
+            Some("2026-11-17"),
+            theme,
+            noop.clone(),
+            noop.clone(),
+            noop.clone(),
+        ))
+        .child(list)
+        .child(div().p(px(theme.mobile.space_2)).child(mobile_dock(
+            DockState::Action("Änderungen bestätigen (3)".into()),
+            Some(noop),
+            theme,
+        )));
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(theme.mobile.space_2))
+        .child(
+            div()
+                .text_size(px(theme.mobile.meta))
+                .line_height(px(theme.mobile.meta_line))
+                .font_semibold()
+                .text_color(theme.text_secondary)
+                .child(format!(
+                    "Menüs · {width} px Inhalt · Karten, Allergene, Dock"
+                )),
+        )
+        .child(column)
+        .into_any_element()
 }
 
 impl Render for GalleryRoot {

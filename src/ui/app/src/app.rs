@@ -30,7 +30,9 @@ use crate::components::dialog::{
 };
 use crate::components::loading_overlay::{desktop_loading_overlay, loading_overlay};
 use crate::components::record_table::RecordListFocus;
-use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect};
+use crate::components::tab_bar::{
+    reserved_height, tab_bar, TabSelect, BAR_HEIGHT, IOS_PILL_HEIGHT,
+};
 use crate::components::toast::{
     desktop_toast, toast_overlay_for, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION,
 };
@@ -39,7 +41,7 @@ use crate::navigation::ClickHandler;
 use crate::screens::appearance::appearance_screen;
 use crate::screens::billing::{billing_tab, desktop_billing_tab};
 use crate::screens::login::{login_screen, LoginKind};
-use crate::screens::menus::{desktop_menus_tab, menus_tab};
+use crate::screens::menus::{desktop_menus_tab, menus_dock, menus_dock_height, menus_tab};
 use crate::screens::notifications::notifications_screen;
 use crate::screens::orders::{cutoff_repaint_due, desktop_orders_tab, orders_tab};
 use crate::screens::settings::{desktop_settings_tab, placeholder_detail, settings_tab};
@@ -399,6 +401,30 @@ pub(crate) fn obstruction_reservation(
     navigation + dock_height.max(0.) + SCROLL_END_GAP
 }
 
+/// The top edge of the platform navigation above the window bottom: the
+/// in-flow bar's own height plus its safe-area strip on Android, the floating
+/// iOS pill's bottom inset plus its 56 px height. A compact surface's dock sits
+/// [`crate::components::fab::DOCK_GAP`] above this line.
+pub(crate) fn navigation_top(flat: bool, safe_bottom: f32) -> f32 {
+    if flat {
+        BAR_HEIGHT + safe_bottom
+    } else {
+        safe_bottom.max(8.) + IOS_PILL_HEIGHT
+    }
+}
+
+/// A compact Menüs cached refresh keeps its cards, checks and day
+/// (REQ-SCR-01): the neutral `Aktualisiere...` row is the only progress
+/// feedback, so the blocking loading overlay is not painted over nonempty
+/// cached content. An initial load without data still shows it.
+pub(crate) fn cached_menu_refresh(
+    top: Screen,
+    snapshot: Option<&snackpilot_core::domain::MenuSnapshot>,
+) -> bool {
+    top == Screen::Menus
+        && snapshot.is_some_and(|snapshot| snapshot.refreshing && !snapshot.items.is_empty())
+}
+
 /// Legacy screens that still paint their own bottom inset (`p(16)` + `pb(100)`
 /// on the list/detail roots). Tasks 1.3–1.6 move them onto the shell; until
 /// then the shell must not stack its measured reservation on top. This is the
@@ -407,11 +433,7 @@ pub(crate) fn obstruction_reservation(
 pub(crate) fn legacy_screen_owns_bottom_inset(top: Screen) -> bool {
     matches!(
         top,
-        Screen::Menus
-            | Screen::Orders
-            | Screen::Billing
-            | Screen::Settings
-            | Screen::SettingsDetail
+        Screen::Orders | Screen::Billing | Screen::Settings | Screen::SettingsDetail
     )
 }
 
@@ -1305,7 +1327,9 @@ impl AppShell {
         }
 
         let mut column = div().flex_1().flex().flex_col().overflow_hidden();
-        if nav.top() == Screen::Menus {
+        // The compact Day Tray draws its own 48 px navigator inside the Menüs
+        // screen (task 1.3); the wide Ledger keeps this incumbent toolbar.
+        if nav.top() == Screen::Menus && menu_row_action(layout) == MenuRowAction::Preview {
             if let (Some(model), Some(snapshot)) = (&self.model, &state.menu_snapshot) {
                 if !snapshot.available_dates.is_empty() {
                     let (prev, next, today) =
@@ -1483,6 +1507,17 @@ impl Render for AppShell {
                 self.current_detail(),
                 Detail::LoginKantine | Detail::LoginAutomaten
             );
+        // The compact Menüs dock's measured height feeds the one obstruction
+        // reservation below (task 1.3); every other surface has none.
+        let column_width = crate::compact_width(state.content_width, viewport_width);
+        let menu_dock_height = if nav.top() == Screen::Menus {
+            let width = crate::compact_column(state.host_kind, column_width)
+                .map(|geometry| geometry.content)
+                .unwrap_or(column_width);
+            menus_dock_height(&state, self.model.as_ref(), width, &theme)
+        } else {
+            0.
+        };
         let plan = compact_shell_plan(
             state.host_kind,
             state.content_width,
@@ -1493,10 +1528,13 @@ impl Render for AppShell {
             theme.flat,
             safe_top,
             safe_bottom,
-            0.,
+            menu_dock_height,
         );
         let action_shell = cx.entity().clone();
         let mut root = div().size_full().flex().flex_col().bg(theme.background);
+        // The compact Menüs dock, painted above the busy scrim once built; the
+        // wide Ledger keeps its own pending strip and never sets this.
+        let mut compact_dock: Option<AnyElement> = None;
         // Every native menu command lands here; on-screen buttons call the
         // same model intents directly.
         {
@@ -1666,6 +1704,20 @@ impl Render for AppShell {
                 .pt(px(plan.safe_top))
                 .pb(px(bottom))
                 .child(column.child(screen_content));
+            // The measured Menüs dock occupies the band the reservation above
+            // includes, so the last card is scrollable fully above it.
+            compact_dock = if nav.top() == Screen::Menus {
+                menus_dock(
+                    &state,
+                    self.model.as_ref(),
+                    plan.content_width,
+                    navigation_top(theme.flat, safe_bottom),
+                    &theme,
+                    cx,
+                )
+            } else {
+                None
+            };
             if theme.flat {
                 // §2.2: in-flow bottom bar; the safe-area strip under it keeps
                 // the bar's surface colour (v1 paddingBottom insets.bottom). The
@@ -1689,12 +1741,23 @@ impl Render for AppShell {
         // toast, then dialog on top. Desktop uses the opaque panel variants
         // whenever the desktop shell is shown; the phone shell keeps the
         // incumbent mobile recipes on every host (REQ-UI-07/13).
-        if state.busy || state.ventopay_busy || state.billing_loading {
+        // The Menüs cached refresh keeps its cards: the neutral row is the only
+        // progress feedback on nonempty content, so the blocking overlay only
+        // covers an initial load (compact Day Tray; the wide Ledger keeps its
+        // incumbent overlay).
+        let keep_cached_menus =
+            !desktop && cached_menu_refresh(nav.top(), state.menu_snapshot.as_ref());
+        if (state.busy || state.ventopay_busy || state.billing_loading) && !keep_cached_menus {
             root = root.child(if desktop {
                 desktop_loading_overlay(&theme)
             } else {
                 loading_overlay(&theme)
             });
+        }
+        // The dock paints above the busy scrim: its own exact phase stays
+        // readable in the dock region while an order operation runs.
+        if let Some(dock) = compact_dock {
+            root = root.child(dock);
         }
         if let Some(toast) = &self.toast {
             if !desktop {
@@ -1728,16 +1791,19 @@ impl Render for AppShell {
 #[cfg(test)]
 mod tests {
     use super::{
-        compact_content_bottom, compact_shell_plan, desktop_check_effect, desktop_mutation_blocked,
-        detail_from_model, dispatch_off_thread, focus_restore, keyboard_action,
-        legacy_screen_owns_bottom_inset, menu_row_action, model_settings_detail,
-        nearest_restore_cursor, obstruction_reservation, order_cancel_state, order_row_effect,
-        refresh_intent, shell_heading, should_create_inputs, Detail, FocusRestore, MenuRowAction,
-        MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, HEADING_GAP, HEADING_TOP,
-        LEGACY_SCREEN_BOTTOM_INSET, SCROLL_END_GAP,
+        cached_menu_refresh, compact_content_bottom, compact_shell_plan, desktop_check_effect,
+        desktop_mutation_blocked, detail_from_model, dispatch_off_thread, focus_restore,
+        keyboard_action, legacy_screen_owns_bottom_inset, menu_row_action, model_settings_detail,
+        navigation_top, nearest_restore_cursor, obstruction_reservation, order_cancel_state,
+        order_row_effect, refresh_intent, shell_heading, should_create_inputs, Detail,
+        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
+        HEADING_GAP, HEADING_TOP, LEGACY_SCREEN_BOTTOM_INSET, SCROLL_END_GAP,
     };
+    use crate::components::fab::{dock_bottom, dock_height, dock_state, DOCK_GAP};
+    use crate::screens::menus::menus_dock_height;
+    use snackpilot_model::desktop::HostKind;
     use snackpilot_model::desktop::LayoutMode;
-    use snackpilot_model::navigation::{ListKind, SettingsDetail, Tab};
+    use snackpilot_model::navigation::{ListKind, Screen, SettingsDetail, Tab};
     use snackpilot_model::{AppModel, FakePlatform};
     use std::sync::Arc;
 
@@ -1927,13 +1993,12 @@ mod tests {
         );
     }
 
-    /// The compact column owns one bottom inset (REQ-UI-03/15). A legacy screen
-    /// body still paints its own 16/100 px padding, so the shell must not add
-    /// its measured reservation on top of it (the double gutter the review
-    /// found); once a screen is migrated the shell supplies exactly one inset,
-    /// and the in-flow branch keeps its 16 px scroll-end gap. The real column
-    /// arithmetic is what `render` uses, and the test fails if the two insets
-    /// ever sum.
+    /// The compact column owns one bottom inset (REQ-UI-03/15). The Menüs
+    /// screen migrated in task 1.3, so the shell supplies exactly the measured
+    /// reservation there (a floating pill plus the present dock), while the
+    /// screens still on the legacy inset get only the shortfall topped up. The
+    /// real column arithmetic is what `render` uses, and the test fails if the
+    /// two insets ever sum.
     /// @req REQ-UI-03 @req REQ-UI-15
     #[test]
     fn compact_shell_does_not_stack_a_screen_bottom_inset() {
@@ -1953,10 +2018,20 @@ mod tests {
                 34.,
                 0.,
             );
-            // Every current screen body is still legacy and owns its inset, in
-            // both navigation modes; the shell only tops up any shortfall.
+            // Menüs owns no inset of its own any more: the measured
+            // reservation alone clears the navigation.
+            assert!(
+                !legacy_screen_owns_bottom_inset(Screen::Menus),
+                "the Menüs screen dropped its legacy 16/100 px padding"
+            );
+            assert_eq!(
+                compact_content_bottom(&plan, false, false),
+                plan.reservation
+            );
+            assert_eq!(compact_content_bottom(&plan, true, false), SCROLL_END_GAP);
+            // The screens still to migrate own their inset, in both navigation
+            // modes; the shell only tops up any shortfall.
             for top in [
-                Screen::Menus,
                 Screen::Orders,
                 Screen::Billing,
                 Screen::Settings,
@@ -1972,13 +2047,6 @@ mod tests {
                     (SCROLL_END_GAP - LEGACY_SCREEN_BOTTOM_INSET).max(0.)
                 );
             }
-            // A migrated screen gets exactly the measured reservation (floating
-            // pill) or the 16 px scroll-end gap (in-flow bar owns its height).
-            assert_eq!(
-                compact_content_bottom(&plan, false, false),
-                plan.reservation
-            );
-            assert_eq!(compact_content_bottom(&plan, true, false), SCROLL_END_GAP);
 
             // The effective scroll-end clearance is one copy — the legacy inset
             // topped up to the measured target — never the sum of both.
@@ -1993,6 +2061,192 @@ mod tests {
             assert_eq!(migrated_total, SCROLL_END_GAP);
             assert_ne!(migrated_total, SCROLL_END_GAP + plan.reservation);
         }
+    }
+
+    /// The cached Menüs refresh keeps its content (REQ-SCR-01): the neutral
+    /// `Aktualisiere...` row is the only progress feedback, so the blocking
+    /// overlay is not painted over nonempty cached menus; an initial load
+    /// without data still shows it.
+    /// @req REQ-SCR-01
+    #[test]
+    fn mobile_cached_refresh_keeps_the_menu_content() {
+        let (model, _fake) = claim_demo_model("cached-refresh");
+        let full = model.state().menu_snapshot.expect("demo menus");
+        assert!(!full.items.is_empty());
+        let mut refreshing = full.clone();
+        refreshing.refreshing = true;
+        refreshing.loading = false;
+        assert!(
+            cached_menu_refresh(Screen::Menus, Some(&refreshing)),
+            "a cached refresh keeps the cards and the day"
+        );
+        assert!(
+            !cached_menu_refresh(Screen::Menus, Some(&full)),
+            "a resting screen has no refresh phase"
+        );
+        let mut empty = refreshing.clone();
+        empty.items.clear();
+        assert!(
+            !cached_menu_refresh(Screen::Menus, Some(&empty)),
+            "an initial load without data still shows the blocking overlay"
+        );
+        assert!(!cached_menu_refresh(Screen::Orders, Some(&refreshing)));
+        assert!(!cached_menu_refresh(Screen::Menus, None));
+    }
+
+    /// The compact pending dock (REQ-SCR-01/REQ-UI-15): it carries exactly the
+    /// model's `fab_label()`, its measured recipe height enters the one
+    /// obstruction reservation, it sits 8 px above platform navigation, and the
+    /// measured clearance leaves the last card fully above the dock on both
+    /// navigation dialects. No current-day count or total is invented.
+    /// @req REQ-SCR-01 @req REQ-UI-15
+    #[test]
+    fn mobile_pending_dock_wraps_and_reserves_measured_height() {
+        let (model, _fake) = claim_demo_model("dock-measure");
+        let mut state = model.state();
+        let width = 328.;
+        let theme =
+            crate::theme::AppTheme::build(false, snackpilot_model::AccentColor::Orange, false);
+
+        // No pending changes and no operation: no dock, no reservation.
+        assert_eq!(menus_dock_height(&state, Some(&model), width, &theme), 0.);
+
+        // Queue the first orderable dish: the dock is exactly the model label.
+        let item = state
+            .menu_snapshot
+            .as_ref()
+            .expect("demo menus")
+            .items
+            .iter()
+            .find(|item| item.available && !item.ordered && !model.is_cutoff(&item.day))
+            .cloned()
+            .expect("an orderable demo dish");
+        model.toggle(&item);
+        state = model.state();
+        let label = model.fab_label();
+        assert_eq!(label, "Bestellen (1)");
+        let dock = dock_state(1, state.order_progress.as_deref(), label.clone()).unwrap();
+        assert_eq!(dock.action(), Some(label.as_str()));
+        let measured = menus_dock_height(&state, Some(&model), width, &theme);
+        assert_eq!(measured, dock_height(&dock, width, &theme));
+        assert_eq!(measured, 48., "one body line at the action floor");
+
+        // The reservation adds exactly the dock's measured height: floating
+        // pill 90 + dock 48 + 16 scroll-end gap, a bar in flow dock + 16.
+        let plan = compact_shell_plan(
+            HostKind::Phone,
+            390.,
+            390.,
+            Tab::Menus,
+            Screen::Menus,
+            false,
+            false,
+            59.,
+            34.,
+            measured,
+        );
+        let pill = crate::components::tab_bar::reserved_height(false, 34.);
+        assert_eq!(plan.reservation, pill + measured + SCROLL_END_GAP);
+        for flat in [false, true] {
+            let nav = navigation_top(flat, 34.);
+            // The dock's bottom is 8 px above the navigation's top edge.
+            assert_eq!(dock_bottom(nav), nav + DOCK_GAP);
+            let reserved = obstruction_reservation(flat, 34., flat, measured);
+            // Where the scrolled content ends, relative to the window bottom:
+            // above an in-flow bar the content box already sits above it.
+            let content_end = if flat { nav + reserved } else { reserved };
+            let dock_top = dock_bottom(nav) + measured;
+            assert_eq!(
+                content_end - dock_top,
+                SCROLL_END_GAP - DOCK_GAP,
+                "the last card ends 8 px above the dock on that dialect"
+            );
+            assert!(
+                content_end > dock_top,
+                "the scrolled content never runs under the reserved dock band"
+            );
+        }
+
+        // During an operation the same band keeps the exact phase and offers no
+        // repeat action; a long phase still reserves at least the action floor.
+        let progress = dock_state(1, Some("Bestellung wird bestätigt..."), label.clone()).unwrap();
+        assert_eq!(progress.text(), "Bestellung wird bestätigt...");
+        assert_eq!(progress.action(), None);
+        assert!(dock_height(&progress, width, &theme) >= 48.);
+    }
+
+    /// One dock activation dispatches the existing all-days submit once
+    /// (REQ-UI-08/16): the shell's synchronous gate claims before the model
+    /// reports busy, a second activation is inert, and the projection itself
+    /// requests nothing — the one submit places exactly one order per pending
+    /// dish and no extra fetch happens on render.
+    /// @req REQ-UI-08 @req REQ-UI-16
+    #[test]
+    fn mobile_menu_action_dispatches_once_without_extra_fetch() {
+        let (model, fake) = claim_demo_model("dock-once");
+        let item = model
+            .state()
+            .menu_snapshot
+            .as_ref()
+            .expect("demo menus")
+            .items
+            .iter()
+            .find(|item| item.available && !item.ordered && !model.is_cutoff(&item.day))
+            .cloned()
+            .expect("an orderable demo dish");
+        model.toggle(&item);
+
+        // Building the dock's content and height is presentation only: it
+        // issues no platform call and no request.
+        let calls_before = fake.calls();
+        let state = model.state();
+        let dock = dock_state(
+            state
+                .menu_snapshot
+                .as_ref()
+                .map(|s| s.pending_orders.len() + s.pending_cancellations.len())
+                .unwrap_or(0),
+            state.order_progress.as_deref(),
+            model.fab_label(),
+        )
+        .expect("a pending set shows the dock");
+        assert_eq!(dock.action(), Some("Bestellen (1)"));
+        assert_eq!(
+            fake.calls(),
+            calls_before,
+            "projecting the dock makes no platform call"
+        );
+
+        // The one gate that guards the dock action: the first activation
+        // claims, a repeated tap while it is claimed is inert, and the claim
+        // releases when the dispatch ends.
+        let gate = MutationGate::default();
+        let first = gate.claim(false, false);
+        assert!(first.is_some(), "the first dock activation is accepted");
+        assert!(
+            gate.claim(false, false).is_none(),
+            "a repeated tap cannot submit twice"
+        );
+        assert!(
+            gate.claim(false, true).is_none(),
+            "a running op blocks it too"
+        );
+        drop(first);
+        assert!(gate.claim(false, false).is_some(), "the gate is released");
+
+        // One submit places exactly one order; the pending set is consumed and
+        // nothing extra is fetched afterwards.
+        model.submit_orders();
+        let split = model.state().orders_split.expect("orders loaded");
+        assert_eq!(split.upcoming.len(), 1, "exactly one order was placed");
+        assert!(
+            !model.has_pending_changes(),
+            "the one dispatch consumed the whole pending set"
+        );
+        assert!(
+            model.state().selected_day.is_some(),
+            "the submit kept the incumbent post-submit state"
+        );
     }
 
     /// The workspace header dispatches the active tab's existing refresh and
