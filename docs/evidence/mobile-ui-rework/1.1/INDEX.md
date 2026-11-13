@@ -2,16 +2,21 @@
 
 - **Change:** `mobile-ui-rework`, task 1.1
 - **Branch / revision:** `task/1.1-day-tray-baseline` @ `5cf31f9`
-- **Host that produced this index:** Linux VM (no iOS build, no working Android
-  emulator — it segfaults). No Mac, simulator, emulator or device was available.
+- **Host that produced this index:** the text rows were produced on the Linux VM
+  (no iOS build, no working Android emulator — it segfaults). The iOS baseline
+  captures below were added afterwards by the dispatcher from the MacBook
+  simulator; the Android and desktop rows remain `BLOCKED(host)`.
 - **Baseline definition:** this branch's current **pre-Day-Tray incumbent**
   presentation at `5cf31f9`. No presentation edit is part of 1.1.
 - **Historical reference only:** the mobile before-images owned by
   `desktop-ui-redesign` 1.2–1.5 are `DEFERRED-APPROVED` under the human decision
   of 2026-11-13 and superseded by this change. The original pre-rework state is
   unavailable and is never recreated, inferred or indexed as a baseline.
-- **No image was fabricated.** Every file in this directory is text produced by
-  a command run on the Linux VM. There is no baseline screenshot here.
+- **No image was fabricated.** Every text row was produced by a command on the
+  Linux VM; the four iOS PNGs in this directory are real `simctl` screenshots
+  from the MacBook simulator, indexed in *Captured baseline* below. Nothing else
+  is claimed: dark appearance, Android, desktop and the wider matrices were not
+  captured.
 
 ## Status summary
 
@@ -26,8 +31,9 @@
 | Synthetic scenario fixtures (populated/empty/loading/refresh/error/pending/progress/permission results) | BLOCKED(host) (type-checked, not executed here) | `evidence_fixture_states_apply_only_to_an_isolated_store` @req REQ-UI-16; run with `cargo test --locked -p snackpilot-app --lib` on the Mac |
 | `make check` on this VM | PASS | `make-check-linux.log` |
 | Release build proves the evidence entry is absent | BLOCKED(host) | `cd src/ui && cargo check -p snackpilot-app --release` fails here on a missing host tool (`pkg-config`, `yeslogic-fontconfig-sys`); the evidence method/knobs are `#[cfg(debug_assertions)]` and the selection functions return `None` in release |
-| Registered iOS baseline run (`testDayTrayBaselineIsolationAndViewport`) | BLOCKED(host) | needs a Mac + booted simulator; command below |
+| Registered iOS baseline run (`testDayTrayBaselineIsolationAndViewport`) | PASS | run on the Mac against simulator `C2994587-5046-4970-8DDE-3F003EB81D0D`; asserts the model-installed host and window bounds |
 | Android runtime baseline and action trace | BLOCKED(host) | needs a working emulator/device (the VM emulator segfaults); command below |
+| iOS runtime baseline (Menüs, Bestellungen, Abrechnung, Einstellungen; light) | PASS | `baseline-*-populated-light-390.png`; dark, 360/768/1280 and non-Menüs fixtures not captured |
 | Desktop narrow/wide baseline | BLOCKED(host) | needs the Mac desktop workflow; command below |
 
 ## Native capture items (all BLOCKED(host))
@@ -63,16 +69,16 @@ pair. Simulated iOS viewport widths must be labelled honestly.
 | B15 | Runtime populated long orders/receipts (not gallery-only) | populated Menüs/Bestellungen/Abrechnung on a runtime screen | BLOCKED(host) | C1, C2, C3 |
 | B16 | Isolation assertion traces | fake platform records zero normal-slot access/notification/permission/analytics on the native run | BLOCKED(host) | C1, C2, C3 |
 
-### Known host gap (must be reconciled before the iOS set is claimed)
+### Known host gap — resolved in this branch
 
-The iOS host does not install an `AppModel` (`src/ui/app/src/mobile.rs`
-`ios_host` renders without one; only Android and desktop install it). The iOS
-runtime can therefore show the incumbent default shell but not populated
-fixture states. Wiring an iOS model requires `src/ui/ios/Host/App.swift`, which
-is outside task 1.1's `files:` allowlist. B1–B3, B15 on iOS are consequently
-`BLOCKED(host)` for that additional reason and must not be marked PASS from a
-default-state screenshot. The Android and desktop runtime captures do have the
-model and the scenario/viewport knobs.
+The iOS host installed no `AppModel` when this index was first written. That gap
+was closed here: `src/ui/app/src/platform/ios.rs` now applies the evidence
+viewport before `session.bootstrap()` and the scenario after it, so the iOS
+runtime renders real fixture states, and an evidence run never reaches the OS
+permission shims (no system prompt). The Swift `DesktopRegressionTests` case
+therefore exercises the model-installed host. What remains `BLOCKED(host)` is
+capture breadth, not capability: Android, the desktop window and the
+360/768/1280 matrices.
 
 ## Exact host commands
 
@@ -160,6 +166,13 @@ numbers from `day_tray_keeps_wide_ledger_geometry`.
   in-memory dummy credentials, normal OS/keychain slots never read or written.
 - Evidence bootstrap/foreground suppresses the live broadcast, the system
   permission prompt, the geofence restore and analytics (`track`).
+- An isolated evidence run answers both permission shims denied inside the iOS
+  bridge (`IosPlatform::request_permission`), so no caller — including
+  `-DebugPlatformExercise` — can reach `UNUserNotificationCenter` or CoreLocation
+  and change a permission. Proven by
+  `platform::ios::tests::evidence_run_never_reaches_os_permissions` @req
+  REQ-UI-08/REQ-UI-16 and by the native log line
+  `notify_permission: denied, no system prompt in evidence mode`.
 - Evidence mode now also suppresses host `notify`, so a capture cannot deliver
   a system notification.
 - Failure/permission fixtures are synthetic state; no wrong credentials are
@@ -175,3 +188,30 @@ numbers from `day_tray_keeps_wide_ledger_geometry`.
 | --- | --- | --- | --- | --- |
 | `INDEX.md` | baseline/index honesty, status list, exact commands | PASS | Linux VM | revision `5cf31f9`; no image metadata (no image produced) |
 | `make-check-linux.log` | `make check` under the task's `check:` | PASS | Linux VM | revision `5cf31f9`, 503 lines, ends with the model test/doc-test summary |
+
+## Captured baseline (dispatcher run, 2026-11-13)
+
+Host: MacBook, iPhone 17 Pro simulator (iOS 26), UDID `C2994587-5046-4970-8DDE-3F003EB81D0D`,
+`xcrun simctl` install of the debug build synced from branch `task/1.1-ios-evidence`, launched as
+`--evidence --scenario=populated --viewport=390x844 --tab=<0..3>`, simulator appearance switched with
+`xcrun simctl ui <udid> appearance <light|dark>`. Physical image size 1206x2622 @ 3x, logical width 390, safe top inset 62 pt,
+tab bar floating pill. Revision: the baseline commit on this branch.
+
+Dark appearance was **not** captured: `xcrun simctl ui <udid> appearance dark` did not change the
+app's rendering (the light and dark runs produced byte-identical Menüs images), so the four dark PNGs
+were deleted rather than mislabelled. Dark stays `BLOCKED(host)`.
+
+These are the **pre-Day-Tray incumbent** screens, captured before any presentation edit. They stand in for
+the desktop-deferred mobile before-images: the historical ones are unavailable and are not recreated.
+
+| File | Surface | States observed |
+| --- | --- | --- |
+| `baseline-menus-populated-light-390.png` | Menüs | category headings, closed dishes, allergens, prices, floating tab bar |
+| `baseline-orders-populated-light-390.png` | Bestellungen | segments with counts, empty upcoming list, `Auswählen` action |
+| `baseline-billing-populated-light-390.png` | Abrechnung | month/source controls, summary, empty receipts |
+| `baseline-settings-populated-light-390.png` | Einstellungen | account rows, hints, chevrons |
+
+Observed in the captures and carried into the rework findings: a large dead band between the safe area and
+the first content (Orders/Billing), category headings in accent uppercase above the dish, and the
+`filled populated` fixture covering Menüs only — Orders/Billing lists render empty under this scenario.
+Remaining rows of the native table above (B5–B16, Android, desktop, 360/768/1280) stay `BLOCKED(host)`.

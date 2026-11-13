@@ -190,6 +190,9 @@ pub struct IosPlatform {
     table: IosShimTable,
     pending: &'static Pending,
     storage_dir: PathBuf,
+    /// This process is an isolated evidence run: permission requests answer
+    /// denied without reaching the OS (task 1.1).
+    evidence: bool,
 }
 
 impl IosPlatform {
@@ -237,6 +240,7 @@ impl IosPlatform {
             table,
             pending,
             storage_dir,
+            evidence: crate::evidence::requested(),
         })
     }
 
@@ -258,6 +262,14 @@ impl IosPlatform {
         shim: extern "C" fn(u64, *mut c_void) -> u8,
         name: &str,
     ) -> Result<bool, PlatformError> {
+        // An isolated evidence run never asks the OS: a system dialog would
+        // cover the capture and could change a permission (task 1.1,
+        // REQ-UI-08). Denied without invoking the shim; a normal run is
+        // unchanged.
+        if self.evidence {
+            log::info!("{name}: denied, no system prompt in evidence mode");
+            return Ok(false);
+        }
         let id = self.pending.begin();
         if shim(id, std::ptr::null_mut()) == 0 {
             self.pending.cancel(id);
@@ -555,6 +567,30 @@ unsafe fn read_cstr<'a>(ptr: *const c_char) -> &'a CStr {
     unsafe { CStr::from_ptr(ptr) }
 }
 
+/// Installs the session the iOS host exposes to the shell, keeping the capture
+/// knobs honest: the debug evidence viewport is reported before the launch
+/// order (task 1.1), the shell model is exposed next, and the selected
+/// synthetic scenario is applied after the launch order. Both knobs are inert
+/// outside an isolated evidence run and absent from a release build, so a
+/// normal launch keeps its platform-reported host and no fixture state.
+fn install_session(
+    session: Arc<snackpilot_model::AppModel>,
+    viewport: Option<crate::evidence::Viewport>,
+    scenario: Option<String>,
+) {
+    if let Some(viewport) = viewport {
+        crate::evidence::install_viewport(&session, viewport);
+    }
+    // Task 5.7: expose the session to the GPUI shell and run the launch order
+    // (cached first, broadcast, auto-login).
+    crate::install_shell_model(Arc::clone(&session));
+    session.bootstrap();
+    if let Some(scenario) = scenario {
+        crate::evidence::apply_scenario(&session, &scenario);
+    }
+    let _ = DEBUG_SESSION.set(session);
+}
+
 /// Swift: registers the shim table plus the storage directory the core KV
 /// store uses. Returns 1 on success, 0 on a null/invalid/second registration.
 #[unsafe(no_mangle)]
@@ -591,16 +627,14 @@ pub unsafe extern "C" fn snackpilot_ios_register_shims(
     };
     let _ = DEBUG_PLATFORM.set(platform.clone());
     // A debug evidence run gets isolated data and dummy credentials, and runs
-    // the launch order offline (task 1.5).
+    // the launch order offline (task 1.5). The capture knobs are read once,
+    // before the session exists: the viewport is reported to it before the
+    // launch order and the synthetic scenario applied after it.
     let dir = crate::evidence::storage_dir(dir.clone());
+    let viewport = crate::evidence::viewport();
+    let scenario = crate::evidence::scenario();
     match crate::evidence::model(dir.clone(), platform) {
-        Ok(session) => {
-            // Task 5.7: expose the session to the GPUI shell and run the
-            // launch order (cached first, broadcast, auto-login).
-            crate::install_shell_model(Arc::clone(&session));
-            session.bootstrap();
-            let _ = DEBUG_SESSION.set(session);
-        }
+        Ok(session) => install_session(session, viewport, scenario),
         Err(e) => log::error!("[3.5] register_shims: model session failed: {e:?}"),
     }
     *guard = Some(Registered {
@@ -1430,6 +1464,113 @@ mod tests {
         );
         assert!(DEBUG_PLATFORM.get().is_some());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- evidence session -----------------------------------------------------------
+
+    /// @req REQ-UI-16 The iOS harness applies the capture viewport to the
+    /// isolated model *before* the launch order and the synthetic scenario
+    /// *after* it. The model's own notification sequence proves the order: the
+    /// 390 pt phone width is reported before bootstrap's first cache update,
+    /// and the selected `loading` fixture replaces that cached snapshot
+    /// afterwards. Removing either call fails this test.
+    #[test]
+    fn evidence_session_applies_viewport_before_and_scenario_after_bootstrap() {
+        use snackpilot_model::desktop::HostKind;
+
+        let _guard = begin();
+        let dir = temp_dir("evidence-session");
+        let model = Arc::new(
+            snackpilot_model::AppModel::new(
+                dir.clone(),
+                Arc::new(platform_in(dir.clone())) as Arc<dyn Platform>,
+            )
+            .unwrap(),
+        );
+        model.set_evidence_mode(true);
+        let seen: Arc<Mutex<Vec<(HostKind, f32, bool)>>> = Arc::default();
+        let record = Arc::clone(&seen);
+        model.subscribe(Box::new(move |state| {
+            record.lock().unwrap().push((
+                state.host_kind,
+                state.content_width,
+                state.menu_snapshot.is_some(),
+            ));
+        }));
+
+        install_session(
+            Arc::clone(&model),
+            Some(crate::evidence::Viewport {
+                width: 390,
+                height: 844,
+            }),
+            Some("loading".to_string()),
+        );
+
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(
+            model.state().host_kind,
+            HostKind::Phone,
+            "the capture viewport stays a single-column phone surface"
+        );
+        assert_eq!(model.state().content_width, 390., "the viewport width");
+        let viewport_at = seen
+            .iter()
+            .position(|(host, width, _)| *host == HostKind::Phone && *width == 390.)
+            .expect("the viewport is reported to the model at all");
+        let cache_at = seen
+            .iter()
+            .position(|(_, _, menus)| *menus)
+            .expect("bootstrap fills the cached snapshot");
+        assert!(
+            viewport_at < cache_at,
+            "the viewport must be applied before the launch order: {seen:?}"
+        );
+        assert!(
+            model.state().menu_snapshot.is_none(),
+            "the scenario replaces the cached snapshot after bootstrap"
+        );
+        assert!(
+            seen.last().is_some_and(|(_, _, menus)| !menus),
+            "the last state is the applied scenario, not the cached launch order: {seen:?}"
+        );
+
+        // The launch order ran exactly once, offline: the evidence store asks
+        // no permission and arms no region (REQ-UI-08).
+        let calls = take_calls();
+        let called = methods(&calls);
+        assert_eq!(called.iter().filter(|m| **m == "track").count(), 1);
+        assert!(!called.contains(&"notify_permission"));
+        assert!(!called.contains(&"geofence_start"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// @req REQ-UI-08, REQ-UI-16 An isolated evidence run never asks the OS for
+    /// a permission: both permission shims answer denied without reaching the
+    /// table, so no system dialog covers a capture and no permission changes.
+    /// Removing the guard makes both calls reach the stub table and fails here;
+    /// outside evidence mode the same calls still cross the boundary.
+    #[test]
+    fn evidence_run_never_reaches_os_permissions() {
+        let _guard = begin();
+        let mut evidence = platform_in(PathBuf::new());
+        evidence.evidence = true;
+        stub().granted = true;
+        assert!(!evidence.request_notification_permission().unwrap());
+        assert!(!evidence.request_location_authorisation().unwrap());
+        assert!(
+            take_calls().is_empty(),
+            "an evidence run must not reach the platform for a permission"
+        );
+
+        let mut normal = platform_in(PathBuf::new());
+        normal.evidence = false;
+        assert!(normal.request_notification_permission().unwrap());
+        assert!(normal.request_location_authorisation().unwrap());
+        assert_eq!(
+            methods(&take_calls()),
+            vec!["notify_permission", "location_authorisation"]
+        );
     }
 
     // ---- debug exercise -------------------------------------------------------------
