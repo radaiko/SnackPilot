@@ -39,8 +39,8 @@ subagent per task, `make check`, one `review`, merge, tick.
 | Step | Agent | Model |
 | --- | --- | --- |
 | Spec | `spec` | DeepSeek V4.1 Flash; UI: GLM-5.3; architectural: Sonnet 5.5 · medium |
-| Dispatch | goal session + `dispatch` skill | local Qwen 3.8 Flash-Next, thinking off |
-| Code | `coder` | local Qwen 3.8 Flash-Next, thinking medium |
+| Dispatch | goal session + `dispatch` skill | DeepSeek Relace |
+| Code | `coder` | DeepSeek Relace |
 | Review | `review` | Sonnet 5.5 · low |
 
 - Integration branch is `main`; one task branch per change, merged when `make check` is
