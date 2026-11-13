@@ -201,9 +201,10 @@ fn evidence_harness_isolates_startup_and_normal_slots() {
 /// A desktop host declares notifications and geofence unavailable, so its
 /// bootstrap must not call either service. Cache-first loading, the
 /// `app.launched` event and the saved-credential session still run
-/// (REQ-PLT-07, REQ-DST-04).
+/// (REQ-PLT-07, REQ-DST-04, REQ-SCR-09).
 /// @req REQ-PLT-07
 /// @req REQ-DST-04
+/// @req REQ-SCR-09
 #[test]
 fn bootstrap_gates_unavailable_desktop_capabilities() {
     use snackpilot_model::LocationFix;

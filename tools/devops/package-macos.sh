@@ -42,11 +42,14 @@ die() { echo "package-macos: $*" >&2; exit 1; }
 info() { echo "package-macos: $*"; }
 
 # --- bundle-content manifest (shared by the receipt and ship validation) -----
+# Entry mode. GNU `stat` takes `-c`, BSD/macOS `stat` takes `-f`; GNU also has
+# `-f`, but there it is the *filesystem* query and answers a constant for every
+# path, so the GNU query has to be probed first (it does not exist on BSD).
 stat_mode() {
-    if stat -f '%Lp' "$1" >/dev/null 2>&1; then
-        stat -f '%Lp' "$1"
-    else
+    if stat -c '%a' "$1" >/dev/null 2>&1; then
         stat -c '%a' "$1"
+    else
+        stat -f '%Lp' "$1"
     fi
 }
 

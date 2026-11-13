@@ -294,11 +294,18 @@ pub fn mount(cx: &mut App) {
     open_main_window(cx);
 }
 
+/// Whether a Dock activation has to open the main window. One main window:
+/// while any window exists the activation only re-activates it, and a closed
+/// one is reopened on the already-installed session (REQ-UI-07).
+fn reopen_needs_window(window_count: usize) -> bool {
+    window_count == 0
+}
+
 /// Open the single main window when none is visible. Dock reopen calls this
 /// with the process-wide model already installed, so the session and its
 /// navigation survive closing the window (REQ-UI-07).
 pub fn open_main_window(cx: &mut App) {
-    if !cx.windows().is_empty() {
+    if !reopen_needs_window(cx.windows().len()) {
         if let Some(window) = cx.active_window() {
             let _ = window.update(cx, |_, window, _| window.activate_window());
         }
@@ -318,9 +325,21 @@ pub fn open_main_window(cx: &mut App) {
 mod tests {
     use super::{
         about_message, clamp_window, key_bindings, privacy_message, product_build, product_version,
-        shortcut_command, PlatformModifier, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH,
+        reopen_needs_window, shortcut_command, PlatformModifier, WINDOW_MIN_HEIGHT,
+        WINDOW_MIN_WIDTH,
     };
     use snackpilot_model::desktop::DesktopCommand;
+    use snackpilot_model::{AppModel, FakePlatform};
+    use std::sync::Arc;
+
+    /// A model for the reopen rule: the same construction the hosts use, with
+    /// a temporary directory and the offline fake platform.
+    fn reopen_model(tag: &str) -> Arc<AppModel> {
+        let dir =
+            std::env::temp_dir().join(format!("snackpilot-reopen-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        Arc::new(AppModel::new(dir, Arc::new(FakePlatform::new())).unwrap())
+    }
 
     /// Cmd+1–4/comma/R map to the documented commands on macOS, the Ctrl
     /// equivalents on Windows, and every other modifier/repeat is rejected
@@ -464,6 +483,30 @@ mod tests {
             (width, height),
             (320., 400.),
             "an OS constraint below the minimum still fits the visible area"
+        );
+    }
+
+    /// A Dock activation after the window was closed reopens the one main
+    /// window on the already-installed model; an activation while a window is
+    /// open only re-activates it, so there is never a second session,
+    /// bootstrap or window (REQ-UI-07).
+    /// @req REQ-UI-07
+    #[test]
+    fn dock_reopen_keeps_one_model_and_one_window() {
+        assert!(reopen_needs_window(0), "a closed window is reopened");
+        assert!(
+            !reopen_needs_window(1),
+            "an open window is re-activated, never duplicated"
+        );
+        assert!(!reopen_needs_window(2));
+
+        let first = reopen_model("first");
+        crate::install_shell_model(Arc::clone(&first));
+        crate::install_shell_model(reopen_model("second"));
+        let installed = crate::shell_model().expect("the installed model");
+        assert!(
+            Arc::ptr_eq(&installed, &first),
+            "a Dock reopen renders the session installed with the first window, not a new one"
         );
     }
 

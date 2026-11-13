@@ -38,6 +38,7 @@ write_stub() {
 write_stub cargo <<'STUB'
 #!/usr/bin/env bash
 echo "cargo $*" >> "$TOOLS_LOG"
+echo "cargo-env MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-unset}" >> "$TOOLS_LOG"
 target=""
 previous=""
 for arg in "$@"; do
@@ -248,6 +249,20 @@ else
     pass "no public ZIP or leftover notary archive"
 fi
 
+# The release flags are part of the contract, not incidental: a dropped
+# `--locked`/`--release`/`--target`, deployment target, hardened-runtime signing
+# option or a notary submission without the configured profile/wait fails here.
+check "cargo runs the locked release build for aarch64-apple-darwin" \
+    grep -Fqx 'cargo build --locked --release -p snackpilot-app --bin snackpilot-desktop --target aarch64-apple-darwin' "$log"
+check "the release build pins MACOSX_DEPLOYMENT_TARGET=26.0" \
+    grep -Fqx 'cargo-env MACOSX_DEPLOYMENT_TARGET=26.0' "$log"
+check "nested code is signed with the hardened runtime and a secure timestamp" \
+    grep -Eq '^codesign --force --options runtime --timestamp --sign .*libsnackpilot-extra\.dylib$' "$log"
+check "the outer app is signed with the hardened runtime and a secure timestamp" \
+    grep -Eq '^codesign --force --options runtime --timestamp --sign .*SnackPilot\.app$' "$log"
+check "notarization uses the configured keychain profile and waits for the verdict" \
+    grep -Eq "^xcrun notarytool submit .* --keychain-profile $PROFILE --wait$" "$log"
+
 # Stage order: nested code before the outer app, then notarize, staple, verify.
 nested="$(log_line 'libsnackpilot-extra.dylib')"
 outer="$(grep -n 'codesign --force .*/SnackPilot.app$' "$log" | head -1 | cut -d: -f1)"
@@ -277,6 +292,44 @@ echo tampered > "$app/Contents/Resources/tampered.txt"
 [ "$checksum" != "$("$SCRIPT" --bundle-checksum "$app")" ] \
     && pass "changed bundle contents change the checksum" || fail "changed bundle contents change the checksum"
 rm "$app/Contents/Resources/tampered.txt"
+
+# Entry modes and symlink targets are part of the manifest too, and the mode
+# query must work on a BSD and on a GNU host: `-f '%Lp'` is a filesystem query
+# on GNU, so probing BSD first can read a constant instead of the entry mode.
+chmod 0700 "$app/Contents/MacOS/SnackPilot"
+[ "$checksum" != "$("$SCRIPT" --bundle-checksum "$app")" ] \
+    && pass "changed file modes change the checksum" || fail "changed file modes change the checksum"
+chmod 0755 "$app/Contents/MacOS/SnackPilot"
+[ "$checksum" = "$("$SCRIPT" --bundle-checksum "$app")" ] \
+    && pass "the manifest is stable across identical bundle contents" || fail "the manifest is stable across identical bundle contents"
+
+ln -s SnackPilot.icns "$app/Contents/Resources/SnackPilot-legacy.icns"
+[ "$checksum" != "$("$SCRIPT" --bundle-checksum "$app")" ] \
+    && pass "an added symlink changes the checksum" || fail "an added symlink changes the checksum"
+rm "$app/Contents/Resources/SnackPilot-legacy.icns"
+
+# A GNU host where the BSD probe does not fail: `stat -f` answers a
+# file-system query, which is constant no matter how the entry's mode changes.
+mkdir -p "$tmp/gnu-bin"
+real_stat="$(command -v stat)"
+cat > "$tmp/gnu-bin/stat" <<STUB
+#!/usr/bin/env bash
+if [ "\$1" = "-c" ]; then
+    exec "$real_stat" "\$@"
+fi
+if [ "\$1" = "-f" ]; then
+    echo "ext2/ext3"
+    exit 0
+fi
+exec "$real_stat" "\$@"
+STUB
+chmod +x "$tmp/gnu-bin/stat"
+gnu_checksum="$(PATH="$tmp/gnu-bin:$PATH" "$SCRIPT" --bundle-checksum "$app")"
+chmod 0700 "$app/Contents/MacOS/SnackPilot"
+[ "$gnu_checksum" != "$(PATH="$tmp/gnu-bin:$PATH" "$SCRIPT" --bundle-checksum "$app")" ] \
+    && pass "modes are read on a GNU host where the BSD probe does not fail" \
+    || fail "modes are read on a GNU host where the BSD probe does not fail"
+chmod 0755 "$app/Contents/MacOS/SnackPilot"
 
 # DRY_RUN is an orchestration flag, not a packaging mode: the package script
 # still signs and submits.
