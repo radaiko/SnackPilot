@@ -794,18 +794,31 @@ impl AppShell {
         if self.strip_aligned == state.selected_day {
             return;
         }
-        self.strip_aligned = state.selected_day.clone();
         let Some(day) = state.selected_day.as_deref() else {
             return;
         };
-        let Some(index) = state
+        let Some(dates) = state
             .menu_snapshot
             .as_ref()
-            .and_then(|snapshot| snapshot.available_dates.iter().position(|d| d == day))
+            .map(|snapshot| &snapshot.available_dates)
         else {
             return;
         };
-        self.menus_days_scroll.scroll_to_item(index);
+        let Some(index) = dates.iter().position(|d| d == day) else {
+            return;
+        };
+        // A scroll request made before the strip has been laid out is consumed
+        // without effect. Its measured overflow is what proves it can move, so
+        // an unmeasured strip stays unaligned and is tried again next frame.
+        if self.menus_days_scroll.max_offset().x <= px(0.) {
+            return;
+        }
+        // Align the day *after* the selection when there is one: the chosen
+        // day then sits clear of the edge and the next one is visible, so the
+        // strip reads as a series that continues.
+        self.strip_aligned = state.selected_day.clone();
+        self.menus_days_scroll
+            .scroll_to_item((index + 1).min(dates.len() - 1));
     }
 
     /// Wrap the model (or nothing, when a host installed none) and subscribe
@@ -939,6 +952,14 @@ impl AppShell {
             });
             if let Some(n) = tab.filter(|n| *n < Tab::ALL.len()) {
                 shell.select_tab(Tab::ALL[n]);
+            }
+            // `--day=YYYY-MM-DD` selects a menu day (captures cannot tap).
+            if let Some(day) =
+                std::env::args().find_map(|a| a.strip_prefix("--day=").map(str::to_string))
+            {
+                if let Some(model) = &shell.model {
+                    model.select_day(&day);
+                }
             }
             // `--detail=login|automaten` opens a credential screen directly.
             shell.pending_detail = std::env::args().find_map(|a| {
