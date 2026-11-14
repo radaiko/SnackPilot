@@ -717,6 +717,9 @@ pub struct AppShell {
     /// One handle per scrollable tab list, kept here so the pull gesture can
     /// ask the list whether it is at its top.
     pub(crate) menus_scroll: ScrollHandle,
+    /// The day strip scrolls sideways on its own; kept here so the selected
+    /// day can be brought back into view.
+    pub(crate) menus_days_scroll: ScrollHandle,
     pub(crate) orders_scroll: ScrollHandle,
     pub(crate) billing_scroll: ScrollHandle,
     /// Which pushed settings screen is shown.
@@ -850,6 +853,7 @@ impl AppShell {
             pull_dy: 0.,
             last_refresh: None,
             menus_scroll: ScrollHandle::new(),
+            menus_days_scroll: ScrollHandle::new(),
             orders_scroll: ScrollHandle::new(),
             billing_scroll: ScrollHandle::new(),
             detail: Detail::Settings,
@@ -1578,6 +1582,7 @@ impl AppShell {
                         theme,
                         self.swipe_dx,
                         &self.menus_scroll,
+                        &self.menus_days_scroll,
                         self.pull_dy,
                         cx,
                     ),
@@ -1649,12 +1654,15 @@ impl Render for AppShell {
             .is_none_or(|model| model.state().launch_settled);
         if self.seen_frame && active && !self.was_active && launched {
             if let Some(model) = self.model.as_ref() {
-                // Host-gated dispatch (task 1.5): the foreground refresh blocks
-                // on the model's runtime, so a desktop host, narrow windows
-                // included, runs it on the worker thread and keeps painting.
-                let host = model.state().host_kind;
+                // A foreground return is not a user action: its fetch must
+                // never hold the frame, on any host. Inline, the orders and
+                // billing round-trips froze the shell for seconds after the
+                // phone came back, so day switching did nothing. It runs on
+                // the worker; the hub repaints when the answer lands.
                 let model = Arc::clone(model);
-                run_blocking(host, cx, move || model.on_foreground());
+                cx.background_executor()
+                    .spawn(async move { model.on_foreground() })
+                    .detach();
             }
         }
         self.was_active = active;

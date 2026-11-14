@@ -54,6 +54,7 @@ pub fn menus_tab(
     theme: &AppTheme,
     offset: f32,
     scroll: &ScrollHandle,
+    days_scroll: &ScrollHandle,
     pull: f32,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -75,6 +76,7 @@ pub fn menus_tab(
                 &day_facts(state, dates),
                 selected.as_deref(),
                 &today_key(),
+                days_scroll,
                 theme,
                 day_select_handler(cx),
             )));

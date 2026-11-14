@@ -135,22 +135,24 @@ pub fn day_dot(facts: DayFacts, day: &str, today: &str) -> DayDot {
 /// The strip's tap: the day key the person picked.
 pub type DaySelectHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
-/// How wide one day chip is drawn. Seven of them plus the gaps fit a phone's
-/// 358 px content width, so a fortnight wraps onto two rows instead of hiding
-/// behind a scroll.
-pub const DAY_CHIP_W: f32 = 46.;
+/// How wide one day chip is drawn: five and a half of them fill a phone's
+/// content width, so the strip shows that there is more and is swiped
+/// sideways rather than wrapped.
+pub const DAY_CHIP_W: f32 = 56.;
 
 /// The compact day strip: every available day at once, weekday over date, the
 /// selected one on an accent tint. A dot says what the day carries — filled
 /// accent for a placed order, hollow accent for marked dishes, a quiet grey
 /// dot for a day that was never opened. Today's date wears the accent. Tapping
-/// a chip selects that day; the swipe between days stays.
+/// a chip selects that day; the strip itself is swiped sideways, and the day
+/// in view is always scrolled back into the visible part.
 /// @req REQ-SCR-01 @req REQ-UI-15 @req REQ-UI-16
 pub fn mobile_day_strip(
     dates: &[String],
     facts: &[DayFacts],
     selected: Option<&str>,
     today: &str,
+    scroll: &ScrollHandle,
     theme: &AppTheme,
     on_select: DaySelectHandler,
 ) -> AnyElement {
@@ -159,10 +161,11 @@ pub fn mobile_day_strip(
         .id("day-strip")
         .w_full()
         .flex()
-        .flex_wrap()
         .gap(px(m.space_1))
         .px(px(m.space_4))
         .py(px(m.space_2))
+        .overflow_x_scroll()
+        .track_scroll(scroll)
         .border_b_1()
         .border_color(theme.border);
 
@@ -231,6 +234,15 @@ pub fn mobile_day_strip(
         }
         strip = strip.child(chip);
     }
+    // The end padding has to be content, or the last chip scrolled into view
+    // sits flush against the screen edge.
+    strip = strip.child(div().w(px(m.space_4)).flex_shrink_0());
+
+    // Keep the day in view: the handle only moves when that chip is out of
+    // the visible part, so an untouched strip never jumps.
+    if let Some(index) = selected.and_then(|sel| dates.iter().position(|day| day == sel)) {
+        scroll.scroll_to_item(index);
+    }
 
     strip.into_any_element()
 }
@@ -251,17 +263,23 @@ mod tests {
     }
 
     /// The compact day strip (REQ-SCR-01/REQ-UI-16): every available day at
-    /// once, so no day hides behind a gesture; six chips and their gaps fit
-    /// the phone's content width, so a fortnight wraps onto a second row
-    /// instead of overflowing. Building the strip activates nothing.
+    /// once on one row, so a week never wraps into a second block; five chips
+    /// and their gaps fill most of the phone's content width, which is what
+    /// tells a person the strip can be swiped sideways. Building the strip
+    /// activates nothing.
     /// @req REQ-SCR-01 @req REQ-UI-16
     #[test]
     fn mobile_day_strip_shows_every_day_and_activates_nothing() {
-        assert_eq!(DAY_CHIP_W, 46.);
+        assert_eq!(DAY_CHIP_W, 56.);
         assert_eq!(tokens::SPACE_1, 4.);
+        let content = 358. - 32.;
         assert!(
-            DAY_CHIP_W * 6. + tokens::SPACE_1 * 5. <= 358. - 32.,
-            "six chips and their gaps fit the phone's content width"
+            DAY_CHIP_W * 6. + tokens::SPACE_1 * 5. > content,
+            "six chips overflow the row: the strip scrolls instead of wrapping"
+        );
+        assert!(
+            DAY_CHIP_W * 5. + tokens::SPACE_1 * 4. <= content,
+            "five chips and their gaps fit, with the sixth cut off"
         );
 
         let theme = AppTheme::build(false);
@@ -297,6 +315,7 @@ mod tests {
             &facts,
             Some("2026-11-18"),
             "2026-11-16",
+            &gpui::ScrollHandle::new(),
             &theme,
             handler,
         );
