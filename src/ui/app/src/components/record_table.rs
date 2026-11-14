@@ -588,8 +588,8 @@ mod tests {
     fn record_rows_use_the_flat_40px_row() {
         let theme = crate::theme::AppTheme::build(false);
         assert_eq!(super::ROW_HEIGHT, 40.);
-        assert_eq!(theme.scale.body, 17.);
-        assert_eq!(theme.scale.meta, 13.);
+        assert_eq!(theme.scale.body, snackpilot_model::tokens::BODY.size);
+        assert_eq!(theme.scale.meta, snackpilot_model::tokens::META.size);
         let rest: gpui::Rgba = theme.surface.into();
         let hover: gpui::Rgba = theme.hover(theme.surface).into();
         let pressed: gpui::Rgba = theme.pressed(theme.surface).into();

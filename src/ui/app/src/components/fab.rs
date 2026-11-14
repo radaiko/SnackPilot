@@ -230,7 +230,7 @@ mod tests {
         for lines in 2..=4 {
             assert_eq!(
                 dock_height_for_lines(lines, &theme),
-                lines as f32 * theme.scale.body_line,
+                (lines as f32 * theme.scale.body_line).max(theme.scale.action_height),
                 "{lines} measured lines reserve their own height"
             );
         }

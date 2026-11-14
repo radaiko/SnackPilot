@@ -8,15 +8,15 @@ use snackpilot_model::tokens::*;
 #[test]
 fn palette_matches_the_pinned_table() {
     let table: [(&str, ColorToken, &str, &str); 18] = [
-        ("bg", BG, "#F4F5F7", "#121316"),
+        ("bg", BG, "#E7E9EE", "#121316"),
         ("surface", SURFACE, "#FFFFFF", "#1B1D21"),
-        ("surface_alt", SURFACE_ALT, "#EDEFF3", "#24272C"),
+        ("surface_alt", SURFACE_ALT, "#F1F3F6", "#24272C"),
         ("border", BORDER, "#DDE0E6", "#33373D"),
         ("border_strong", BORDER_STRONG, "#C3C8D0", "#454A52"),
         ("text", TEXT, "#14161A", "#F2F4F7"),
         ("text_secondary", TEXT_SECONDARY, "#5B6270", "#A7AEBA"),
         ("text_tertiary", TEXT_TERTIARY, "#7C8492", "#6E7683"),
-        ("accent", ACCENT, "#C2450F", "#FF7A45"),
+        ("accent", ACCENT, "#B8400E", "#FF7A45"),
         ("accent_surface", ACCENT_SURFACE, "#FDEDE6", "#3A1E12"),
         ("on_accent", ON_ACCENT, "#FFFFFF", "#1A0D06"),
         ("success", SUCCESS, "#1E7D43", "#4CC38A"),

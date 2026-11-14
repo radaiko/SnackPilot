@@ -274,7 +274,7 @@ mod tests {
             // The row is the shared flat surface, not a full-bleed band.
             let row = theme.card_surface();
             assert_eq!(row.radius, gpui_kit::px(tokens::RADIUS_CARD));
-            assert_eq!(row.border.map(|(w, _)| w), Some(gpui_kit::px(1.)));
+            assert_eq!(row.border, None, "flat: the surface carries no frame");
             assert_eq!(theme.scale.space_4, 16.);
             // The hairline stays quieter than the text it separates.
             let fill = to_rgb(row.bg, row.bg);

@@ -1120,7 +1120,7 @@ mod mobile_tests {
         assert_eq!(theme.scale.icon, 20.);
         let card = theme.card_surface();
         assert_eq!(card.radius, px(tokens::RADIUS_CARD));
-        assert_eq!(card.border.map(|(w, _)| w), Some(px(1.)));
+        assert_eq!(card.border, None, "flat: the surface carries no frame");
         assert_eq!(theme.scale.title, tokens::TITLE.size);
         assert_eq!(theme.scale.title, tokens::TITLE.size);
 

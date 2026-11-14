@@ -234,7 +234,9 @@ impl AppTheme {
         Recipe {
             bg: self.surface,
             radius: px(self.scale.radius_card),
-            border: Some((px(1.), self.border)),
+            // Flat: the surface separates itself from the page by tone. A
+            // hairline on every card reads as a frame, not as a surface.
+            border: None,
         }
     }
 
@@ -242,7 +244,7 @@ impl AppTheme {
         Recipe {
             bg: self.surface,
             radius: px(self.scale.radius_card),
-            border: Some((px(1.), self.border)),
+            border: None,
         }
     }
 
@@ -442,12 +444,12 @@ mod tests {
     fn recipes_use_the_one_flat_system() {
         let t = AppTheme::build(false);
         assert_eq!(t.card_surface().radius, px(12.));
-        assert_eq!(t.card_surface().border.map(|(w, _)| w), Some(px(1.)));
+        assert_eq!(t.card_surface().border, None);
         assert!(t.button_primary().border.is_none());
         assert_eq!(t.button_secondary().radius, px(10.));
-        assert_eq!(t.scale.headline, 20.);
-        assert_eq!(t.scale.body, 17.);
-        assert_eq!(t.scale.meta, 13.);
+        assert_eq!(t.scale.headline, snackpilot_model::tokens::HEADLINE.size);
+        assert_eq!(t.scale.body, snackpilot_model::tokens::BODY.size);
+        assert_eq!(t.scale.meta, snackpilot_model::tokens::META.size);
     }
 
     /// @req REQ-UI-12

@@ -51,8 +51,6 @@ fn section(title: &'static str, hint: &'static str, theme: &AppTheme, body: Div)
         .gap(px(theme.scale.space_2))
         .p(px(theme.scale.space_4))
         .rounded(px(theme.scale.radius_card))
-        .border(px(1.))
-        .border_color(theme.border)
         .bg(theme.surface)
         .child(
             div()

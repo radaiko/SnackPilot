@@ -27,9 +27,9 @@ impl ColorToken {
 }
 
 // Surfaces.
-pub const BG: ColorToken = ColorToken::both("#F4F5F7", "#121316");
+pub const BG: ColorToken = ColorToken::both("#E7E9EE", "#121316");
 pub const SURFACE: ColorToken = ColorToken::both("#FFFFFF", "#1B1D21");
-pub const SURFACE_ALT: ColorToken = ColorToken::both("#EDEFF3", "#24272C");
+pub const SURFACE_ALT: ColorToken = ColorToken::both("#F1F3F6", "#24272C");
 pub const BORDER: ColorToken = ColorToken::both("#DDE0E6", "#33373D");
 pub const BORDER_STRONG: ColorToken = ColorToken::both("#C3C8D0", "#454A52");
 
@@ -39,7 +39,7 @@ pub const TEXT_SECONDARY: ColorToken = ColorToken::both("#5B6270", "#A7AEBA");
 pub const TEXT_TERTIARY: ColorToken = ColorToken::both("#7C8492", "#6E7683");
 
 // One accent, fixed: it is never selectable.
-pub const ACCENT: ColorToken = ColorToken::both("#C2450F", "#FF7A45");
+pub const ACCENT: ColorToken = ColorToken::both("#B8400E", "#FF7A45");
 pub const ACCENT_SURFACE: ColorToken = ColorToken::both("#FDEDE6", "#3A1E12");
 pub const ON_ACCENT: ColorToken = ColorToken::both("#FFFFFF", "#1A0D06");
 

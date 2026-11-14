@@ -271,8 +271,6 @@ pub fn order_item(
         .mb(px(m.space_2))
         .rounded(px(theme.scale.radius_card))
         .bg(theme.surface)
-        .border(px(1.))
-        .border_color(theme.border)
         .id(SharedString::from(format!("order-{}", order.position_id)));
     if let (true, Some(on_select)) = (mobile_order_card_tappable(select_mode), on_select) {
         row = row
@@ -744,7 +742,7 @@ mod tests {
         let theme = AppTheme::build(false);
         let row = theme.card_surface();
         assert_eq!(row.radius, gpui_kit::px(tokens::RADIUS_CARD));
-        assert_eq!(row.border.map(|(w, _)| w), Some(gpui_kit::px(1.)));
+        assert_eq!(row.border, None, "flat: the surface carries no frame");
         assert_eq!(theme.scale.space_4, 16.);
 
         let with_subtitle = order("MENÜ I", "Rindsgulasch");

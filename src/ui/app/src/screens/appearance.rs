@@ -68,8 +68,6 @@ fn appearance_row(
         .p(px(theme.scale.space_4))
         .rounded(px(theme.scale.radius_card))
         .bg(row_fill(selected, theme))
-        .border(px(1.))
-        .border_color(if selected { theme.accent } else { theme.border })
         .cursor_pointer()
         .focus(theme::desktop_focus(theme.accent))
         .on_click(move |_, window, cx| on_click(window, cx))

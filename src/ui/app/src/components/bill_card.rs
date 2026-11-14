@@ -29,7 +29,7 @@ pub const BILL_LINE_QTY: f32 = 28.;
 pub const BILL_LINE_AMOUNT: f32 = 80.;
 
 /// The compact receipt row's height: two lines and 12 px vertical padding.
-pub const MOBILE_RECEIPT_ROW_HEIGHT: f32 = 72.;
+pub const MOBILE_RECEIPT_ROW_HEIGHT: f32 = 66.;
 /// The shared receipt card's inner padding.
 pub const MOBILE_RECEIPT_CARD_PADDING: f32 = 16.;
 /// The 1 px hairline between receipt rows.
@@ -142,9 +142,8 @@ pub fn bill_row(entry: &BillingEntry, theme: &AppTheme) -> Div {
         .cursor_default()
 }
 
-/// The one shared receipt surface: 12 radius, 1 px hairline and 16 px inner
-/// padding around all rows, which are separated by 1 px hairlines instead of
-/// one card each.
+/// The one shared receipt surface: 12 radius and 16 px inner padding around
+/// all rows, which are separated by 1 px hairlines instead of one card each.
 /// @req REQ-SCR-03 @req REQ-UI-15
 pub fn bill_list(entries: &[BillingEntry], theme: &AppTheme) -> AnyElement {
     let mut card = div()
@@ -153,9 +152,7 @@ pub fn bill_list(entries: &[BillingEntry], theme: &AppTheme) -> AnyElement {
         .flex_col()
         .p(px(MOBILE_RECEIPT_CARD_PADDING))
         .rounded(px(theme.scale.radius_card))
-        .bg(theme.surface)
-        .border(px(1.))
-        .border_color(theme.border);
+        .bg(theme.surface);
     for (index, entry) in entries.iter().enumerate() {
         if index > 0 {
             card = card.child(div().h(px(MOBILE_RECEIPT_HAIRLINE)).bg(theme.border));
@@ -536,7 +533,7 @@ mod tests {
             "an empty supplier description falls back to the service name, never an empty row"
         );
 
-        assert_eq!(MOBILE_RECEIPT_ROW_HEIGHT, 72.);
+        assert_eq!(MOBILE_RECEIPT_ROW_HEIGHT, 66.);
         assert_eq!(MOBILE_RECEIPT_CARD_PADDING, 16.);
         assert_eq!(MOBILE_RECEIPT_HAIRLINE, 1.);
         let theme = AppTheme::build(false);

@@ -150,8 +150,6 @@ pub fn settings_row(
         .p(px(theme.scale.space_4))
         .rounded(px(theme.scale.radius_card))
         .bg(theme.surface)
-        .border(px(1.))
-        .border_color(theme.border)
         .tab_index(0)
         .cursor_pointer()
         .hover(|s| s.bg(theme.pressed(theme.surface)))
@@ -180,8 +178,8 @@ mod tests {
     fn desktop_settings_row_is_a_40px_flat_row() {
         assert_eq!(snackpilot_model::desktop::ROW_HEIGHT, 40.);
         let theme = AppTheme::build(false);
-        assert_eq!(theme.scale.body, 17.);
-        assert_eq!(theme.scale.meta, 13.);
+        assert_eq!(theme.scale.body, snackpilot_model::tokens::BODY.size);
+        assert_eq!(theme.scale.meta, snackpilot_model::tokens::META.size);
     }
 
     /// The compact grouped row (REQ-SCR-04/REQ-UI-15): 56 px high, 16 px
@@ -194,7 +192,7 @@ mod tests {
         assert_eq!(theme.scale.space_4, 16.);
         assert_eq!(theme.scale.radius_card, 12.);
         assert_eq!(theme.scale.icon, 20.);
-        assert_eq!(theme.scale.meta, 13.);
-        assert_eq!(theme.scale.body, 17.);
+        assert_eq!(theme.scale.meta, snackpilot_model::tokens::META.size);
+        assert_eq!(theme.scale.body, snackpilot_model::tokens::BODY.size);
     }
 }

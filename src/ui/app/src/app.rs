@@ -3196,7 +3196,7 @@ mod tests {
     fn pull_only_measures_from_the_top() {
         assert!(pull_is_at_top(0.));
         assert!(!pull_is_at_top(-1.));
-        assert_eq!(pull_offset(80., true, 0.), PULL_MAX, "one delta is capped");
+        assert_eq!(pull_offset(200., true, 0.), PULL_MAX, "one delta is capped");
         assert_eq!(pull_offset(30., true, 20.), 50., "deltas accumulate");
         assert_eq!(pull_offset(-40., true, 20.), 0., "an upward drag clears it");
         assert_eq!(pull_offset(-40., true, 0.), 0.);

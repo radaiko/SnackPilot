@@ -198,10 +198,12 @@ pub fn menu_card(
 ) -> Stateful<Div> {
     let m = &theme.scale;
     let treatment = mobile_card_treatment(&state);
-    let (fill, border) = match treatment {
-        MobileCardTreatment::Selected => (theme.accent_surface, theme.accent),
-        MobileCardTreatment::PendingCancel => (theme.surface, theme.warning),
-        MobileCardTreatment::Plain => (theme.surface, theme.border),
+    // Flat: a plain row is its surface alone. The two exceptional states keep
+    // their boundary, because a colour there is the message.
+    let (fill, outline) = match treatment {
+        MobileCardTreatment::Selected => (theme.accent_surface, Some(theme.accent)),
+        MobileCardTreatment::PendingCancel => (theme.surface, Some(theme.warning)),
+        MobileCardTreatment::Plain => (theme.surface, None),
     };
     let pressed = theme.pressed(fill);
 
@@ -214,9 +216,10 @@ pub fn menu_card(
         .mb(px(m.space_2))
         .rounded(px(theme.scale.radius_card))
         .bg(fill)
-        .border(px(1.))
-        .border_color(border)
         .id(SharedString::from(format!("menu-{}|{}", item.id, item.day)));
+    if let Some(outline) = outline {
+        card = card.border(px(1.)).border_color(outline);
+    }
     if treatment.dashed() {
         card = card.border_dashed();
     }
@@ -410,7 +413,7 @@ mod tests {
         );
         let row = theme.card_surface();
         assert_eq!(row.radius, gpui_kit::px(tokens::RADIUS_CARD));
-        assert_eq!(row.border.map(|(w, _)| w), Some(gpui_kit::px(1.)));
+        assert_eq!(row.border, None, "flat: the surface carries no frame");
         assert_eq!(theme.scale.space_4, 16.);
         assert_eq!(MOBILE_CHIP_HEIGHT, 24.);
     }

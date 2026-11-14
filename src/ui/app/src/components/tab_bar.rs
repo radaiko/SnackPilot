@@ -82,9 +82,8 @@ pub fn tab_bar(
         .h(px(BAR_HEIGHT))
         .flex()
         .items_stretch()
+        // Flat: the bar is its own surface, no hairline above it.
         .bg(theme.surface)
-        .border_t_1()
-        .border_color(theme.border)
         .children(
             Tab::ALL
                 .into_iter()
