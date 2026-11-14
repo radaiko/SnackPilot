@@ -156,7 +156,9 @@ pub fn orders_tab(
     // Batch-cancel bar while multi-select mode is active.
     if state.order_selection_mode {
         column = column.child(selection_bar(state, host, cx, theme));
-    } else if !past {
+    } else if !past && !orders.is_empty() {
+        // Batch selection only exists when there is something to select: an
+        // empty upcoming list showed a secondary "Auswählen" that led nowhere.
         let (height, radius) = mobile_select_metrics(theme);
         let handler = begin_selection_handler(cx);
         column = column.child(

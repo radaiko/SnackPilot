@@ -1,6 +1,7 @@
 //! Billing tab — docs/requirements/04-ui-ux.md §3.3 and §4.7.
 //!
-//! Month tabs, source chips, summary bar, newest-first `BillCard` list, the
+//! One compact filter band (month chips over source segments), one summary
+//! surface, the newest-first receipt list in one shared card, the
 //! empty/loading/error states and pull-to-refresh. All data comes from the
 //! model's merged entries and totals; the selected month and source live in
 //! `AppModel` state.
@@ -9,17 +10,18 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::*;
-use gpui_kit::assets::IconName;
-use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::prelude::Styled;
 
 use crate::app::{dispatch_off_thread, AppShell};
 use crate::components::bill_card::{
-    bill_card, desktop_bill_detail, desktop_bill_header, desktop_bill_row,
+    bill_list, desktop_bill_detail, desktop_bill_header, desktop_bill_row,
 };
 use crate::components::chip::desktop_chip;
 use crate::components::pull_refresh::pull_refresh;
 use crate::components::record_table::{detail_entry, RecordListFocus};
+#[cfg(test)]
+use crate::components::segment_tabs::mobile_segment_height;
+use crate::components::segment_tabs::segment_options;
 use crate::components::spinner::spinner;
 use crate::components::workspace::{detail_prompt, split_workspace_scrolled, state_message};
 use crate::navigation::ClickHandler;
@@ -39,8 +41,9 @@ fn empty_copy() -> (&'static str, &'static str) {
 }
 
 /// The compact Billing tab content (task 1.5): shell-owned heading and gutters,
-/// the three month choices, the wrapping source options, the inline error, the
-/// neutral cached-refresh row, one summary surface and the scrolling receipts.
+/// one compact filter band (short month chips over the source segments), the
+/// inline error, the neutral cached-refresh row, one summary surface and the
+/// scrolling receipts in one shared card.
 /// The filters stay painted while a fetch runs, a published month that is not
 /// the selected context is withheld instead of painted under the new label,
 /// and the legacy 16/100 px screen padding is gone so the shell's measured
@@ -72,23 +75,24 @@ pub fn billing_tab(
     // phone/tablet host stays synchronous.
     let off_thread = dispatch_off_thread(state.host_kind);
 
-    // One flex child of the shell's column: the month row and the filters stay
-    // outside the record scroll, and the column takes exactly the height left
-    // under the shell heading.
+    // One flex child of the shell's column: the one compact filter band (month
+    // chips over the source segments) stays outside the record scroll, and the
+    // column takes exactly the height left under the shell heading.
     let mut column = div().flex_1().min_h(px(0.)).flex().flex_col();
-    column = column.child(mobile_month_row(
-        &state.month_options,
-        state.selected_offset,
-        month_select(model, off_thread, cx),
-        theme,
-    ));
+    column = column
+        .child(mobile_month_row(
+            &state.month_options,
+            state.selected_offset,
+            month_select(model, off_thread, cx),
+            theme,
+        ))
+        .child(mobile_source_row(
+            state.billing_source,
+            source_select(model, off_thread, cx),
+            theme,
+        ));
 
     let mut content = div().w_full().flex_1().min_h(px(0.)).flex().flex_col();
-    content = content.child(mobile_source_row(
-        state.billing_source,
-        source_select(model, off_thread, cx),
-        theme,
-    ));
 
     if let Some(error) = model.billing_error() {
         content = content.child(mobile_error_banner(&error.message, theme));
@@ -129,9 +133,7 @@ pub fn billing_tab(
             .flex_col()
             .overflow_y_scroll();
         if has_entries {
-            for entry in &entries {
-                list = list.child(bill_card(entry, theme));
-            }
+            list = list.child(bill_list(&entries, theme));
         } else {
             let (fact, hint) = empty_copy();
             list = list.child(div().flex_1().child(state_message(fact, hint, theme)));
@@ -233,91 +235,101 @@ fn gate(theme: &AppTheme) -> AnyElement {
 /// One month choice activation (compact task 1.5).
 pub(crate) type MonthSelect = Rc<dyn Fn(u8, &mut Window, &mut App)>;
 
-/// One flat option chip: 44 px high, 8 radius, 12 side padding and the accent
-/// tint and boundary when selected. The source chips carry the 20 px check; the
-/// three equal month chips keep their whole third for the full German label,
-/// with the boundary and primary-role word carrying the selection.
-fn option_chip(label: &str, selected: bool, equal: bool, theme: &AppTheme) -> Div {
-    let (fill, border, ink) = if selected {
-        // The accent on its own tint reaches only 4.44:1 in light: the word
-        // takes the primary text role, the boundary keeps the accent.
-        (theme.accent_surface, theme.accent, theme.text_primary)
-    } else {
-        (theme.surface, theme.border, theme.text_secondary)
+/// The compact month chip's visible height: one single-line row instead of
+/// two-line tiles.
+pub const MOBILE_MONTH_CHIP_HEIGHT: f32 = 40.;
+/// The month chip's tap target: the 40 px pill sits inside the 44 px floor.
+pub const MOBILE_MONTH_TARGET_HEIGHT: f32 = 44.;
+
+const MONTHS_SHORT: [&str; 12] = [
+    "Jän.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez.",
+];
+
+/// The month chip's single-line German short form, built from the existing
+/// month key (`2026-11` → `Nov. 2026`, `2026-09` → `Sept. 2026`). An
+/// unparseable key falls back to itself.
+/// @req REQ-SCR-03
+pub(crate) fn month_chip_label(key: &str) -> String {
+    let (year, month) = match key.split_once('-') {
+        Some((year, month)) => (year, month),
+        None => return key.to_string(),
     };
-    let (size, line) = if equal {
-        (theme.scale.meta, theme.scale.meta_line)
-    } else {
-        (theme.scale.body, theme.scale.body_line)
+    let index = match month.parse::<usize>() {
+        Ok(month) if (1..=12).contains(&month) => month - 1,
+        _ => return key.to_string(),
     };
-    let mut chip = div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap(px(theme.scale.space_2))
-        .min_h(px(theme.scale.target))
-        .px(px(theme.scale.space_3))
-        .py(px(theme.scale.space_2))
-        .rounded(px(theme.scale.radius_chip))
-        .bg(fill)
-        .border(px(1.))
-        .border_color(border);
-    if equal {
-        chip = chip.flex_1().min_w(px(0.));
-    } else if selected {
-        chip = chip.child(
-            Icon::new(IconName::Check)
-                .with_size(px(theme.scale.icon))
-                .text_color(ink),
-        );
-    }
-    chip.child(
-        div()
-            .min_w(px(0.))
-            .text_size(px(size))
-            .line_height(px(line))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_center()
-            .text_color(ink)
-            .child(label.to_string()),
-    )
+    format!("{} {year}", MONTHS_SHORT[index])
 }
 
-/// The three month choices: three equal 44 px chips in the incumbent full
-/// German form (a second line is allowed, never truncation), selected by the
-/// accent tint and boundary. The controls stay painted while a fetch runs.
-/// @req REQ-SCR-03 @req REQ-UI-15 @req REQ-UI-16
+/// The whole compact filter band: the month chips' 44 px target, the source
+/// segment control's action-height target and the band's bottom air.
+/// @req REQ-SCR-03 @req REQ-UI-15
+#[cfg(test)]
+pub(crate) fn mobile_filter_band_height(theme: &AppTheme) -> f32 {
+    MOBILE_MONTH_TARGET_HEIGHT + mobile_segment_height(theme) + theme.scale.space_2
+}
+
+/// The month choices: one scrollable row of 40 px single-line chips in the
+/// German short form, selected by the accent tint and boundary the mobile
+/// chips already use. The controls stay painted while a fetch runs.
+/// @req REQ-SCR-03 @req REQ-UI-15
 pub(crate) fn mobile_month_row(
     options: &[MonthOption],
     selected: u8,
     on_select: MonthSelect,
     theme: &AppTheme,
-) -> Div {
+) -> Stateful<Div> {
     let mut row = div()
+        .id("billing-months")
         .flex()
         .w_full()
         .gap(px(theme.scale.space_2))
-        .py(px(theme.scale.space_2));
+        .overflow_x_scroll();
     for option in options {
         let offset = option.offset;
         let on = Rc::clone(&on_select);
-        let ink = if offset == selected {
-            theme.accent
+        let is_selected = offset == selected;
+        let (fill, border, ink) = if is_selected {
+            // The accent on its own tint reaches only 4.44:1 in light: the
+            // word takes the primary text role, the boundary keeps the accent.
+            (theme.accent_surface, theme.accent, theme.text_primary)
         } else {
-            theme.text_secondary
+            (theme.surface, theme.border, theme.text_secondary)
         };
-        let hover = theme.pressed(if offset == selected {
-            theme.accent_surface
-        } else {
-            theme.surface
-        });
+        let hover = theme.pressed(fill);
         row = row.child(
-            option_chip(&option.label, offset == selected, true, theme)
+            div()
                 .id(SharedString::from(format!("billing-month-{offset}")))
+                .flex_shrink_0()
+                .h(px(MOBILE_MONTH_TARGET_HEIGHT))
+                .flex()
+                .items_center()
                 .cursor_pointer()
-                .hover(move |s| s.bg(hover))
                 .focus(theme::desktop_focus(ink))
-                .on_click(move |_, window, cx| on(offset, window, cx)),
+                .on_click(move |_, window, cx| on(offset, window, cx))
+                .child(
+                    div()
+                        .h(px(MOBILE_MONTH_CHIP_HEIGHT))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .px(px(theme.scale.space_3))
+                        .rounded(px(theme.scale.radius_chip))
+                        .bg(fill)
+                        .border(px(1.))
+                        .border_color(border)
+                        .hover(move |s| s.bg(hover))
+                        .child(
+                            div()
+                                .whitespace_nowrap()
+                                .text_size(px(theme.scale.body))
+                                .line_height(px(theme.scale.body_line))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_center()
+                                .text_color(ink)
+                                .child(month_chip_label(&option.key)),
+                        ),
+                ),
         );
     }
     row
@@ -326,42 +338,36 @@ pub(crate) fn mobile_month_row(
 /// One source filter activation (compact task 1.5).
 pub(crate) type SourceSelect = Rc<dyn Fn(BillingSource, &mut Window, &mut App)>;
 
-/// The `Alle`/`Kantine`/`Automaten` options: 44 px chips with the 20 px check
-/// on the selected one, wrapping when the text scale demands it.
-/// @req REQ-SCR-03 @req REQ-UI-15 @req REQ-UI-16
+/// The `Alle`/`Kantine`/`Automaten` options as the same contained segment
+/// control the Bestellungen tabs use, so the app has one selected-state
+/// language.
+/// @req REQ-SCR-03 @req REQ-UI-15
 pub(crate) fn mobile_source_row(
     selected: BillingSource,
     on_select: SourceSelect,
     theme: &AppTheme,
 ) -> Div {
-    let mut row = div()
-        .flex()
-        .flex_wrap()
-        .items_center()
-        .gap(px(theme.scale.space_2))
-        .py(px(theme.scale.space_2));
-    for (source, label) in [
-        (BillingSource::All, "Alle"),
-        (BillingSource::Gourmet, "Kantine"),
-        (BillingSource::Ventopay, "Automaten"),
-    ] {
-        let on = Rc::clone(&on_select);
-        let is_selected = selected == source;
-        let hover = theme.pressed(if is_selected {
-            theme.accent_surface
-        } else {
-            theme.surface
-        });
-        row = row.child(
-            option_chip(label, is_selected, false, theme)
-                .id(SharedString::from(format!("billing-chip-{label}")))
-                .cursor_pointer()
-                .hover(move |s| s.bg(hover))
-                .focus(theme::desktop_focus(theme.accent))
-                .on_click(move |_, window, cx| on(source, window, cx)),
-        );
-    }
-    row
+    div()
+        .w_full()
+        .pb(px(theme.scale.space_2))
+        .child(segment_options(
+            [
+                ("billing-chip-Alle", "Alle".to_string(), BillingSource::All),
+                (
+                    "billing-chip-Kantine",
+                    "Kantine".to_string(),
+                    BillingSource::Gourmet,
+                ),
+                (
+                    "billing-chip-Automaten",
+                    "Automaten".to_string(),
+                    BillingSource::Ventopay,
+                ),
+            ],
+            selected,
+            on_select,
+            theme,
+        ))
 }
 
 /// The neutral cached-refresh feedback: a 16 px spinner with the incumbent
@@ -405,25 +411,26 @@ fn mobile_error_banner(message: &str, theme: &AppTheme) -> AnyElement {
     .into_any_element()
 }
 
-/// The one compact summary surface's content: the formatted `Gesamt` first,
-/// then the `Belege` count and the conditional Kantine `Zuschuss`, exactly the
-/// incumbent filtered totals and formatter (no new metric or calculation).
+/// The one compact summary surface's content: the formatted `Gesamt`, then one
+/// metadata line with the `Belege` count and the conditional Kantine
+/// `Zuschuss`, exactly the incumbent filtered totals and formatter (no new
+/// metric or calculation).
 /// @req REQ-SCR-03 @req REQ-UI-15
 pub(crate) fn mobile_summary(
     entries: usize,
     totals: &BillingTotals,
     source: BillingSource,
-) -> (String, Vec<(&'static str, String)>) {
-    let mut pairs = vec![("Belege", entries.to_string())];
+) -> (String, String) {
+    let mut meta = format!("{entries} Belege");
     if totals.zuschuss > 0. && source != BillingSource::Ventopay {
-        pairs.push(("Zuschuss", format_eur(totals.zuschuss)));
+        meta.push_str(&format!(" · Zuschuss {}", format_eur(totals.zuschuss)));
     }
-    (format_eur(totals.gesamt), pairs)
+    (format_eur(totals.gesamt), meta)
 }
 
-/// The one summary card: `Gesamt` in the metadata role, the formatted total in
-/// the title role beneath it, then the `Belege` count and the conditional
-/// Kantine `Zuschuss` as metadata pairs — never three equal metric columns.
+/// The one summary card: `Gesamt` and the amount on one line (the amount in
+/// the title role), with one metadata line beneath — never three equal metric
+/// columns and never a second crowded label/value row.
 /// @req REQ-SCR-03 @req REQ-UI-15
 pub(crate) fn mobile_summary_surface(
     entries: &[BillingEntry],
@@ -432,42 +439,19 @@ pub(crate) fn mobile_summary_surface(
     theme: &AppTheme,
 ) -> AnyElement {
     let m = &theme.scale;
-    let (gesamt, pairs) = mobile_summary(entries.len(), totals, source);
-    let mut line = div().flex().flex_wrap().items_baseline().gap(px(m.space_4));
-    for (label, value) in pairs {
-        line = line.child(
-            div()
-                .flex()
-                .items_baseline()
-                .gap(px(m.space_2))
-                .child(
-                    div()
-                        .text_size(px(m.meta))
-                        .line_height(px(m.meta_line))
-                        .text_color(theme.text_secondary)
-                        .child(label),
-                )
-                .child(
-                    div()
-                        .text_size(px(m.meta))
-                        .line_height(px(m.meta_line))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme.text_primary)
-                        .child(value),
-                ),
-        );
-    }
+    let (gesamt, meta) = mobile_summary(entries.len(), totals, source);
     theme::apply(
         div()
             .mb(px(m.space_2))
             .p(px(m.space_4))
             .flex()
             .flex_col()
-            .gap(px(m.space_3))
+            .gap(px(m.space_1))
             .child(
                 div()
                     .flex()
-                    .flex_col()
+                    .items_baseline()
+                    .justify_between()
                     .gap(px(m.space_2))
                     .child(
                         div()
@@ -478,6 +462,8 @@ pub(crate) fn mobile_summary_surface(
                     )
                     .child(
                         div()
+                            .flex_shrink_0()
+                            .whitespace_nowrap()
                             .text_size(px(m.title))
                             .line_height(px(m.title_line))
                             .font_weight(FontWeight::SEMIBOLD)
@@ -485,7 +471,13 @@ pub(crate) fn mobile_summary_surface(
                             .child(gesamt),
                     ),
             )
-            .child(line),
+            .child(
+                div()
+                    .text_size(px(m.meta))
+                    .line_height(px(m.meta_line))
+                    .text_color(theme.text_secondary)
+                    .child(meta),
+            ),
         &theme.card_surface(),
     )
     .into_any_element()
@@ -888,7 +880,8 @@ fn desktop_receipt_preview_handler(cx: &mut Context<AppShell>, id: String) -> Cl
 mod mobile_tests {
     use super::{
         billing_context_cached, billing_context_matches, billing_owns_progress, billing_view,
-        empty_copy, mobile_summary, BillingView,
+        empty_copy, mobile_filter_band_height, mobile_summary, month_chip_label, BillingView,
+        MOBILE_MONTH_CHIP_HEIGHT, MOBILE_MONTH_TARGET_HEIGHT,
     };
     use crate::theme::AppTheme;
     use gpui_kit::px;
@@ -981,13 +974,13 @@ mod mobile_tests {
         // The summary is the incumbent filtered total, not a new calculation.
         let totals = model.billing_totals();
         let entries = model.merged_entries();
-        let mut pairs = vec![("Belege", entries.len().to_string())];
+        let mut meta = format!("{} Belege", entries.len());
         if totals.zuschuss > 0. {
-            pairs.push(("Zuschuss", format_eur(totals.zuschuss)));
+            meta.push_str(&format!(" · Zuschuss {}", format_eur(totals.zuschuss)));
         }
         assert_eq!(
             mobile_summary(entries.len(), &totals, BillingSource::All),
-            (format_eur(totals.gesamt), pairs)
+            (format_eur(totals.gesamt), meta)
         );
 
         // The subsidy stays conditional: it belongs to the Kantine side only.
@@ -997,22 +990,19 @@ mod mobile_tests {
             zuschuss: 1.25,
         };
         assert_eq!(
-            mobile_summary(3, &with_subsidy, BillingSource::All).1,
-            vec![
-                ("Belege", "3".to_string()),
-                ("Zuschuss", "€ 1,25".to_string())
-            ]
+            mobile_summary(3, &with_subsidy, BillingSource::All),
+            (
+                "€ 12,50".to_string(),
+                "3 Belege · Zuschuss € 1,25".to_string()
+            )
         );
         assert_eq!(
             mobile_summary(3, &with_subsidy, BillingSource::Gourmet).1,
-            vec![
-                ("Belege", "3".to_string()),
-                ("Zuschuss", "€ 1,25".to_string())
-            ]
+            "3 Belege · Zuschuss € 1,25"
         );
         assert_eq!(
             mobile_summary(3, &with_subsidy, BillingSource::Ventopay).1,
-            vec![("Belege", "3".to_string())],
+            "3 Belege",
             "the Automaten filter shows no Kantine subsidy"
         );
         let no_subsidy = BillingTotals {
@@ -1021,17 +1011,50 @@ mod mobile_tests {
         };
         assert_eq!(
             mobile_summary(0, &no_subsidy, BillingSource::All),
-            ("€ 12,50".to_string(), vec![("Belege", "0".to_string())]),
+            ("€ 12,50".to_string(), "0 Belege".to_string()),
             "no zero-value subsidy line is painted"
         );
     }
-    /// The flat Abrechnung controls (REQ-SCR-03/REQ-UI-15): months are three
-    /// equal 44 px chips, sources carry the 20 px check on the selected one,
-    /// and the summary is one 12 radius card whose total is the title role with
-    /// the incumbent formatter and the conditional subsidy pair.
+
+    /// The two filters are one compact band: the month row is a single-line
+    /// short form built from the existing month key, September keeps its four
+    /// letters, and the whole band stays within 100 px.
     /// @req REQ-SCR-03 @req REQ-UI-15
     #[test]
-    fn mobile_billing_controls_use_chips_and_one_summary_card() {
+    fn month_chips_use_single_line_short_labels() {
+        assert_eq!(month_chip_label("2026-11"), "Nov. 2026");
+        assert_eq!(month_chip_label("2026-09"), "Sept. 2026");
+        assert_eq!(month_chip_label("2026-03"), "März 2026");
+        for key in ["2026-11", "2026-09", "2026-03"] {
+            let label = month_chip_label(key);
+            assert!(
+                !label.contains('\n') && !label.contains('\r'),
+                "{key} paints on one line: {label}"
+            );
+        }
+        assert_eq!(
+            month_chip_label("not-a-key"),
+            "not-a-key",
+            "an unparseable key falls back to itself instead of inventing a month"
+        );
+        assert_eq!(MOBILE_MONTH_CHIP_HEIGHT, 40.);
+        assert_eq!(
+            MOBILE_MONTH_TARGET_HEIGHT,
+            tokens::TARGET,
+            "the 40 px pill keeps the 44 px phone tap target"
+        );
+        assert!(
+            mobile_filter_band_height(&AppTheme::build(false)) <= 100.,
+            "month chips and source segments fit one compact band"
+        );
+    }
+    /// The compact Abrechnung controls share one selected-state language: the
+    /// months are one short-label row, the sources are the segment control the
+    /// Bestellungen tabs use, and the summary is one 12 radius card whose
+    /// amount is the title role over one metadata line.
+    /// @req REQ-SCR-03 @req REQ-UI-15
+    #[test]
+    fn mobile_billing_controls_are_compact_and_share_one_summary_card() {
         let theme = AppTheme::build(false);
         assert_eq!(theme.scale.target, tokens::TARGET);
         assert_eq!(theme.scale.target, 44.);
@@ -1042,21 +1065,16 @@ mod mobile_tests {
         assert_eq!(card.border.map(|(w, _)| w), Some(px(1.)));
         assert_eq!(theme.scale.title, tokens::TITLE.size);
         assert_eq!(theme.scale.title, 28.);
+        assert_eq!(MOBILE_MONTH_CHIP_HEIGHT, 40.);
 
         let totals = BillingTotals {
             gesamt: 12.5,
             belege: 3,
             zuschuss: 1.25,
         };
-        let (gesamt, pairs) = mobile_summary(3, &totals, BillingSource::All);
+        let (gesamt, meta) = mobile_summary(3, &totals, BillingSource::All);
         assert_eq!(gesamt, format_eur(totals.gesamt));
-        assert_eq!(
-            pairs,
-            vec![
-                ("Belege", "3".to_string()),
-                ("Zuschuss", format_eur(totals.zuschuss))
-            ]
-        );
+        assert_eq!(meta, format!("3 Belege · Zuschuss {}", format_eur(1.25)));
     }
 
     /// The empty month states the fact and then the next step, so the tab is

@@ -382,11 +382,22 @@ pub(crate) fn shell_heading(tab: Tab, pushed: bool) -> Option<&'static str> {
 }
 
 /// The measured bottom obstruction a scrolled compact surface must clear
-/// (REQ-UI-15/REQ-UI-16): the navigation height, plus the Menüs dock's measured
-/// height when present, plus the 8 px scroll-end gap. No blind 100 px padding
-/// and no second screen-owned inset are added anywhere in the shell.
+/// (REQ-UI-15/REQ-UI-16): the Menüs dock's band when it is present, plus the
+/// 8 px scroll-end gap.
+///
+/// The navigation bar and its safe-area strip are painted *in flow* below the
+/// content, so they already shorten it; subtracting [`reserved_height`] again
+/// here cost every compact surface 90 px of list (the Abrechnung capture showed
+/// the receipts clipped one row short with dead space under the card). Only the
+/// dock is an overlay, and it sits [`crate::components::fab::DOCK_GAP`] above
+/// the bar, so its band is what has to be reserved.
 pub(crate) fn obstruction_reservation(safe_bottom: f32, dock_height: f32) -> f32 {
-    reserved_height(safe_bottom) + dock_height.max(0.) + SCROLL_END_GAP
+    let dock = if dock_height > 0. {
+        reserved_height(safe_bottom) + dock_height
+    } else {
+        0.
+    };
+    dock + SCROLL_END_GAP
 }
 
 /// The top edge of the platform navigation above the window bottom: the
@@ -1913,12 +1924,10 @@ mod tests {
             assert_eq!(plan.safe_top, 0., "only the measured inset is applied");
             assert!(plan.bar_visible, "the platform bar stays visible");
             assert_eq!(plan.active, Tab::Menus);
-            // One measured inset: the navigation height plus the 8 px
-            // scroll-end gap, never a blind 100 px padding.
-            assert_eq!(
-                compact_content_bottom(&plan),
-                reserved_height(0.) + SCROLL_END_GAP
-            );
+            // One measured inset: the 8 px scroll-end gap alone while no dock
+            // paints, never the navigation bar (it is in flow) and never a
+            // blind 100 px padding.
+            assert_eq!(compact_content_bottom(&plan), SCROLL_END_GAP);
             assert_eq!(SCROLL_END_GAP, 8.);
             assert_ne!(plan.reservation, 100., "no blind 100 px padding");
         }
@@ -1965,15 +1974,17 @@ mod tests {
             assert!(form.content_width <= 440., "never wider than the form cap");
         }
 
-        // Reservation arithmetic: the navigation height plus the dock.
+        // Reservation arithmetic: the in-flow bar costs nothing, the overlaid
+        // dock costs its whole band above the bar.
         assert_eq!(
             obstruction_reservation(34., 0.),
-            reserved_height(34.) + SCROLL_END_GAP
+            SCROLL_END_GAP,
+            "no dock: the bar is in flow, only the scroll-end gap is reserved"
         );
         assert_eq!(
             obstruction_reservation(34., 56.),
             reserved_height(34.) + 56. + SCROLL_END_GAP,
-            "the dock adds its measured height"
+            "the dock adds its measured height above the bar's own band"
         );
     }
 
@@ -2050,9 +2061,9 @@ mod tests {
         assert_eq!(compact_frame(&pushed).heading, None);
     }
 
-    /// The compact column owns one bottom inset (REQ-UI-03/15): the navigation
-    /// height plus the 8 px scroll-end gap, once, and no screen adds a second
-    /// inset of its own. With no dock the reservation has no dock term.
+    /// The compact column owns one bottom inset (REQ-UI-03/15): the 8 px
+    /// scroll-end gap while no dock paints, once, and no screen adds a second
+    /// inset of its own. The in-flow bar is not part of it.
     /// @req REQ-UI-03 @req REQ-UI-15
     #[test]
     fn compact_shell_owns_the_only_bottom_inset() {
@@ -2073,8 +2084,8 @@ mod tests {
             );
             assert_eq!(
                 compact_content_bottom(&plan),
-                reserved_height(0.) + SCROLL_END_GAP,
-                "navigation height plus 8 px at {width}"
+                SCROLL_END_GAP,
+                "the 8 px scroll-end gap alone at {width}, the bar is in flow"
             );
             assert_ne!(plan.reservation, 100., "no blind 100 px padding");
             for top in [

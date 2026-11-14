@@ -53,6 +53,103 @@ pub fn mobile_segment_rule(selected: bool, theme: &AppTheme) -> (f32, Hsla) {
     (SELECTION_RULE, ink)
 }
 
+/// One option activation in a contained segment control.
+pub type SegmentOptionHandler<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
+
+/// One segment: flex-1 and the action-height target, body Semibold label, the
+/// 3 px selected rule reserved in both states, and the readable secondary
+/// projection for the inactive one.
+fn segment_option<T: Copy + PartialEq + 'static>(
+    id: &'static str,
+    label: String,
+    active: T,
+    value: T,
+    on_select: SegmentOptionHandler<T>,
+    theme: &AppTheme,
+) -> Stateful<Div> {
+    let selected = value == active;
+    let (rule, rule_ink) = mobile_segment_rule(selected, theme);
+    div()
+        .id(SharedString::from(id))
+        .flex_1()
+        .h(px(mobile_segment_height(theme)))
+        .flex()
+        .flex_col()
+        .cursor_pointer()
+        .on_click(move |_, window, cx| on_select(value, window, cx))
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .px(px(theme.scale.space_2))
+                .child(
+                    div()
+                        .min_w(px(0.))
+                        .text_size(px(theme.scale.body))
+                        .line_height(px(theme.scale.body_line))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_center()
+                        .text_color(if selected {
+                            theme.text_primary
+                        } else {
+                            theme.text_secondary
+                        })
+                        .child(label),
+                ),
+        )
+        .child(
+            div()
+                .h(px(rule))
+                .mx(px(mobile_segment_rule_inset(theme)))
+                .rounded(px(rule / 2.))
+                .bg(rule_ink),
+        )
+}
+
+/// One contained equal-width segment control: the selected-state language the
+/// Bestellungen tabs establish (reserved accent rule, semibold label, readable
+/// secondary ink), reusable for any small option set.
+/// @req REQ-SCR-02 @req REQ-UI-15
+pub fn segment_options<T: Copy + PartialEq + 'static>(
+    options: impl IntoIterator<Item = (&'static str, String, T)>,
+    active: T,
+    on_select: SegmentOptionHandler<T>,
+    theme: &AppTheme,
+) -> Div {
+    let mut control = div()
+        .flex()
+        .w_full()
+        .rounded(px(MOBILE_SEGMENT_RADIUS))
+        .border(px(MOBILE_SEGMENT_BORDER))
+        .border_color(theme.border)
+        .bg(theme.surface)
+        .overflow_hidden();
+    for (id, label, value) in options {
+        control = control.child(segment_option(
+            id,
+            label,
+            active,
+            value,
+            on_select.clone(),
+            theme,
+        ));
+    }
+    control
+}
+
+/// One segment's visible label: the word alone while the list is empty, its
+/// count only when there is something to count ("Kommende" instead of a
+/// "Kommende (0)" that reads like a value).
+pub fn segment_label(word: &str, count: usize) -> String {
+    if count == 0 {
+        word.to_string()
+    } else {
+        format!("{word} ({count})")
+    }
+}
+
 /// Render the two compact segments with their counts and a select callback
 /// (task 1.4): two equal min-48 targets, body Semibold labels whose counts wrap
 /// instead of truncating, the 3 px selected rule reserved in both states, and
@@ -65,66 +162,23 @@ pub fn segment_tabs(
     on_select: SegmentHandler,
     theme: &AppTheme,
 ) -> Div {
-    let border = theme.border;
-    let fill = theme.surface;
-    let inactive_ink = theme.text_secondary;
-
-    let tab = |segment: Segment, label: String| {
-        let selected = segment == active;
-        let action = on_select.clone();
-        let (rule, rule_ink) = mobile_segment_rule(selected, theme);
-        div()
-            .id(SharedString::from(match segment {
-                Segment::Upcoming => "orders-tab-upcoming",
-                Segment::Past => "orders-tab-past",
-            }))
-            .flex_1()
-            .h(px(mobile_segment_height(theme)))
-            .flex()
-            .flex_col()
-            .cursor_pointer()
-            .on_click(move |_, window, cx| action(segment, window, cx))
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .px(px(theme.scale.space_2))
-                    .child(
-                        div()
-                            .min_w(px(0.))
-                            .text_size(px(theme.scale.body))
-                            .line_height(px(theme.scale.body_line))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_center()
-                            .text_color(if selected {
-                                theme.text_primary
-                            } else {
-                                inactive_ink
-                            })
-                            .child(label),
-                    ),
-            )
-            .child(
-                div()
-                    .h(px(rule))
-                    .mx(px(mobile_segment_rule_inset(theme)))
-                    .rounded(px(rule / 2.))
-                    .bg(rule_ink),
-            )
-    };
-
-    div()
-        .flex()
-        .w_full()
-        .rounded(px(MOBILE_SEGMENT_RADIUS))
-        .border(px(MOBILE_SEGMENT_BORDER))
-        .border_color(border)
-        .bg(fill)
-        .overflow_hidden()
-        .child(tab(Segment::Upcoming, format!("Kommende ({upcoming})")))
-        .child(tab(Segment::Past, format!("Vergangene ({past})")))
+    segment_options(
+        [
+            (
+                "orders-tab-upcoming",
+                segment_label("Kommende", upcoming),
+                Segment::Upcoming,
+            ),
+            (
+                "orders-tab-past",
+                segment_label("Vergangene", past),
+                Segment::Past,
+            ),
+        ],
+        active,
+        on_select,
+        theme,
+    )
 }
 
 /// Left/Right on the focused segment group: move to the neighbouring segment
@@ -196,8 +250,8 @@ pub fn desktop_segment_toolbar(
         .gap(px(theme.scale.space_2))
         .px(px(theme.scale.space_4))
         .py(px(theme.scale.space_2))
-        .child(tab(Segment::Upcoming, format!("Kommende ({upcoming})")))
-        .child(tab(Segment::Past, format!("Vergangene ({past})")));
+        .child(tab(Segment::Upcoming, segment_label("Kommende", upcoming)))
+        .child(tab(Segment::Past, segment_label("Vergangene", past)));
     // The two segments are one option group with one tab stop: Left/Right move
     // to the neighbouring option and select it immediately, without wrapping
     // (brief keyboard map). Only the group's own focus acts, so a focused
