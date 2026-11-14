@@ -276,14 +276,18 @@ pub fn notifications_screen(
                     .text_color(theme.text_secondary)
                     .child("Firmenstandort gesetzt"),
             )
-            .child(mobile_action_action(
-                "location-remove",
-                "Standort entfernen",
-                danger,
-                theme,
-                cx,
-                move |_, window, cx| remove(window, cx),
-            ))
+            .child(
+                mobile_action_action(
+                    "location-remove",
+                    "Standort entfernen",
+                    danger,
+                    theme,
+                    cx,
+                    move |_, window, cx| remove(window, cx),
+                )
+                .w_full()
+                .justify_center(),
+            )
     } else {
         let shell = cx.entity().clone();
         let model = model.clone();
@@ -313,7 +317,7 @@ pub fn notifications_screen(
         };
         // The hint above already says what the button does; a second caption
         // under it only repeated the label in different words.
-        div().child(button.w_full())
+        div().child(button.w_full().justify_center())
     };
 
     // Section 3: notification log.
@@ -364,14 +368,18 @@ pub fn notifications_screen(
                     .text_color(theme.text_secondary)
                     .child(state.log_status.clone()),
             )
-            .child(mobile_action_action(
-                "log-send",
-                "Log per E-Mail senden",
-                action_kind(NotificationAction::SendLog),
-                theme,
-                cx,
-                move |_, window, cx| send(window, cx),
-            ))
+            .child(
+                mobile_action_action(
+                    "log-send",
+                    "Log per E-Mail senden",
+                    action_kind(NotificationAction::SendLog),
+                    theme,
+                    cx,
+                    move |_, window, cx| send(window, cx),
+                )
+                .w_full()
+                .justify_center(),
+            )
             .child(
                 div()
                     .id("log-discard")
