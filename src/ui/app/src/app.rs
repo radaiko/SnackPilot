@@ -501,6 +501,61 @@ pub(crate) fn compact_shell_plan(
     }
 }
 
+/// The launch mark's minimum stay: shorter and it reads as a flicker instead of
+/// a start.
+const LAUNCH_MIN: Duration = Duration::from_millis(500);
+/// Past this the mark gives way even if the launch order is still waiting on
+/// the network, so a dead connection cannot hold the surface hostage.
+const LAUNCH_MAX: Duration = Duration::from_secs(6);
+
+/// Whether the launch mark still covers the shell: from the first frame for at
+/// least [`LAUNCH_MIN`], and until the launch order settles (cached snapshots,
+/// restored sessions) or [`LAUNCH_MAX`] passes.
+fn launch_visible(elapsed: Duration, settled: bool) -> bool {
+    elapsed < LAUNCH_MIN || (!settled && elapsed < LAUNCH_MAX)
+}
+
+/// The start mark: the product's own surface from the first frame — brand mark,
+/// wordmark and one spinner on the theme background — instead of the empty
+/// credential gate, then an empty list, then the menus.
+fn launch_screen(theme: &AppTheme) -> Div {
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(px(theme.scale.space_4))
+        .bg(theme.background)
+        .child(
+            div()
+                .w(px(72.))
+                .h(px(72.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(theme.scale.radius_card))
+                .bg(theme.accent_surface)
+                .child(
+                    Icon::new(IconName::Utensils)
+                        .with_size(px(36.))
+                        .text_color(theme.accent),
+                ),
+        )
+        .child(
+            div()
+                .text_size(px(theme.scale.title))
+                .line_height(px(theme.scale.title_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.text_primary)
+                .child("SnackPilot"),
+        )
+        .child(crate::components::spinner::spinner(
+            theme.text_secondary,
+            20.,
+        ))
+}
+
 /// The compact shell heading row: title role (28/34 semibold), 16 px
 /// gutters, wrapping rather than ellipsizing, and the tab's one refresh action
 /// at the trailing edge.
@@ -623,6 +678,11 @@ pub struct AppShell {
     /// and caret) read the kit global — left on Light, an entered credential
     /// was drawn near-black on the dark surface.
     kit_dark: Option<bool>,
+    /// When this shell mounted: the launch mark covers the first frame and the
+    /// launch order, so no empty credential gate or empty list is shown.
+    launch_started: Instant,
+    /// The one-shot repaint that ends the launch mark's minimum stay.
+    launch_timer: bool,
     /// Window activation watcher: a false→true transition is a foreground
     /// return and drives `AppModel::on_foreground` on every host (5.7).
     was_active: bool,
@@ -738,6 +798,8 @@ impl AppShell {
             login_pass: None,
             login_attempted: false,
             kit_dark: None,
+            launch_started: Instant::now(),
+            launch_timer: false,
             was_active: true,
             seen_frame: false,
             pending_detail: None,
@@ -1548,6 +1610,21 @@ impl Render for AppShell {
             self.kit_dark = Some(dark);
         }
         let theme = AppTheme::resolve(state.theme, os_dark);
+        // Startup presentation: the launch mark owns the first frames, so the
+        // shell never paints its empty credential gate and empty list on the
+        // way to the cached data.
+        if launch_visible(self.launch_started.elapsed(), state.launch_settled) {
+            crate::set_animating(true);
+            if !self.launch_timer {
+                self.launch_timer = true;
+                cx.spawn(async move |this: WeakEntity<AppShell>, cx: &mut AsyncApp| {
+                    cx.background_executor().timer(LAUNCH_MIN).await;
+                    let _ = this.update(cx, |_, cx| cx.notify());
+                })
+                .detach();
+            }
+            return launch_screen(&theme);
+        }
         let (safe_top, safe_bottom, _, _) = safe_area();
         // The iOS host only repaints every tick while something animates; a
         // spinner or a dialog has to keep it doing so.
@@ -1910,11 +1987,11 @@ mod tests {
     use super::{
         cached_menu_refresh, compact_content_bottom, compact_frame, compact_shell_plan,
         desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
-        focus_restore, keyboard_action, menu_row_action, model_settings_detail, navigation_top,
-        nearest_restore_cursor, obstruction_reservation, order_cancel_state, order_row_effect,
-        refresh_intent, safe_area, shell_heading, should_create_inputs, Detail, FocusRestore,
-        MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, HEADING_GAP,
-        HEADING_TOP, SCROLL_END_GAP,
+        focus_restore, keyboard_action, launch_visible, menu_row_action, model_settings_detail,
+        navigation_top, nearest_restore_cursor, obstruction_reservation, order_cancel_state,
+        order_row_effect, refresh_intent, safe_area, shell_heading, should_create_inputs, Detail,
+        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
+        HEADING_GAP, HEADING_TOP, LAUNCH_MAX, LAUNCH_MIN, SCROLL_END_GAP,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
     use crate::components::tab_bar::reserved_height;
@@ -1923,6 +2000,7 @@ mod tests {
     use snackpilot_model::navigation::{ListKind, Screen, SettingsDetail, Tab};
     use snackpilot_model::{AppModel, FakePlatform};
     use std::sync::Arc;
+    use std::time::Duration;
 
     use crate::screens::orders::{
         desktop_cancel_basis, desktop_cancel_dispatch, desktop_cancel_selected_dispatch,
@@ -3072,6 +3150,29 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// The launch mark covers the empty states on the way to data, and still
+    /// gives way when the launch order never settles.
+    #[test]
+    fn launch_mark_covers_the_first_frames_only() {
+        assert!(
+            launch_visible(Duration::ZERO, false),
+            "the first frame is never the empty gate"
+        );
+        assert!(
+            launch_visible(LAUNCH_MIN / 2, true),
+            "a fast launch still gets its start mark"
+        );
+        assert!(!launch_visible(LAUNCH_MIN, true), "settled ends the mark");
+        assert!(
+            launch_visible(LAUNCH_MIN + Duration::from_secs(1), false),
+            "an unsettled launch keeps the mark while it waits"
+        );
+        assert!(
+            !launch_visible(LAUNCH_MAX, false),
+            "a dead network must not hold the surface back"
+        );
     }
 }
 

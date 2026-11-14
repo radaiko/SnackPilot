@@ -267,6 +267,12 @@ impl AppModel {
         //    saved-credentials session refresh.
         let _ = self.attempt_auto_login();
         self.refresh_diagnostic_log();
+
+        // Last: the shell's start mark gives way to the real surface. Every
+        // step above is one the shell would otherwise render as an empty
+        // credential gate or an empty list.
+        self.hub
+            .update("launch_settled", |s| s.launch_settled = true);
     }
 
     /// Fetch the operator broadcast and re-arm the banner. The evidence

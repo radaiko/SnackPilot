@@ -103,6 +103,9 @@ pub struct ReminderTime {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct State {
     pub busy: bool,
+    /// The launch order has finished: the cached snapshots and the restored
+    /// sessions are in. The shell's start mark stays up until then.
+    pub launch_settled: bool,
     pub error_text: Option<ErrorText>,
     pub demo_mode: bool,
     pub user_info: Option<snackpilot_core::domain::GourmetUserInfo>,
