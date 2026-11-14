@@ -116,7 +116,7 @@ pub fn menus_tab(
     // The swipe surface takes only the height left under the day navigator;
     // a size_full child there pushed the list under the shell's bottom edge and
     // clipped the last row. A drag from the top of the list reloads the menus.
-    let on_refresh = crate::app::refresh_handler(Tab::Menus, model, state.host_kind);
+    let on_refresh = crate::app::refresh_handler(Tab::Menus, model, state.host_kind, cx);
     let gesture = crate::app::pull_handlers(scroll.clone(), state.host_kind, on_refresh, cx);
     column = column.child(pull_refresh(
         "menus-pull",

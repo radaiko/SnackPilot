@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use snackpilot_core::domain::Credentials;
+use snackpilot_core::error::CoreError;
 use snackpilot_core::ffi::{CoreConfig, SnackPilotCore};
 use snackpilot_core::notify::NotificationCommand;
 use snackpilot_core::storage::FileKv;
@@ -27,6 +28,10 @@ pub struct AppModel {
     /// (theme/accent/reminder) and lets the diagnostics view read core's keys.
     pub(crate) kv: FileKv,
     last_notifications: Mutex<Vec<NotificationCommand>>,
+    /// Set while a stale session is being restored, so the login it triggers
+    /// (which reloads the session and orders) cannot recurse back into another
+    /// restore.
+    restoring_session: std::sync::atomic::AtomicBool,
 }
 
 impl AppModel {
@@ -47,6 +52,7 @@ impl AppModel {
             hub: Arc::new(StateHub::new()),
             kv: FileKv::new(storage_dir),
             last_notifications: Mutex::new(Vec::new()),
+            restoring_session: std::sync::atomic::AtomicBool::new(false),
         };
         // Swift init parity: restore preferences, reminder settings, the saved
         // company location and the log view state at startup. None of these
@@ -342,9 +348,20 @@ impl AppModel {
             s.launch_stage = crate::state::LaunchStage::Loading
         });
         // force = false: cache first (Swift loadSession :301).
-        match self.core.fetch_menus(false).await {
+        let mut fetched = self.core.fetch_menus(false).await;
+        if matches!(fetched, Err(CoreError::SessionExpired))
+            && self.restore_expired_session("menus").await
+        {
+            fetched = self.core.fetch_menus(false).await;
+        }
+        match fetched {
             Ok(snap) => {
-                self.hub.update("menus", |s| s.menu_snapshot = Some(snap));
+                self.hub.update("menus", |s| {
+                    s.menu_snapshot = Some(snap);
+                    // A restored session clears the banner of the attempt that
+                    // found it expired.
+                    s.error_text = None;
+                });
                 self.sync_selected_day();
             }
             Err(e) => self.hub.update("menus_failed", |s| {
@@ -371,13 +388,48 @@ impl AppModel {
         let _ = handle().block_on(self.load_orders());
     }
 
+    /// A store that answers with its own login page means the session is gone,
+    /// not that the request failed: a login elsewhere (or a reinstall) rotates
+    /// the cookie. One automatic re-login from the saved credentials restores
+    /// it, so a stale cookie does not leave the user on an error banner.
+    async fn restore_expired_session(&self, what: &str) -> bool {
+        if self
+            .restoring_session
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return false;
+        }
+        log(
+            "session",
+            &format!("{what}: expired, restoring from saved credentials"),
+        );
+        // Boxed: the restore runs the login, which reloads the session, which
+        // loads the orders that may ask for a restore again.
+        let result = Box::pin(self.attempt_auto_login_async()).await;
+        self.restoring_session
+            .store(false, std::sync::atomic::Ordering::Release);
+        match result {
+            Ok(()) => self.state().gourmet_authenticated,
+            Err(e) => {
+                log("session", &format!("{what}: restore failed: {e}"));
+                false
+            }
+        }
+    }
+
     /// Swift `loadOrders` (AppModel.swift:350): fetch orders — which returns
     /// the post-fetch notification decisions — then publish the split and
     /// deliver the commands. The split is published even when the bridge
     /// fails; the failure surfaces as a typed error instead of leaving the
     /// flow stuck (REQ-PLT-06).
     pub(crate) async fn load_orders(&self) -> Result<(), PlatformError> {
-        let commands = match self.core.fetch_orders().await {
+        let mut fetched = self.core.fetch_orders().await;
+        if matches!(fetched, Err(CoreError::SessionExpired))
+            && self.restore_expired_session("orders").await
+        {
+            fetched = self.core.fetch_orders().await;
+        }
+        let commands = match fetched {
             Ok(commands) => commands,
             Err(e) => {
                 log("orders", &human_error(&e));

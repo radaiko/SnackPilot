@@ -493,6 +493,10 @@ pub(crate) fn compact_shell_plan(
 /// The launch mark's minimum stay: shorter and it reads as a flicker instead of
 /// a start.
 const LAUNCH_MIN: Duration = Duration::from_millis(500);
+/// The shortest interval between two pulls of the same screen: long enough to
+/// swallow a double gesture, short enough for a deliberate second try.
+const REFRESH_DEBOUNCE: Duration = Duration::from_millis(1500);
+
 /// Past this the mark gives way even if the launch order is still waiting on
 /// the network, so a dead connection cannot hold the surface hostage.
 const LAUNCH_MAX: Duration = Duration::from_secs(6);
@@ -586,13 +590,30 @@ pub(crate) fn refresh_handler(
     tab: Tab,
     model: Option<&Arc<AppModel>>,
     host: HostKind,
+    cx: &mut Context<AppShell>,
 ) -> ClickHandler {
     let model = model.cloned();
     let intent = refresh_intent(tab);
+    let shell = cx.entity().clone();
     Rc::new(move |_window: &mut Window, cx: &mut App| {
         let (Some(model), Some(intent)) = (&model, intent) else {
             return;
         };
+        // A pull that lands right after another one repeats the same request;
+        // the store has nothing new to say and does not like being asked.
+        let allowed = shell.update(cx, |s, _| {
+            let recent = s
+                .last_refresh
+                .is_some_and(|at| at.elapsed() < REFRESH_DEBOUNCE);
+            if !recent {
+                s.last_refresh = Some(Instant::now());
+            }
+            !recent
+        });
+        if !allowed {
+            log::info!("refresh: {intent:?} ignored, just refreshed");
+            return;
+        }
         // One refresh per tab at a time: a second pull while the first is in
         // flight would stack requests against the store for no new data.
         let state = model.state();
@@ -685,6 +706,9 @@ pub struct AppShell {
     pub(crate) swipe_dx: f32,
     /// Pull-to-refresh drag: the live distance past the top of a list.
     pub(crate) pull_dy: f32,
+    /// When the last refresh was dispatched, so a second pull cannot hammer the
+    /// store with requests that would only repeat the first.
+    pub(crate) last_refresh: Option<Instant>,
     /// One handle per scrollable tab list, kept here so the pull gesture can
     /// ask the list whether it is at its top.
     pub(crate) menus_scroll: ScrollHandle,
@@ -819,6 +843,7 @@ impl AppShell {
             swipe_claimed: false,
             swipe_dx: 0.,
             pull_dy: 0.,
+            last_refresh: None,
             menus_scroll: ScrollHandle::new(),
             orders_scroll: ScrollHandle::new(),
             billing_scroll: ScrollHandle::new(),
@@ -1609,7 +1634,15 @@ impl Render for AppShell {
             self.open_detail(detail, window, cx);
         }
         let active = window.is_window_active();
-        if self.seen_frame && active && !self.was_active {
+        // The foreground refresh waits for the launch order: on a cold start it
+        // used to fire while `bootstrap_deferred` was still logging in, so two
+        // requests raced on one cookie jar and the older one surfaced the
+        // store's own login page as "Session expired".
+        let launched = self
+            .model
+            .as_ref()
+            .is_none_or(|model| model.state().launch_settled);
+        if self.seen_frame && active && !self.was_active && launched {
             if let Some(model) = self.model.as_ref() {
                 // Host-gated dispatch (task 1.5): the foreground refresh blocks
                 // on the model's runtime, so a desktop host, narrow windows
