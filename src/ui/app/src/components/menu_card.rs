@@ -30,7 +30,7 @@ pub struct MenuCardState {
 /// The dish a compact row presents: the required dish `subtitle`, falling
 /// back to the title only when the subtitle is empty (sample M2). The category
 /// stays the quiet group label, so the row never repeats `MENÜ I`.
-pub fn mobile_dish(item: &MenuItem) -> String {
+pub fn dish_label(item: &MenuItem) -> String {
     if item.subtitle.trim().is_empty() {
         item.title.clone()
     } else {
@@ -239,7 +239,7 @@ pub fn menu_card(
         .line_height(px(m.body_line))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme.text_primary)
-        .child(mobile_dish(item));
+        .child(dish_label(item));
     let dish_text = if treatment.struck() {
         dish_text.line_through()
     } else {
@@ -300,7 +300,7 @@ pub fn menu_card(
 #[cfg(test)]
 mod tests {
     use super::{
-        mobile_allergens, mobile_card_treatment, mobile_dish, mobile_menu_status,
+        dish_label, mobile_allergens, mobile_card_treatment, mobile_menu_status,
         mobile_menu_tappable, mobile_meta_slots, mobile_status_tones, MenuCardState, MenuStatus,
         MobileCardTreatment, MobileMetaSlot, MOBILE_CHECK, MOBILE_CHIP_HEIGHT,
     };
@@ -341,13 +341,13 @@ mod tests {
     fn mobile_menu_uses_subtitle_and_empty_fallback() {
         let dish = "Rindsgulasch mit Serviettenknödel, Rahmsauce und Blattsalat mit Kürbiskörnern";
         let full = item("MENÜ I", dish);
-        assert_eq!(mobile_dish(&full), dish, "the row shows the actual dish");
-        assert_ne!(mobile_dish(&full), "MENÜ I", "the category is not the dish");
+        assert_eq!(dish_label(&full), dish, "the row shows the actual dish");
+        assert_ne!(dish_label(&full), "MENÜ I", "the category is not the dish");
 
         for subtitle in ["", "   "] {
             let empty = item("MENÜ II", subtitle);
             assert_eq!(
-                mobile_dish(&empty),
+                dish_label(&empty),
                 "MENÜ II",
                 "an empty subtitle falls back to the title, never a blank row"
             );

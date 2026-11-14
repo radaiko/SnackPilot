@@ -808,8 +808,9 @@ fn desktop_empty_master(theme: &AppTheme) -> AnyElement {
     state_message(fact, hint, theme)
 }
 
-/// The menu row's primary cell: the dish title in `BODY`, struck while its
-/// cancellation is pending. Ink is inherited from the row, so the selected
+/// The menu row's primary cell: the dish in `BODY`, struck while its
+/// cancellation is pending. The category is the group heading above, so the
+/// row never repeats it. Ink is inherited from the row, so the selected
 /// row paints it in the accent.
 fn menu_primary_cell(item: &MenuItem, state: DesktopMenuRowState, theme: &AppTheme) -> AnyElement {
     let title = div()
@@ -820,7 +821,7 @@ fn menu_primary_cell(item: &MenuItem, state: DesktopMenuRowState, theme: &AppThe
         .font_weight(FontWeight::SEMIBOLD)
         .text_ellipsis()
         .whitespace_nowrap()
-        .child(item.title.clone());
+        .child(crate::components::menu_card::dish_label(item));
     let title = if state.pending_cancel {
         title.line_through()
     } else {
@@ -904,13 +905,6 @@ pub(crate) fn desktop_menu_detail(
                 .text_size(px(theme.scale.headline))
                 .line_height(px(theme.scale.headline_line))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_primary)
-                .child(item.title.clone()),
-        )
-        .child(
-            div()
-                .text_size(px(theme.scale.body))
-                .line_height(px(theme.scale.body_line))
                 .text_color(theme.text_primary)
                 .child(dish),
         );
