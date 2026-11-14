@@ -705,6 +705,12 @@ pub struct AppShell {
     pub(crate) mutation_gate: MutationGate,
     /// Transient swipe-between-days gesture state (§3.1): pointer origin and
     /// the current (damped) horizontal offset.
+    /// While the day strip is dragged sideways: the pointer's start x and the
+    /// scroll offset it started from.
+    pub(crate) strip_drag: Option<(f32, f32)>,
+    /// Set once a drag has moved far enough to be a scroll, so the release is
+    /// not also read as a tap on a day.
+    pub(crate) strip_dragged: bool,
     pub(crate) swipe_start: Option<f32>,
     pub(crate) swipe_start_y: Option<f32>,
     pub(crate) swipe_claimed: bool,
@@ -846,6 +852,8 @@ impl AppShell {
             toast: None,
             model,
             mutation_gate: MutationGate::default(),
+            strip_drag: None,
+            strip_dragged: false,
             swipe_start: None,
             swipe_start_y: None,
             swipe_claimed: false,
@@ -1583,6 +1591,7 @@ impl AppShell {
                         self.swipe_dx,
                         &self.menus_scroll,
                         &self.menus_days_scroll,
+                        self.strip_drag.is_some(),
                         self.pull_dy,
                         cx,
                     ),

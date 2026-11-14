@@ -153,6 +153,7 @@ pub fn mobile_day_strip(
     selected: Option<&str>,
     today: &str,
     scroll: &ScrollHandle,
+    keep_in_view: bool,
     theme: &AppTheme,
     on_select: DaySelectHandler,
 ) -> AnyElement {
@@ -240,8 +241,10 @@ pub fn mobile_day_strip(
 
     // Keep the day in view: the handle only moves when that chip is out of
     // the visible part, so an untouched strip never jumps.
-    if let Some(index) = selected.and_then(|sel| dates.iter().position(|day| day == sel)) {
-        scroll.scroll_to_item(index);
+    if keep_in_view {
+        if let Some(index) = selected.and_then(|sel| dates.iter().position(|day| day == sel)) {
+            scroll.scroll_to_item(index);
+        }
     }
 
     strip.into_any_element()
@@ -316,6 +319,7 @@ mod tests {
             Some("2026-11-18"),
             "2026-11-16",
             &gpui::ScrollHandle::new(),
+            true,
             &theme,
             handler,
         );
