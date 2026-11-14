@@ -143,6 +143,15 @@ pub struct Recipe {
     pub border: Option<(Pixels, Hsla)>,
 }
 
+/// Whether a preference resolves to the dark appearance, given the OS one.
+pub fn prefers_dark(preference: ThemePreference, os_dark: bool) -> bool {
+    match preference {
+        ThemePreference::System => os_dark,
+        ThemePreference::Light => false,
+        ThemePreference::Dark => true,
+    }
+}
+
 /// Every token resolved for one appearance.
 #[derive(Debug, Clone)]
 pub struct AppTheme {
@@ -183,12 +192,7 @@ impl AppTheme {
     /// Resolve a preference against the OS appearance: `System` follows
     /// `os_dark`, `Hell`/`Dunkel` force their scheme.
     pub fn resolve(preference: ThemePreference, os_dark: bool) -> Self {
-        let dark = match preference {
-            ThemePreference::System => os_dark,
-            ThemePreference::Light => false,
-            ThemePreference::Dark => true,
-        };
-        Self::build(dark)
+        Self::build(prefers_dark(preference, os_dark))
     }
 
     /// Build one appearance directly (the gallery shows both side by side).

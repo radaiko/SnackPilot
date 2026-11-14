@@ -13,9 +13,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui::*;
+use gpui_kit::assets::IconName;
 use gpui_kit::component::input::InputState;
 #[cfg(target_os = "ios")]
 use gpui_kit::component::WindowExt;
+use gpui_kit::component::{Icon, Sizable, Theme, ThemeMode};
 use snackpilot_model::desktop::{HostKind, LayoutMode};
 use snackpilot_model::navigation::{
     ListKind, Navigation, Screen, SettingsDetail as ModelSettingsDetail, Tab,
@@ -500,20 +502,91 @@ pub(crate) fn compact_shell_plan(
 }
 
 /// The compact shell heading row: title role (28/34 semibold), 16 px
-/// gutters, wrapping rather than ellipsizing.
-fn shell_heading_row(title: &'static str, theme: &AppTheme) -> Div {
-    div()
+/// gutters, wrapping rather than ellipsizing, and the tab's one refresh action
+/// at the trailing edge.
+fn shell_heading_row(title: &'static str, action: Option<AnyElement>, theme: &AppTheme) -> Div {
+    let mut row = div()
         .w_full()
         .pt(px(HEADING_TOP))
         .pb(px(HEADING_GAP))
+        .flex()
+        .items_center()
+        .justify_between()
         .child(
             div()
+                .flex_1()
                 .text_size(px(theme.scale.title))
                 .line_height(px(theme.scale.title_line))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text_primary)
                 .child(title),
-        )
+        );
+    if let Some(action) = action {
+        row = row.child(action);
+    }
+    row
+}
+
+/// The compact heading's refresh action: a 44 px ghost button that runs the
+/// active tab's refresh, or a 20 px spinner while that tab is loading. Pulling
+/// a list is not the only way to reload it — a visible control is what a device
+/// user reaches for, and the cached tabs keep their content while it runs.
+fn compact_refresh_action(
+    tab: Tab,
+    state: &State,
+    model: Option<&Arc<AppModel>>,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) -> Option<AnyElement> {
+    let intent = refresh_intent(tab)?;
+    let model = Arc::clone(model?);
+    let busy = match intent {
+        RefreshIntent::Menus => state
+            .menu_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.refreshing),
+        RefreshIntent::Orders => state.busy,
+        RefreshIntent::Billing => state.billing_loading,
+    };
+    if busy {
+        return Some(
+            div()
+                .w(px(snackpilot_model::tokens::TARGET))
+                .h(px(snackpilot_model::tokens::TARGET))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(crate::components::spinner::spinner(
+                    theme.text_tertiary,
+                    20.,
+                ))
+                .into_any_element(),
+        );
+    }
+    let host = state.host_kind;
+    Some(
+        div()
+            .id("compact-refresh")
+            .w(px(snackpilot_model::tokens::TARGET))
+            .h(px(snackpilot_model::tokens::TARGET))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(snackpilot_model::tokens::RADIUS_CHIP))
+            .cursor_pointer()
+            .tab_index(0)
+            .hover(move |s| s.bg(theme.hover(theme.surface)))
+            .focus(crate::theme::desktop_focus(theme.accent))
+            .aria_label("Aktualisieren")
+            .accessibility_id("compact-refresh")
+            .on_click(move |_, window, cx| dispatch_refresh(&model, intent, host, cx))
+            .child(
+                Icon::new(IconName::RefreshCw)
+                    .with_size(px(theme.scale.icon))
+                    .text_color(theme.text_secondary),
+            )
+            .into_any_element(),
+    )
 }
 
 /// The single root view: four tabs, one push/pop stack, dialogs, loading
@@ -545,6 +618,11 @@ pub struct AppShell {
     /// A credential save found an empty field: the form shows its inline
     /// errors until the next entry or a save that runs (REQ-SCR-05).
     pub(crate) login_attempted: bool,
+    /// The kit theme last applied (light/dark). The app's own tokens switch
+    /// per render, but gpui-kit's components (text inputs, their placeholder
+    /// and caret) read the kit global — left on Light, an entered credential
+    /// was drawn near-black on the dark surface.
+    kit_dark: Option<bool>,
     /// Window activation watcher: a false→true transition is a foreground
     /// return and drives `AppModel::on_foreground` on every host (5.7).
     was_active: bool,
@@ -659,6 +737,7 @@ impl AppShell {
             login_user: None,
             login_pass: None,
             login_attempted: false,
+            kit_dark: None,
             was_active: true,
             seen_frame: false,
             pending_detail: None,
@@ -1455,6 +1534,19 @@ impl Render for AppShell {
             window.appearance(),
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         );
+        let dark = crate::theme::prefers_dark(state.theme, os_dark);
+        if self.kit_dark != Some(dark) {
+            Theme::change(
+                if dark {
+                    ThemeMode::Dark
+                } else {
+                    ThemeMode::Light
+                },
+                Some(window),
+                cx,
+            );
+            self.kit_dark = Some(dark);
+        }
         let theme = AppTheme::resolve(state.theme, os_dark);
         let (safe_top, safe_bottom, _, _) = safe_area();
         // Host-gated layout (task 1.2, REQ-UI-07): only a Desktop host past
@@ -1698,7 +1790,9 @@ impl Render for AppShell {
                 .flex_col()
                 .min_h(px(0.));
             if let Some(heading) = plan.heading {
-                column = column.child(shell_heading_row(heading, &theme));
+                let action =
+                    compact_refresh_action(plan.active, &state, self.model.as_ref(), &theme, cx);
+                column = column.child(shell_heading_row(heading, action, &theme));
             }
             if let Some(banner) = banner {
                 column = column.child(banner);

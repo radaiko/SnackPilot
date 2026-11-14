@@ -79,8 +79,13 @@ targets:
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um dich an Bestellungen zu erinnern, wenn du im Büro bist."
         # Link the Rust staticlib built by bootstrap.sh (cargo rustc --crate-type=staticlib).
         # Explicit .a path so the linker cannot pick up a dylib from the same directory.
-        "APP_STATIC_LIB[sdk=iphonesimulator*]": "$(PROJECT_DIR)/../target/aarch64-apple-ios-sim/debug/libsnackpilot_app.a"
-        "APP_STATIC_LIB[sdk=iphoneos*]": "$(PROJECT_DIR)/../target/aarch64-apple-ios/debug/libsnackpilot_app.a"
+        # The Release configuration links the optimised library
+        # (`RUST_IOS_PROFILE=release` in bootstrap.sh); Debug keeps the fast
+        # compile. A device test build should use Release for both.
+        "APP_STATIC_LIB[sdk=iphonesimulator*][config=Debug]": "$(PROJECT_DIR)/../target/aarch64-apple-ios-sim/debug/libsnackpilot_app.a"
+        "APP_STATIC_LIB[sdk=iphoneos*][config=Debug]": "$(PROJECT_DIR)/../target/aarch64-apple-ios/debug/libsnackpilot_app.a"
+        "APP_STATIC_LIB[sdk=iphonesimulator*][config=Release]": "$(PROJECT_DIR)/../target/aarch64-apple-ios-sim/release/libsnackpilot_app.a"
+        "APP_STATIC_LIB[sdk=iphoneos*][config=Release]": "$(PROJECT_DIR)/../target/aarch64-apple-ios/release/libsnackpilot_app.a"
         OTHER_LDFLAGS:
           - "-force_load"
           - "$(APP_STATIC_LIB)"

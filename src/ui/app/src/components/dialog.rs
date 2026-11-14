@@ -257,6 +257,9 @@ fn dialog_button(
         .items_center()
         .justify_center()
         .py(px(10.))
+        // Without a horizontal inset the button is only as wide as its word,
+        // which turned a single "OK" into a 40 px pill.
+        .px(px(theme.scale.space_4))
         .min_h(px(recipe.action_height))
         .rounded(px(recipe.action_radius))
         .text_size(px(recipe.action_text))
