@@ -16,11 +16,16 @@ pub const PULL_PX: f32 = 60.;
 pub const PULL_MAX: f32 = 90.;
 
 /// One pull's gesture callbacks. The shell builds them because it owns the
-/// drag state (start position, pull distance, whether the list was at its top),
-/// and the list it measures is the one the screen renders.
+/// drag state (pull distance, whether the list was at its top), and the list it
+/// measures is the one the screen renders.
+///
+/// The drag itself is read from scroll deltas, not from mouse events: the iOS
+/// host defers `MouseDown` until the finger lifts, so a drag only ever delivers
+/// `MouseMove`, `ScrollWheel` and a final `MouseUp` (see gpui-mobile's touch
+/// state machine). Deltas are what a pull actually is — movement past the top
+/// of a list that cannot scroll any further.
 pub struct PullGesture {
-    pub down: Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>,
-    pub moved: Rc<dyn Fn(&MouseMoveEvent, &mut Window, &mut App)>,
+    pub scrolled: Rc<dyn Fn(&ScrollWheelEvent, &mut Window, &mut App)>,
     pub up: Rc<dyn Fn(&MouseUpEvent, &mut Window, &mut App)>,
 }
 
@@ -33,7 +38,7 @@ pub fn pull_refresh(
     gesture: PullGesture,
     theme: &crate::theme::AppTheme,
 ) -> AnyElement {
-    let PullGesture { down, moved, up } = gesture;
+    let PullGesture { scrolled, up } = gesture;
     let mut root = div()
         .id(id)
         .flex_1()
@@ -41,8 +46,7 @@ pub fn pull_refresh(
         .relative()
         .flex()
         .flex_col()
-        .on_mouse_down(MouseButton::Left, move |e, w, cx| down(e, w, cx))
-        .on_mouse_move(move |e, w, cx| moved(e, w, cx))
+        .on_scroll_wheel(move |e, w, cx| scrolled(e, w, cx))
         .on_mouse_up(MouseButton::Left, move |e, w, cx| up(e, w, cx));
     if pull > 0. {
         root = root.child(

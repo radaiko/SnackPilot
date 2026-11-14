@@ -148,7 +148,7 @@ pub fn billing_tab(
 
     // A drag from the top of the receipts reloads the month.
     let on_refresh = crate::app::refresh_handler(Tab::Billing, Some(model), state.host_kind);
-    let gesture = crate::app::pull_handlers(scroll.clone(), on_refresh, cx);
+    let gesture = crate::app::pull_handlers(scroll.clone(), state.host_kind, on_refresh, cx);
     column = column.child(pull_refresh(
         "billing-pull",
         content.into_any_element(),

@@ -569,13 +569,15 @@ fn pull_is_at_top(offset: f32) -> bool {
     offset >= -0.5
 }
 
-/// The revealed distance for a drag of `dy`: only downward, only from the top,
-/// never past what the indicator can show.
-fn pull_offset(dy: f32, at_top: bool) -> f32 {
+/// The pull distance after one delta of `dy`: a downward move from the top
+/// grows it, an upward move takes it back, and leaving the top drops it.
+fn pull_offset(dy: f32, at_top: bool, current: f32) -> f32 {
     if !at_top {
         return 0.;
     }
-    dy.max(0.).min(crate::components::pull_refresh::PULL_MAX)
+    (current + dy)
+        .max(0.)
+        .min(crate::components::pull_refresh::PULL_MAX)
 }
 
 /// A click handler that runs one tab's refresh through the shared intent
@@ -594,45 +596,30 @@ pub(crate) fn refresh_handler(
     })
 }
 
-/// The pull-to-refresh gesture for one list: it follows the finger only when
-/// the list is at its top, shows the revealed distance through the shell's
-/// `pull_dy`, and dispatches the tab's refresh on release past [`PULL_PX`].
-/// Starting anywhere but the top leaves the gesture to the list, so scrolling
-/// can never reload by accident.
+/// The pull-to-refresh gesture for one list. The drag is read from the scroll
+/// deltas the list itself receives — the iOS host never sends `MouseDown` for a
+/// drag — and only while that list sits at its top, so scrolling can never
+/// reload by accident. Releasing past [`PULL_PX`] runs the tab's refresh.
 pub(crate) fn pull_handlers(
     scroll: ScrollHandle,
+    host: HostKind,
     on_refresh: ClickHandler,
     cx: &mut Context<AppShell>,
 ) -> PullGesture {
+    // Only a finger pulls. A desktop host scrolls with a wheel, whose deltas
+    // arrive with the same shape as a touch drag, and it has its own refresh.
+    let touch = host != HostKind::Desktop;
     let shell = cx.entity().clone();
-    let scrolled = scroll.clone();
-    let down = Rc::new(move |e: &MouseDownEvent, _: &mut Window, cx: &mut App| {
-        let y = f32::from(e.position.y);
-        let at_top = pull_is_at_top(f32::from(scrolled.offset().y));
-        shell.update(cx, |s, _| {
-            s.pull_start = Some(y);
-            s.pull_at_top = at_top;
-            s.pull_dy = 0.;
-        });
-    });
-
-    let shell = cx.entity().clone();
-    let moved = Rc::new(move |e: &MouseMoveEvent, _: &mut Window, cx: &mut App| {
-        if e.pressed_button != Some(MouseButton::Left) {
+    let measured = scroll.clone();
+    let scrolled = Rc::new(move |e: &ScrollWheelEvent, _: &mut Window, cx: &mut App| {
+        if !touch {
             return;
         }
-        let y = f32::from(e.position.y);
+        let dy = f32::from(e.delta.pixel_delta(px(16.)).y);
+        let at_top = pull_is_at_top(f32::from(measured.offset().y));
         shell.update(cx, |s, cx| {
-            let Some(start) = s.pull_start else {
-                return;
-            };
-            let dy = if s.pull_at_top {
-                (y - start).max(0.)
-            } else {
-                0.
-            };
-            let pull = dy.min(crate::components::pull_refresh::PULL_MAX);
-            if (pull - s.pull_dy).abs() > f32::EPSILON {
+            let pull = pull_offset(dy, at_top, s.pull_dy);
+            if pull != s.pull_dy {
                 s.pull_dy = pull;
                 cx.notify();
             }
@@ -641,10 +628,11 @@ pub(crate) fn pull_handlers(
 
     let shell = cx.entity().clone();
     let up = Rc::new(move |_: &MouseUpEvent, window: &mut Window, cx: &mut App| {
+        if !touch {
+            return;
+        }
         let fired = shell.update(cx, |s, cx| {
             let fired = s.pull_dy >= crate::components::pull_refresh::PULL_PX;
-            s.pull_start = None;
-            s.pull_at_top = false;
             s.pull_dy = 0.;
             cx.notify();
             fired
@@ -654,7 +642,7 @@ pub(crate) fn pull_handlers(
         }
     });
 
-    PullGesture { down, moved, up }
+    PullGesture { scrolled, up }
 }
 
 /// The single root view: four tabs, one push/pop stack, dialogs, loading
@@ -678,11 +666,8 @@ pub struct AppShell {
     pub(crate) swipe_start_y: Option<f32>,
     pub(crate) swipe_claimed: bool,
     pub(crate) swipe_dx: f32,
-    /// Pull-to-refresh drag: the start position, the live distance and whether
-    /// the list was at its top when the drag began.
-    pub(crate) pull_start: Option<f32>,
+    /// Pull-to-refresh drag: the live distance past the top of a list.
     pub(crate) pull_dy: f32,
-    pub(crate) pull_at_top: bool,
     /// One handle per scrollable tab list, kept here so the pull gesture can
     /// ask the list whether it is at its top.
     pub(crate) menus_scroll: ScrollHandle,
@@ -816,9 +801,7 @@ impl AppShell {
             swipe_start_y: None,
             swipe_claimed: false,
             swipe_dx: 0.,
-            pull_start: None,
             pull_dy: 0.,
-            pull_at_top: false,
             menus_scroll: ScrollHandle::new(),
             orders_scroll: ScrollHandle::new(),
             billing_scroll: ScrollHandle::new(),
@@ -3158,10 +3141,16 @@ mod tests {
     fn pull_only_measures_from_the_top() {
         assert!(pull_is_at_top(0.));
         assert!(!pull_is_at_top(-1.));
-        assert_eq!(pull_offset(80., true), PULL_MAX);
-        assert_eq!(pull_offset(30., true), 30.);
-        assert_eq!(pull_offset(-40., true), 0., "an upward drag is a scroll");
-        assert_eq!(pull_offset(80., false), 0., "a scrolled list is not pulled");
+        assert_eq!(pull_offset(80., true, 0.), PULL_MAX, "one delta is capped");
+        assert_eq!(pull_offset(30., true, 20.), 50., "deltas accumulate");
+        assert_eq!(pull_offset(-40., true, 20.), 0., "an upward drag clears it");
+        assert_eq!(pull_offset(-40., true, 0.), 0.);
+        assert_eq!(
+            pull_offset(80., false, 0.),
+            0.,
+            "a scrolled list is not pulled"
+        );
+        assert_eq!(pull_offset(0., false, 70.), 0., "leaving the top drops it");
         assert!(PULL_MAX > crate::components::pull_refresh::PULL_PX);
     }
 

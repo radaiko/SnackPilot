@@ -117,7 +117,7 @@ pub fn menus_tab(
     // a size_full child there pushed the list under the shell's bottom edge and
     // clipped the last row. A drag from the top of the list reloads the menus.
     let on_refresh = crate::app::refresh_handler(Tab::Menus, model, state.host_kind);
-    let gesture = crate::app::pull_handlers(scroll.clone(), on_refresh, cx);
+    let gesture = crate::app::pull_handlers(scroll.clone(), state.host_kind, on_refresh, cx);
     column = column.child(pull_refresh(
         "menus-pull",
         div()
