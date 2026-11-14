@@ -339,18 +339,9 @@ pub fn notifications_screen(
         } else {
             "Standort setzen"
         };
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(theme.scale.space_1))
-            .child(primary("location-set", label.to_string(), None, set, theme))
-            .child(
-                div()
-                    .text_size(px(theme.scale.meta))
-                    .line_height(px(theme.scale.meta_line))
-                    .text_color(theme.text_secondary)
-                    .child("Aktuellen Standort als Firmenstandort setzen"),
-            )
+        // The hint above already says what the button does; a second caption
+        // under it only repeated the label in different words.
+        div().child(primary("location-set", label.to_string(), None, set, theme))
     };
 
     // Section 3: notification log.
