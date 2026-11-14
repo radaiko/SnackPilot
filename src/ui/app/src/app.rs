@@ -1549,6 +1549,18 @@ impl Render for AppShell {
         }
         let theme = AppTheme::resolve(state.theme, os_dark);
         let (safe_top, safe_bottom, _, _) = safe_area();
+        // The iOS host only repaints every tick while something animates; a
+        // spinner or a dialog has to keep it doing so.
+        crate::set_animating(
+            state.busy
+                || state.ventopay_busy
+                || state.billing_loading
+                || self.dialog.is_some()
+                || self.toast.is_some(),
+        );
+        if self.kit_dark.is_none() && std::env::args().any(|a| a == "--perf") {
+            log::info!("shell: safe_area top={safe_top} bottom={safe_bottom}");
+        }
         // Host-gated layout (task 1.2, REQ-UI-07): only a Desktop host past
         // the 720 px breakpoint leaves the phone shell, so iOS and Android
         // keep their exact appearance at every width.

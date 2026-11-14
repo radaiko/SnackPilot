@@ -304,6 +304,12 @@ pub(crate) fn mobile_month_row(
                 .h(px(MOBILE_MONTH_TARGET_HEIGHT))
                 .flex()
                 .items_center()
+                // The focus ring's 2 px gap and 2 px width are reserved in
+                // every chip, so the selected (and therefore focused) one cannot
+                // grow and sit a few pixels above its neighbours.
+                .p(px(snackpilot_model::tokens::FOCUS_GAP))
+                .border(px(snackpilot_model::tokens::FOCUS_WIDTH))
+                .border_color(hsla(0., 0., 0., 0.))
                 .cursor_pointer()
                 .focus(theme::desktop_focus(ink))
                 .on_click(move |_, window, cx| on(offset, window, cx))

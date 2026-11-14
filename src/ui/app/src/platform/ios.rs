@@ -603,10 +603,15 @@ fn install_session(
     if let Some(viewport) = viewport {
         crate::evidence::install_viewport(&session, viewport);
     }
-    // Task 5.7: expose the session to the GPUI shell and run the launch order
-    // (cached first, broadcast, auto-login).
+    // Task 5.7: expose the session to the GPUI shell and run the launch order.
+    // Only its local half runs here (cached menus, orders, months) so the first
+    // frame lands immediately; the network half — broadcast, auto-login,
+    // tracking, the permission prompt — takes seconds on a cold network and
+    // runs on its own thread instead of holding up the window.
     crate::install_shell_model(Arc::clone(&session));
-    session.bootstrap();
+    session.bootstrap_local();
+    let deferred = Arc::clone(&session);
+    std::thread::spawn(move || deferred.bootstrap_deferred());
     if let Some(scenario) = scenario {
         crate::evidence::apply_scenario(&session, &scenario);
     }

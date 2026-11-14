@@ -61,7 +61,12 @@ mod android_host {
                 // The shell renders from the same AppModel the geofence
                 // session pumps (task 4.2).
                 crate::install_shell_model(std::sync::Arc::clone(&model));
-                model.bootstrap();
+                // The cached snapshots land before the first frame; the
+                // network half (broadcast, auto-login, tracking, permissions)
+                // runs off the UI thread so a cold launch paints immediately.
+                model.bootstrap_local();
+                let deferred = std::sync::Arc::clone(&model);
+                std::thread::spawn(move || deferred.bootstrap_deferred());
                 if let Some(scenario) = scenario {
                     crate::evidence::apply_scenario(&model, &scenario);
                 }

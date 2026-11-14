@@ -186,13 +186,21 @@ impl Drop for ForegroundGuard {
 
 impl AppModel {
     /// Launch order of REQ-SCR-09.
+    ///
+    /// Split in two because most of it waits on the network: the cached
+    /// snapshots are local and must land before the first frame, while the
+    /// broadcast fetch, the auto-login and the tracking call can take seconds
+    /// on a cold network. A host that cares about launch time calls
+    /// [`Self::bootstrap_local`] and then [`Self::bootstrap_deferred`] off the
+    /// UI thread, so the shell paints immediately and fills in.
     pub fn bootstrap(&self) {
-        // The host capabilities gate the OS-service steps below. Desktop
-        // declares notifications and geofence unavailable, so bootstrap must
-        // not call either service there; iOS/Android declare both and keep
-        // their existing order (REQ-PLT-07, REQ-DST-04).
-        let capabilities = self.platform.capabilities();
+        self.bootstrap_local();
+        self.bootstrap_deferred();
+    }
 
+    /// The local half of the launch order: cached menus, orders and months, so
+    /// the first frame shows the last state without touching the network.
+    pub fn bootstrap_local(&self) {
         // 1. Cached snapshots first, so the first frame shows data.
         self.core.load_cached_menus();
         self.core.load_cached_orders();
@@ -215,6 +223,16 @@ impl AppModel {
                 s.month_options = months;
             }
         });
+    }
+
+    /// The deferred half of the launch order: everything that can wait on the
+    /// network or a system prompt.
+    pub fn bootstrap_deferred(&self) {
+        // The host capabilities gate the OS-service steps below. Desktop
+        // declares notifications and geofence unavailable, so bootstrap must
+        // not call either service there; iOS/Android declare both and keep
+        // their existing order (REQ-PLT-07, REQ-DST-04).
+        let capabilities = self.platform.capabilities();
 
         // 2. `app.launched`.
         let _ = self.platform.track("app.launched", Default::default());

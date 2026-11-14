@@ -389,6 +389,22 @@ pub mod evidence {
     }
 }
 
+/// Whether the surface currently animates (a spinner, the busy scrim, an open
+/// dialog or toast). The iOS host reads it to decide between painting every
+/// display-link tick and painting a few frames per second while idle: a full
+/// tree re-render at 120 Hz was the phone's constant jank.
+static ANIMATING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn set_animating(animating: bool) {
+    ANIMATING.store(animating, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Exported for the UIKit host's display link (`Host/App.swift`).
+#[no_mangle]
+pub extern "C" fn snackpilot_animating() -> i32 {
+    ANIMATING.load(std::sync::atomic::Ordering::Relaxed) as i32
+}
+
 /// Mount the single spike Root: bundled Inter fonts, kit init, one window.
 ///
 /// Called exactly once per app start by each platform host (REQ-UI-03);

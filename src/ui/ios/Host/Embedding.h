@@ -19,3 +19,7 @@ void gpui_ios_run(void);
 // Defined in the snackpilot-app Rust staticlib (src/ui/app/src/lib.rs):
 // current spike counter value, for the UI test's accessibility assertion.
 unsigned long spike_count(void);
+
+// Whether the surface animates right now (spinner, busy scrim, dialog, toast):
+// the display link paints every tick only while this is 1.
+int snackpilot_animating(void);

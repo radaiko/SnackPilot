@@ -97,10 +97,19 @@ final class GPUIView: UIView {
     func drawFrame() { gpui_ios_request_frame(gpuiWindow) }
 }
 
+/// GPUI needs a frame after any touch, and a few per second while it is idle
+/// so model-driven updates still appear. Painting the whole tree on every
+/// 120 Hz tick was the phone's constant jank: idle is 4 frames a second,
+/// interaction and animations keep the display's own rate.
+private let SNACKPILOT_IDLE_FRAME_DIVISOR = 30
+private let SNACKPILOT_INTERACTION_WINDOW: CFTimeInterval = 0.35
+
 final class SpikeContainerController: UIViewController {
     private var gpui: GPUIView!
     private var displayLink: CADisplayLink?
     private var lastCount: Int = -1
+    private var tick: UInt64 = 0
+    private var lastInput = CACurrentMediaTime()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -132,8 +141,27 @@ final class SpikeContainerController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        // Non-cancelling observers: they mark input as recent without eating
+        // the touch, so scrolling and taps still reach the GPUI surface.
+        for recognizer in [UIPanGestureRecognizer(target: self, action: #selector(noteInput)),
+                           UITapGestureRecognizer(target: self, action: #selector(noteInput))] {
+            recognizer.cancelsTouchesInView = false
+            recognizer.delaysTouchesBegan = false
+            recognizer.delaysTouchesEnded = false
+            view.addGestureRecognizer(recognizer)
+        }
         displayLink = CADisplayLink(target: self, selector: #selector(renderFrame))
         displayLink?.add(to: .main, forMode: .common)
+    }
+
+    @objc private func noteInput() {
+        lastInput = CACurrentMediaTime()
+    }
+
+    private func wantsFrame() -> Bool {
+        if snackpilot_animating() != 0 { return true }
+        if CACurrentMediaTime() - lastInput < SNACKPILOT_INTERACTION_WINDOW { return true }
+        return tick % UInt64(SNACKPILOT_IDLE_FRAME_DIVISOR) == 0
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -145,8 +173,34 @@ final class SpikeContainerController: UIViewController {
     /// Drives GPUI frames and mirrors the Rust counter into an accessibility
     /// label, so the XCUITest can assert the tap-to-increment round trip
     /// (GPUI renders to Metal and exposes no accessibility tree of its own).
+    /// `--perf` prints the cost of one GPUI frame every 120 ticks: with a
+    /// CADisplayLink driving every vsync, a frame that costs more than the
+    /// tick budget is felt as constant jank.
+    private var frameCount = 0
+    private var frameTotal: Double = 0
+    private var frameMax: Double = 0
+    private let perf = CommandLine.arguments.contains("--perf")
+
     @objc private func renderFrame() {
+        tick &+= 1
+        guard wantsFrame() else { return }
+        let started = CACurrentMediaTime()
         gpui.drawFrame()
+        if perf {
+            let elapsed = CACurrentMediaTime() - started
+            frameCount += 1
+            frameTotal += elapsed
+            frameMax = max(frameMax, elapsed)
+            if frameCount == 120 {
+                let line = String(format: "[frame] avg=%.1fms max=%.1fms",
+                                  frameTotal / 120 * 1000, frameMax * 1000)
+                // stderr, where `devicectl --console` and the log stream read it
+                FileHandle.standardError.write(Data((line + "\n").utf8))
+                frameCount = 0
+                frameTotal = 0
+                frameMax = 0
+            }
+        }
         let count = Int(spike_count())
         if count != lastCount {
             lastCount = count
