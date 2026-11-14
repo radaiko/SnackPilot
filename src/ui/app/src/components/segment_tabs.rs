@@ -139,6 +139,17 @@ pub fn segment_options<T: Copy + PartialEq + 'static>(
     control
 }
 
+/// One segment's visible label: the word alone while the list is empty, its
+/// count only when there is something to count ("Kommende" instead of a
+/// "Kommende (0)" that reads like a value).
+pub fn segment_label(word: &str, count: usize) -> String {
+    if count == 0 {
+        word.to_string()
+    } else {
+        format!("{word} ({count})")
+    }
+}
+
 /// Render the two compact segments with their counts and a select callback
 /// (task 1.4): two equal min-48 targets, body Semibold labels whose counts wrap
 /// instead of truncating, the 3 px selected rule reserved in both states, and
@@ -155,12 +166,12 @@ pub fn segment_tabs(
         [
             (
                 "orders-tab-upcoming",
-                format!("Kommende ({upcoming})"),
+                segment_label("Kommende", upcoming),
                 Segment::Upcoming,
             ),
             (
                 "orders-tab-past",
-                format!("Vergangene ({past})"),
+                segment_label("Vergangene", past),
                 Segment::Past,
             ),
         ],
@@ -239,8 +250,8 @@ pub fn desktop_segment_toolbar(
         .gap(px(theme.scale.space_2))
         .px(px(theme.scale.space_4))
         .py(px(theme.scale.space_2))
-        .child(tab(Segment::Upcoming, format!("Kommende ({upcoming})")))
-        .child(tab(Segment::Past, format!("Vergangene ({past})")));
+        .child(tab(Segment::Upcoming, segment_label("Kommende", upcoming)))
+        .child(tab(Segment::Past, segment_label("Vergangene", past)));
     // The two segments are one option group with one tab stop: Left/Right move
     // to the neighbouring option and select it immediately, without wrapping
     // (brief keyboard map). Only the group's own focus acts, so a focused
