@@ -540,8 +540,8 @@ fn launch_screen(stage: LaunchStage, theme: &AppTheme) -> Div {
         .bg(theme.background)
         .child(
             div()
-                .w(px(72.))
-                .h(px(72.))
+                .w(px(64.))
+                .h(px(64.))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -549,7 +549,7 @@ fn launch_screen(stage: LaunchStage, theme: &AppTheme) -> Div {
                 .bg(theme.accent_surface)
                 .child(
                     Icon::new(IconName::Utensils)
-                        .with_size(px(36.))
+                        .with_size(px(32.))
                         .text_color(theme.accent),
                 ),
         )

@@ -45,11 +45,11 @@ fn scale_matches_the_pinned_table() {
     assert_eq!([ICON, ICON_META, STROKE], [20., 18., 2.]);
     assert_eq!((FOCUS_WIDTH, FOCUS_GAP), (2., 2.));
     assert_eq!((CONTENT_MAX, FORM_MAX), (560., 440.));
-    assert_eq!((TITLE.size, TITLE.line_height), (28., 36.));
-    assert_eq!((HEADLINE.size, HEADLINE.line_height), (20., 28.));
-    assert_eq!((BODY.size, BODY.line_height), (17., 26.));
-    assert_eq!((BODY_STRONG.size, BODY_STRONG.line_height), (17., 26.));
-    assert_eq!((META.size, META.line_height), (13., 20.));
+    assert_eq!((TITLE.size, TITLE.line_height), (26., 32.));
+    assert_eq!((HEADLINE.size, HEADLINE.line_height), (18., 24.));
+    assert_eq!((BODY.size, BODY.line_height), (16., 22.));
+    assert_eq!((BODY_STRONG.size, BODY_STRONG.line_height), (16., 22.));
+    assert_eq!((META.size, META.line_height), (12., 18.));
 }
 
 fn token(t: ColorToken, dark: bool) -> snackpilot_model::desktop::Rgb {

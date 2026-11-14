@@ -93,24 +93,24 @@ pub struct TypeRole {
 }
 
 pub const TITLE: TypeRole = TypeRole {
-    size: 28.0,
-    line_height: 36.0,
+    size: 26.0,
+    line_height: 32.0,
 };
 pub const HEADLINE: TypeRole = TypeRole {
-    size: 20.0,
-    line_height: 28.0,
+    size: 18.0,
+    line_height: 24.0,
 };
 pub const BODY: TypeRole = TypeRole {
-    size: 17.0,
-    line_height: 26.0,
+    size: 16.0,
+    line_height: 22.0,
 };
 pub const BODY_STRONG: TypeRole = TypeRole {
-    size: 17.0,
-    line_height: 26.0,
+    size: 16.0,
+    line_height: 22.0,
 };
 pub const META: TypeRole = TypeRole {
-    size: 13.0,
-    line_height: 20.0,
+    size: 12.0,
+    line_height: 18.0,
 };
 
 /// WCAG AA thresholds the token tests check.
