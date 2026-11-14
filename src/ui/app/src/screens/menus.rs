@@ -139,7 +139,31 @@ pub fn menus_tab(
         theme,
     ));
 
-    column.into_any_element()
+    // The pull indicator ends only when the finger lifts over the list. A drag
+    // that ends on the day strip above it never gets there, and the spinner
+    // then sits under the strip for the rest of the session. Any release in
+    // this screen cancels a pull its own list did not finish.
+    let clear_pull = pull_cancel_handler(cx);
+    column
+        .on_mouse_up(MouseButton::Left, move |e, w, cx| clear_pull(e, w, cx))
+        .into_any_element()
+}
+
+/// Drop an unfinished pull: the list's own release already decided whether it
+/// was far enough, this only removes an indicator whose gesture ended
+/// somewhere else on the screen.
+fn pull_cancel_handler(
+    cx: &mut Context<AppShell>,
+) -> Rc<dyn Fn(&MouseUpEvent, &mut Window, &mut App)> {
+    let shell = cx.entity().clone();
+    Rc::new(move |_: &MouseUpEvent, _: &mut Window, cx: &mut App| {
+        shell.update(cx, |s, cx| {
+            if s.pull_dy > 0. {
+                s.pull_dy = 0.;
+                cx.notify();
+            }
+        });
+    })
 }
 
 /// What each available day carries, in the strip's order: whether an order
