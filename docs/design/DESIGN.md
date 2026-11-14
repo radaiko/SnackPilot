@@ -46,7 +46,7 @@ only appearance preference.
 - Space: 4, 8, 12, 16, 24, 32.
 - Radius: card 12, control 10, chip 8.
 - Targets: 44 minimum, 48 primary action.
-- Icons: 20, meta 18, stroke 1.5.
+- Icons: 20, meta 18, stroke 2.
 - Focus: 2 px ring at 2 px offset.
 - Content: 560 max, credential form 440 max.
 
@@ -56,11 +56,11 @@ Inter, weights 400 and 600 only.
 
 | Role | Size / line |
 | --- | --- |
-| `TITLE` | 28 / 34 semibold |
-| `HEADLINE` | 20 / 26 semibold |
-| `BODY` | 17 / 24 regular |
-| `BODY_STRONG` | 17 / 24 semibold |
-| `META` | 13 / 18 regular |
+| `TITLE` | 28 / 36 semibold |
+| `HEADLINE` | 20 / 28 semibold |
+| `BODY` | 17 / 26 regular |
+| `BODY_STRONG` | 17 / 26 semibold |
+| `META` | 13 / 20 regular |
 
 ## Components
 

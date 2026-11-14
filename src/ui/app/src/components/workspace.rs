@@ -214,21 +214,37 @@ pub fn section_label(text: impl Into<SharedString>, theme: &AppTheme) -> Div {
         .child(text.into())
 }
 
-/// A centred empty-state message (`BODY` secondary) that fills its pane.
-pub fn state_message(text: impl Into<SharedString>, theme: &AppTheme) -> AnyElement {
+/// A centred two-line empty state that fills its pane: the fact in
+/// `BODY_STRONG` and the next step in `META`, 8 apart inside the gutter.
+pub fn state_message(
+    fact: impl Into<SharedString>,
+    hint: impl Into<SharedString>,
+    theme: &AppTheme,
+) -> AnyElement {
     div()
         .size_full()
         .p(px(theme.scale.space_4))
         .flex()
+        .flex_col()
         .items_center()
         .justify_center()
+        .gap(px(theme.scale.space_2))
         .child(
             div()
                 .text_size(px(theme.scale.body))
                 .line_height(px(theme.scale.body_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.text_primary)
+                .text_center()
+                .child(fact.into()),
+        )
+        .child(
+            div()
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
                 .text_center()
-                .child(text.into()),
+                .child(hint.into()),
         )
         .into_any_element()
 }

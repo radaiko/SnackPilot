@@ -79,7 +79,7 @@ pub const RADIUS_CHIP: f32 = 8.0;
 /// Icon sizes and the one stroke width.
 pub const ICON: f32 = 20.0;
 pub const ICON_META: f32 = 18.0;
-pub const STROKE: f32 = 1.5;
+pub const STROKE: f32 = 2.0;
 
 /// Focus ring stroke and offset.
 pub const FOCUS_WIDTH: f32 = 2.0;
@@ -94,23 +94,23 @@ pub struct TypeRole {
 
 pub const TITLE: TypeRole = TypeRole {
     size: 28.0,
-    line_height: 34.0,
+    line_height: 36.0,
 };
 pub const HEADLINE: TypeRole = TypeRole {
     size: 20.0,
-    line_height: 26.0,
+    line_height: 28.0,
 };
 pub const BODY: TypeRole = TypeRole {
     size: 17.0,
-    line_height: 24.0,
+    line_height: 26.0,
 };
 pub const BODY_STRONG: TypeRole = TypeRole {
     size: 17.0,
-    line_height: 24.0,
+    line_height: 26.0,
 };
 pub const META: TypeRole = TypeRole {
     size: 13.0,
-    line_height: 18.0,
+    line_height: 20.0,
 };
 
 /// WCAG AA thresholds the token tests check.

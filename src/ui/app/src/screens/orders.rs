@@ -178,28 +178,28 @@ pub fn orders_tab(
     column.into_any_element()
 }
 
-/// The empty segment's exact text in the body role on the readable secondary
-/// ink, centred and wrapped with the common 16 px padding (state matrix).
+const EMPTY_COPY_UPCOMING: (&str, &str) = (
+    "Keine kommenden Bestellungen",
+    "Bestellte Menüs erscheinen hier",
+);
+
+const EMPTY_COPY_PAST: (&str, &str) = (
+    "Keine vergangenen Bestellungen",
+    "Abgeschlossene Bestellungen erscheinen hier",
+);
+
+fn empty_copy(past: bool) -> (&'static str, &'static str) {
+    if past {
+        EMPTY_COPY_PAST
+    } else {
+        EMPTY_COPY_UPCOMING
+    }
+}
+
+/// The empty segment's two-line state: the fact, then the next step.
 fn empty_state(past: bool, theme: &AppTheme) -> AnyElement {
-    div()
-        .flex_1()
-        .flex()
-        .items_center()
-        .justify_center()
-        .p(px(theme.scale.space_4))
-        .child(
-            div()
-                .text_size(px(theme.scale.meta))
-                .line_height(px(theme.scale.meta_line))
-                .text_center()
-                .text_color(theme.text_secondary)
-                .child(if past {
-                    "Keine vergangenen Bestellungen"
-                } else {
-                    "Keine kommenden Bestellungen"
-                }),
-        )
-        .into_any_element()
+    let (fact, hint) = empty_copy(past);
+    state_message(fact, hint, theme)
 }
 
 fn gate(theme: &AppTheme) -> AnyElement {
@@ -797,14 +797,8 @@ fn desktop_order_master(
 }
 
 fn desktop_empty_master(past: bool, theme: &AppTheme) -> AnyElement {
-    state_message(
-        if past {
-            "Keine vergangenen Bestellungen"
-        } else {
-            "Keine kommenden Bestellungen"
-        },
-        theme,
-    )
+    let (fact, hint) = empty_copy(past);
+    state_message(fact, hint, theme)
 }
 
 fn desktop_order_detail_pane(
@@ -1067,7 +1061,8 @@ fn desktop_segment_ids(state: &State) -> Vec<String> {
 #[cfg(test)]
 mod mobile_tests {
     use super::{
-        batch_cancel_ready, cancel_dialog, mobile_batch_cancel_label, mobile_select_metrics,
+        batch_cancel_ready, cancel_dialog, empty_copy, mobile_batch_cancel_label,
+        mobile_select_metrics,
     };
     use crate::app::MutationGate;
     use crate::components::dialog::Dialog;
@@ -1121,6 +1116,27 @@ mod mobile_tests {
             .orders_split
             .expect("orders reloaded after submit")
             .upcoming
+    }
+
+    /// The empty segment states the fact and then the next step, so the tab is
+    /// informative instead of one grey sentence.
+    /// @req REQ-SCR-02
+    #[test]
+    fn empty_segments_state_fact_then_next_step() {
+        assert_eq!(
+            empty_copy(false),
+            (
+                "Keine kommenden Bestellungen",
+                "Bestellte Menüs erscheinen hier"
+            )
+        );
+        assert_eq!(
+            empty_copy(true),
+            (
+                "Keine vergangenen Bestellungen",
+                "Abgeschlossene Bestellungen erscheinen hier"
+            )
+        );
     }
 
     /// `Auswählen` is a real trailing control (REQ-SCR-02/REQ-UI-15): the 48 px

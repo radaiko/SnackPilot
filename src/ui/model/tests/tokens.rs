@@ -42,14 +42,14 @@ fn scale_matches_the_pinned_table() {
     );
     assert_eq!([RADIUS_CARD, RADIUS_CONTROL, RADIUS_CHIP], [12., 10., 8.]);
     assert_eq!((TARGET, ACTION_HEIGHT), (44., 48.));
-    assert_eq!([ICON, ICON_META, STROKE], [20., 18., 1.5]);
+    assert_eq!([ICON, ICON_META, STROKE], [20., 18., 2.]);
     assert_eq!((FOCUS_WIDTH, FOCUS_GAP), (2., 2.));
     assert_eq!((CONTENT_MAX, FORM_MAX), (560., 440.));
-    assert_eq!((TITLE.size, TITLE.line_height), (28., 34.));
-    assert_eq!((HEADLINE.size, HEADLINE.line_height), (20., 26.));
-    assert_eq!((BODY.size, BODY.line_height), (17., 24.));
-    assert_eq!((BODY_STRONG.size, BODY_STRONG.line_height), (17., 24.));
-    assert_eq!((META.size, META.line_height), (13., 18.));
+    assert_eq!((TITLE.size, TITLE.line_height), (28., 36.));
+    assert_eq!((HEADLINE.size, HEADLINE.line_height), (20., 28.));
+    assert_eq!((BODY.size, BODY.line_height), (17., 26.));
+    assert_eq!((BODY_STRONG.size, BODY_STRONG.line_height), (17., 26.));
+    assert_eq!((META.size, META.line_height), (13., 20.));
 }
 
 fn token(t: ColorToken, dark: bool) -> snackpilot_model::desktop::Rgb {
