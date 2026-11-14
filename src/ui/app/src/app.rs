@@ -22,7 +22,7 @@ use snackpilot_model::desktop::{HostKind, LayoutMode};
 use snackpilot_model::navigation::{
     ListKind, Navigation, Screen, SettingsDetail as ModelSettingsDetail, Tab,
 };
-use snackpilot_model::{format_day_short, AppModel, State};
+use snackpilot_model::{format_day_short, AppModel, LaunchStage, State};
 
 use crate::components::broadcast_banner::broadcast_banner;
 use crate::components::day_navigator::day_navigator;
@@ -515,10 +515,21 @@ fn launch_visible(elapsed: Duration, settled: bool) -> bool {
     elapsed < LAUNCH_MIN || (!settled && elapsed < LAUNCH_MAX)
 }
 
+/// The status line under the start mark: what the launch order is doing, in
+/// the app's own words, so a cold launch explains itself.
+fn launch_status(stage: LaunchStage) -> &'static str {
+    match stage {
+        LaunchStage::Preparing => "Oberfläche wird vorbereitet",
+        LaunchStage::Connecting => "Verbindung wird hergestellt",
+        LaunchStage::SigningIn => "Anmeldung wird wiederhergestellt",
+        LaunchStage::Loading => "Daten werden geladen",
+    }
+}
+
 /// The start mark: the product's own surface from the first frame — brand mark,
-/// wordmark and one spinner on the theme background — instead of the empty
-/// credential gate, then an empty list, then the menus.
-fn launch_screen(theme: &AppTheme) -> Div {
+/// wordmark, one spinner and the current launch step on the theme background —
+/// instead of the empty credential gate, then an empty list, then the menus.
+fn launch_screen(stage: LaunchStage, theme: &AppTheme) -> Div {
     div()
         .size_full()
         .flex()
@@ -554,6 +565,13 @@ fn launch_screen(theme: &AppTheme) -> Div {
             theme.text_secondary,
             20.,
         ))
+        .child(
+            div()
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
+                .child(launch_status(stage)),
+        )
 }
 
 /// The compact shell heading row: title role (28/34 semibold), 16 px
@@ -1623,7 +1641,7 @@ impl Render for AppShell {
                 })
                 .detach();
             }
-            return launch_screen(&theme);
+            return launch_screen(state.launch_stage, &theme);
         }
         let (safe_top, safe_bottom, _, _) = safe_area();
         // The iOS host only repaints every tick while something animates; a

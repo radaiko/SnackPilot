@@ -338,6 +338,9 @@ impl AppModel {
     // ---- loading (Swift loadSession/loadOrders/loadBilling) ----
 
     async fn load_session(&self) -> Result<(), PlatformError> {
+        self.hub.update("launch_stage", |s| {
+            s.launch_stage = crate::state::LaunchStage::Loading
+        });
         // force = false: cache first (Swift loadSession :301).
         match self.core.fetch_menus(false).await {
             Ok(snap) => {
@@ -400,6 +403,9 @@ impl AppModel {
     pub(crate) async fn load_billing(&self, force: bool) {
         #[cfg(test)]
         crate::BILLING_FETCHES.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.hub.update("launch_stage", |s| {
+            s.launch_stage = crate::state::LaunchStage::Loading
+        });
         self.hub
             .update("billing_loading", |s| s.billing_loading = true);
         let offset = self.hub.get().selected_offset;

@@ -99,6 +99,21 @@ pub struct ReminderTime {
     pub minute: u8,
 }
 
+/// What the launch order is doing right now, so the start mark can say it
+/// instead of showing an unexplained spinner.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LaunchStage {
+    /// The first surface: fonts, theme and the cached snapshots.
+    #[default]
+    Preparing,
+    /// The operator broadcast and the OS services (permission, geofence).
+    Connecting,
+    /// Reading the saved credentials and restoring both sessions.
+    SigningIn,
+    /// Fetching menus, orders and billing.
+    Loading,
+}
+
 /// The complete view-model state, a snapshot the UI renders from.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct State {
@@ -106,6 +121,8 @@ pub struct State {
     /// The launch order has finished: the cached snapshots and the restored
     /// sessions are in. The shell's start mark stays up until then.
     pub launch_settled: bool,
+    /// Which step of the launch order is running.
+    pub launch_stage: LaunchStage,
     pub error_text: Option<ErrorText>,
     pub demo_mode: bool,
     pub user_info: Option<snackpilot_core::domain::GourmetUserInfo>,

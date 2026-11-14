@@ -235,6 +235,9 @@ impl AppModel {
         let capabilities = self.platform.capabilities();
 
         // 2. `app.launched`.
+        self.hub.update("launch_stage", |s| {
+            s.launch_stage = crate::state::LaunchStage::Connecting
+        });
         let _ = self.platform.track("app.launched", Default::default());
 
         // 3. Broadcast (best-effort), then 4. the notification permission and
@@ -265,6 +268,9 @@ impl AppModel {
 
         // 6. Saved credentials (Ventopay first, one billing fetch), then the
         //    saved-credentials session refresh.
+        self.hub.update("launch_stage", |s| {
+            s.launch_stage = crate::state::LaunchStage::SigningIn
+        });
         let _ = self.attempt_auto_login();
         self.refresh_diagnostic_log();
 
