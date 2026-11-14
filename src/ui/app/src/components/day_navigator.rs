@@ -3,6 +3,8 @@
 //! Menus-tab header: 48×48 `circleButton` arrows `❮`/`❯` (opacity 0.3 at the
 //! ends of the date list), centre shows `format_day_short` 19/600 with
 //! `"{i+1} / {count}"` 12 below; tapping the centre jumps to today.
+//! The compact Day Tray card [`mobile_day_navigator`] is one 64 px row: the
+//! arrows and the day alone in the headline role, no ordinal.
 //! One contained surface with a hairline boundary on every platform.
 
 use gpui::*;
@@ -107,17 +109,18 @@ pub fn day_navigator(
 }
 
 /// The compact day row's one geometry, as data the builder paints: a 44 px
-/// chevron target, the 20 px Lucide glyph, an 8 px gap and a min-44 centre
-/// target holding the date in the headline role above the ordinal in the
-/// metadata role.
+/// chevron target, the 20 px Lucide glyph, an 8 px row gap, a 64 px row and a
+/// min-44 centre target holding the day alone in the headline role.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MobileDayNavigator {
     /// Bare arrow target, both axes (44 px touch floor).
     pub arrow: f32,
     /// Arrow glyph (Lucide 20).
     pub glyph: f32,
-    /// Date-to-ordinal and row gap.
+    /// The row gap between arrow, centre and arrow.
     pub gap: f32,
+    /// The row's total height: 10 px above and below the 44 px target.
+    pub row: f32,
     /// The centre target's minimum height.
     pub centre_min: f32,
 }
@@ -127,6 +130,7 @@ pub fn mobile_day_navigator_recipe(theme: &AppTheme) -> MobileDayNavigator {
         arrow: theme.scale.target,
         glyph: theme.scale.icon,
         gap: theme.scale.space_2,
+        row: 64.,
         centre_min: theme.scale.target,
     }
 }
@@ -138,12 +142,13 @@ pub fn day_edge(dates_len: usize, index: usize) -> (bool, bool) {
     (index == 0, index + 1 >= dates_len)
 }
 
-/// The compact Day Tray day row: surface, 1 px hairline, 12 radius, 16
-/// padding, bare 44 px arrows carrying the 20 px Lucide `ChevronLeft`/
-/// `ChevronRight`, and a min-44 centre target holding the day in the headline
-/// role with the ordinal in the metadata role 8 px below. Selection, the today
-/// intent, the formatter and the disabled ends are unchanged; the wide Ledger
-/// keeps [`day_navigator`] above exactly as before.
+/// The compact Day Tray day row: one 64 px surface with a 1 px hairline, 12
+/// radius and 16 px side padding, bare 44 px arrows carrying the 20 px Lucide
+/// `ChevronLeft`/`ChevronRight`, and a min-44 centre target holding the day
+/// alone in the headline role. There is no ordinal: the disabled ends already
+/// carry the position in the list. Selection, the today intent, the formatter
+/// and the disabled ends are unchanged; the wide Ledger keeps
+/// [`day_navigator`] above exactly as before.
 /// @req REQ-SCR-01 @req REQ-UI-15 @req REQ-UI-16
 pub fn mobile_day_navigator(
     dates: &[String],
@@ -158,7 +163,6 @@ pub fn mobile_day_navigator(
         .unwrap_or(0);
     let (at_start, at_end) = day_edge(dates.len(), index);
     let recipe = mobile_day_navigator_recipe(theme);
-    let meta = theme.text_secondary;
 
     let arrow = |id: &'static str, icon: IconName, disabled: bool, on: ClickHandler| {
         let ink = if disabled {
@@ -192,11 +196,12 @@ pub fn mobile_day_navigator(
     let container = theme::apply(
         div()
             .w_full()
+            .h(px(recipe.row))
             .flex()
             .items_center()
             .justify_between()
             .gap(px(recipe.gap))
-            .p(px(theme.scale.space_4)),
+            .px(px(theme.scale.space_4)),
         &theme.card_surface(),
     );
 
@@ -206,10 +211,8 @@ pub fn mobile_day_navigator(
         .min_w(px(0.))
         .min_h(px(recipe.centre_min))
         .flex()
-        .flex_col()
         .items_center()
         .justify_center()
-        .gap(px(recipe.gap))
         .rounded(px(theme.scale.radius_chip))
         .tab_index(0)
         .cursor_pointer()
@@ -229,13 +232,6 @@ pub fn mobile_day_navigator(
                         .map(|d| SharedString::from(format_day_short(d)))
                         .unwrap_or_default(),
                 ),
-        )
-        .child(
-            div()
-                .text_size(px(theme.scale.meta))
-                .line_height(px(theme.scale.meta_line))
-                .text_color(meta)
-                .child(format!("{} / {}", index + 1, dates.len())),
         );
 
     container
@@ -254,11 +250,12 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    /// The compact day row (REQ-SCR-01/REQ-UI-16): one surface row with the
-    /// 1 px hairline, 12 radius and 16 padding, bare 44 px chevron targets
-    /// carrying the 20 px Lucide glyph, and a min-44 centre target with an
-    /// 8 px date/ordinal gap. The edge state stays the model's one list, and
-    /// building the navigator activates nothing.
+    /// The compact day row (REQ-SCR-01/REQ-UI-16): one 64 px surface row with
+    /// the 1 px hairline, 12 radius and 16 px side padding, bare 44 px chevron
+    /// targets carrying the 20 px Lucide glyph, and a min-44 centre target
+    /// showing the day alone in the headline role. The ordinal is gone: the
+    /// disabled ends already carry the position. The edge state stays the
+    /// model's one list, and building the navigator activates nothing.
     /// @req REQ-SCR-01 @req REQ-UI-16
     #[test]
     fn mobile_day_navigator_is_one_row_with_44_targets() {
@@ -273,6 +270,13 @@ mod tests {
             assert_eq!(recipe.glyph, tokens::ICON);
             assert_eq!(recipe.gap, 8.);
             assert_eq!(recipe.gap, tokens::SPACE_2);
+            // One compact row, not the old date-over-ordinal stack.
+            assert_eq!(recipe.row, 64.);
+            assert_eq!(recipe.row - recipe.arrow, 20., "10 px above and below");
+            assert!(
+                theme.scale.headline_line < recipe.row,
+                "the headline is one line inside the row"
+            );
 
             // The row is the shared flat surface, not a full-bleed band.
             let row = theme.card_surface();
