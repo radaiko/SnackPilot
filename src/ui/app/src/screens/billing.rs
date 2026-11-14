@@ -235,11 +235,11 @@ fn gate(theme: &AppTheme) -> AnyElement {
 /// One month choice activation (compact task 1.5).
 pub(crate) type MonthSelect = Rc<dyn Fn(u8, &mut Window, &mut App)>;
 
-/// The compact month chip's height: one single-line row instead of two-line
-/// tiles.
+/// The compact month chip's visible height: one single-line row instead of
+/// two-line tiles.
 pub const MOBILE_MONTH_CHIP_HEIGHT: f32 = 40.;
-/// The gap between the month chips and the source segments.
-pub const MOBILE_FILTER_GAP: f32 = 4.;
+/// The month chip's tap target: the 40 px pill sits inside the 44 px floor.
+pub const MOBILE_MONTH_TARGET_HEIGHT: f32 = 44.;
 
 const MONTHS_SHORT: [&str; 12] = [
     "Jän.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez.",
@@ -261,15 +261,12 @@ pub(crate) fn month_chip_label(key: &str) -> String {
     format!("{} {year}", MONTHS_SHORT[index])
 }
 
-/// The whole compact filter band: the 40 px month chips, the gap and the
-/// source segment control's action-height target, plus the band's bottom air.
+/// The whole compact filter band: the month chips' 44 px target, the source
+/// segment control's action-height target and the band's bottom air.
 /// @req REQ-SCR-03 @req REQ-UI-15
 #[cfg(test)]
 pub(crate) fn mobile_filter_band_height(theme: &AppTheme) -> f32 {
-    MOBILE_MONTH_CHIP_HEIGHT
-        + MOBILE_FILTER_GAP
-        + mobile_segment_height(theme)
-        + theme.scale.space_2
+    MOBILE_MONTH_TARGET_HEIGHT + mobile_segment_height(theme) + theme.scale.space_2
 }
 
 /// The month choices: one scrollable row of 40 px single-line chips in the
@@ -287,7 +284,6 @@ pub(crate) fn mobile_month_row(
         .flex()
         .w_full()
         .gap(px(theme.scale.space_2))
-        .mb(px(MOBILE_FILTER_GAP))
         .overflow_x_scroll();
     for option in options {
         let offset = option.offset;
@@ -305,28 +301,34 @@ pub(crate) fn mobile_month_row(
             div()
                 .id(SharedString::from(format!("billing-month-{offset}")))
                 .flex_shrink_0()
+                .h(px(MOBILE_MONTH_TARGET_HEIGHT))
                 .flex()
                 .items_center()
-                .justify_center()
-                .h(px(MOBILE_MONTH_CHIP_HEIGHT))
-                .px(px(theme.scale.space_3))
-                .rounded(px(theme.scale.radius_chip))
-                .bg(fill)
-                .border(px(1.))
-                .border_color(border)
                 .cursor_pointer()
-                .hover(move |s| s.bg(hover))
                 .focus(theme::desktop_focus(ink))
                 .on_click(move |_, window, cx| on(offset, window, cx))
                 .child(
                     div()
-                        .whitespace_nowrap()
-                        .text_size(px(theme.scale.body))
-                        .line_height(px(theme.scale.body_line))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_center()
-                        .text_color(ink)
-                        .child(month_chip_label(&option.key)),
+                        .h(px(MOBILE_MONTH_CHIP_HEIGHT))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .px(px(theme.scale.space_3))
+                        .rounded(px(theme.scale.radius_chip))
+                        .bg(fill)
+                        .border(px(1.))
+                        .border_color(border)
+                        .hover(move |s| s.bg(hover))
+                        .child(
+                            div()
+                                .whitespace_nowrap()
+                                .text_size(px(theme.scale.body))
+                                .line_height(px(theme.scale.body_line))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_center()
+                                .text_color(ink)
+                                .child(month_chip_label(&option.key)),
+                        ),
                 ),
         );
     }
@@ -879,7 +881,7 @@ mod mobile_tests {
     use super::{
         billing_context_cached, billing_context_matches, billing_owns_progress, billing_view,
         empty_copy, mobile_filter_band_height, mobile_summary, month_chip_label, BillingView,
-        MOBILE_MONTH_CHIP_HEIGHT,
+        MOBILE_MONTH_CHIP_HEIGHT, MOBILE_MONTH_TARGET_HEIGHT,
     };
     use crate::theme::AppTheme;
     use gpui_kit::px;
@@ -1036,6 +1038,11 @@ mod mobile_tests {
             "an unparseable key falls back to itself instead of inventing a month"
         );
         assert_eq!(MOBILE_MONTH_CHIP_HEIGHT, 40.);
+        assert_eq!(
+            MOBILE_MONTH_TARGET_HEIGHT,
+            tokens::TARGET,
+            "the 40 px pill keeps the 44 px phone tap target"
+        );
         assert!(
             mobile_filter_band_height(&AppTheme::build(false)) <= 100.,
             "month chips and source segments fit one compact band"
