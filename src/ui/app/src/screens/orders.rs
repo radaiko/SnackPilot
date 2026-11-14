@@ -33,7 +33,7 @@ use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::OrderedMenu;
 use snackpilot_model::desktop::{ControlState, HostKind, LayoutMode};
-use snackpilot_model::navigation::ListKind;
+use snackpilot_model::navigation::{ListKind, Tab};
 use snackpilot_model::{AppModel, State};
 
 /// The compact Orders tab content (task 1.4): shell-owned heading and gutters,
@@ -89,13 +89,24 @@ pub fn orders_tab(
     // under the shell heading, so the batch strip stays above navigation
     // instead of overflowing the heading's height.
     let mut column = div().flex_1().min_h(px(0.)).flex().flex_col();
-    column = column.child(segment_tabs(
-        active,
-        split.upcoming.len(),
-        split.past.len(),
-        select_segment,
-        theme,
-    ));
+    // The screen's first row: the segment takes the width, the tab's refresh
+    // action sits at its trailing edge instead of in a title row.
+    let mut head = div()
+        .w_full()
+        .flex()
+        .items_center()
+        .gap(px(theme.scale.space_2))
+        .child(div().flex_1().min_w(px(0.)).child(segment_tabs(
+            active,
+            split.upcoming.len(),
+            split.past.len(),
+            select_segment,
+            theme,
+        )));
+    if let Some(action) = crate::app::refresh_action(Tab::Orders, state, Some(model), theme) {
+        head = head.child(action);
+    }
+    column = column.child(head);
 
     if state.order_progress.is_none() {
         if let Some(banner) = model.unconfirmed_banner_text() {

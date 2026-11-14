@@ -367,21 +367,12 @@ fn safe_area() -> (f32, f32, f32, f32) {
     gpui_mobile::safe_area_insets()
 }
 
-/// Distance from the safe-area top to the compact heading, and from the
-/// heading to the screen's own controls (design "Common mobile contract":
-/// 16 below safe top, 16 above screen controls).
-pub(crate) const HEADING_TOP: f32 = 16.;
-pub(crate) const HEADING_GAP: f32 = 16.;
+/// Breathing room between the measured safe-area top and the compact screen's
+/// own first row. There is no page title: the tab bar below already names the
+/// destination, and the 64 px a title row cost were list height.
+pub(crate) const CONTENT_TOP: f32 = 8.;
 /// Scroll-end breathing room between the content and the navigation.
 pub(crate) const SCROLL_END_GAP: f32 = 8.;
-
-/// The compact shell's heading: the active tab's German title in the headline
-/// role, supplied by the shell instead of every screen. A pushed settings
-/// screen draws its own 48 px back row and title, so the tab heading is not
-/// repeated there (design "Common mobile contract").
-pub(crate) fn shell_heading(tab: Tab, pushed: bool) -> Option<&'static str> {
-    (!pushed).then(|| tab.title())
-}
 
 /// The measured bottom obstruction a scrolled compact surface must clear
 /// (REQ-UI-15/REQ-UI-16): the Menüs dock's band when it is present, plus the
@@ -430,22 +421,20 @@ pub(crate) fn compact_content_bottom(plan: &CompactShellPlan) -> f32 {
 }
 
 /// The compact frame `render` paints: the one measured safe-area top, outside
-/// the centred column, and the heading's own distance from the content origin
-/// inside it. Returned as data so a test asserts the composed distance instead
-/// of the plan's constants.
+/// the centred column, and the screen's own small offset inside it. Returned as
+/// data so a test asserts the composed distance instead of the plan's
+/// constants.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct CompactFrame {
-    /// Top padding the shell applies outside the column.
+    /// Top padding above the screen's first row.
     pub top: f32,
-    /// The heading's distance from the content origin, when there is a heading.
-    pub heading: Option<f32>,
 }
 
-/// Compose the measured inset with the heading row's own 16 px offset.
+/// Compose the measured inset with the content's own offset. The screen's first
+/// row is the top of the page: no title row repeats the tab's name.
 pub(crate) fn compact_frame(plan: &CompactShellPlan) -> CompactFrame {
     CompactFrame {
-        top: plan.safe_top,
-        heading: plan.heading.map(|_| plan.safe_top + HEADING_TOP),
+        top: plan.safe_top + CONTENT_TOP,
     }
 }
 
@@ -454,8 +443,6 @@ pub(crate) fn compact_frame(plan: &CompactShellPlan) -> CompactFrame {
 /// with the safe-area top applied once and a measured obstruction reservation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct CompactShellPlan {
-    pub heading: Option<&'static str>,
-    pub heading_gap: f32,
     /// `min(viewport − 32, 560)`, or the 440 px form cap on a credential form.
     pub content_width: f32,
     /// Measured clearance the scrolled content keeps free at its end.
@@ -477,18 +464,14 @@ pub(crate) fn compact_shell_plan(
     reported_width: f32,
     viewport_width: f32,
     tab: Tab,
-    top: Screen,
     form: bool,
     safe_top: f32,
     safe_bottom: f32,
     dock_height: f32,
 ) -> CompactShellPlan {
     let width = crate::compact_width(reported_width, viewport_width);
-    let pushed = top == Screen::SettingsDetail;
     let geometry = crate::compact_column(host, width);
     CompactShellPlan {
-        heading: shell_heading(tab, pushed),
-        heading_gap: HEADING_GAP,
         // A credential form keeps the 440 px cap inside the same column; the
         // shell owns the cap so no screen derives its own.
         content_width: geometry
@@ -574,42 +557,16 @@ fn launch_screen(stage: LaunchStage, theme: &AppTheme) -> Div {
         )
 }
 
-/// The compact shell heading row: title role (28/34 semibold), 16 px
-/// gutters, wrapping rather than ellipsizing, and the tab's one refresh action
-/// at the trailing edge.
-fn shell_heading_row(title: &'static str, action: Option<AnyElement>, theme: &AppTheme) -> Div {
-    let mut row = div()
-        .w_full()
-        .pt(px(HEADING_TOP))
-        .pb(px(HEADING_GAP))
-        .flex()
-        .items_center()
-        .justify_between()
-        .child(
-            div()
-                .flex_1()
-                .text_size(px(theme.scale.title))
-                .line_height(px(theme.scale.title_line))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_primary)
-                .child(title),
-        );
-    if let Some(action) = action {
-        row = row.child(action);
-    }
-    row
-}
-
-/// The compact heading's refresh action: a 44 px ghost button that runs the
-/// active tab's refresh, or a 20 px spinner while that tab is loading. Pulling
-/// a list is not the only way to reload it — a visible control is what a device
-/// user reaches for, and the cached tabs keep their content while it runs.
-fn compact_refresh_action(
+/// The one refresh control: a 44 px ghost button that runs the tab's refresh,
+/// or a 20 px spinner while that tab is loading. Pulling a list is not the only
+/// way to reload it — a visible control is what a device user reaches for, and
+/// the cached tabs keep their content while it runs. Each screen places it at
+/// the trailing edge of its own first row, where the title row used to sit.
+pub(crate) fn refresh_action(
     tab: Tab,
     state: &State,
     model: Option<&Arc<AppModel>>,
     theme: &AppTheme,
-    cx: &mut Context<AppShell>,
 ) -> Option<AnyElement> {
     let intent = refresh_intent(tab)?;
     let model = Arc::clone(model?);
@@ -646,13 +603,17 @@ fn compact_refresh_action(
             .items_center()
             .justify_center()
             .rounded(px(snackpilot_model::tokens::RADIUS_CHIP))
+            // The page's own background: a horizontally scrolled neighbour
+            // (the Abrechnung month chips) slides behind this control instead
+            // of being cut off right beside it.
+            .bg(theme.background)
             .cursor_pointer()
             .tab_index(0)
             .hover(move |s| s.bg(theme.hover(theme.surface)))
             .focus(crate::theme::desktop_focus(theme.accent))
             .aria_label("Aktualisieren")
             .accessibility_id("compact-refresh")
-            .on_click(move |_, window, cx| dispatch_refresh(&model, intent, host, cx))
+            .on_click(move |_, _window, cx| dispatch_refresh(&model, intent, host, cx))
             .child(
                 Icon::new(IconName::RefreshCw)
                     .with_size(px(theme.scale.icon))
@@ -1738,7 +1699,6 @@ impl Render for AppShell {
             state.content_width,
             viewport_width,
             nav.active_tab(),
-            nav.top(),
             credential_form,
             safe_top,
             safe_bottom,
@@ -1887,8 +1847,9 @@ impl Render for AppShell {
                 ))
                 .child(main_region);
         } else {
-            // Compact Day Tray: the shell's one heading, then the centred
+            // Compact Day Tray: the screen's own first row at the top of the
             // column, with the measured safe-area top applied once outside it.
+            // No title row: the tab bar already names the destination.
             let frame = compact_frame(&plan);
             let mut column = div()
                 .w(px(plan.content_width))
@@ -1896,11 +1857,6 @@ impl Render for AppShell {
                 .flex()
                 .flex_col()
                 .min_h(px(0.));
-            if let Some(heading) = plan.heading {
-                let action =
-                    compact_refresh_action(plan.active, &state, self.model.as_ref(), &theme, cx);
-                column = column.child(shell_heading_row(heading, action, &theme));
-            }
             if let Some(banner) = banner {
                 column = column.child(banner);
             }
@@ -2007,9 +1963,9 @@ mod tests {
         desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
         focus_restore, keyboard_action, launch_visible, menu_row_action, model_settings_detail,
         navigation_top, nearest_restore_cursor, obstruction_reservation, order_cancel_state,
-        order_row_effect, refresh_intent, safe_area, shell_heading, should_create_inputs, Detail,
-        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
-        HEADING_GAP, HEADING_TOP, LAUNCH_MAX, LAUNCH_MIN, SCROLL_END_GAP,
+        order_row_effect, refresh_intent, safe_area, should_create_inputs, Detail, FocusRestore,
+        MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, CONTENT_TOP,
+        LAUNCH_MAX, LAUNCH_MIN, SCROLL_END_GAP,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
     use crate::components::tab_bar::reserved_height;
@@ -2076,53 +2032,31 @@ mod tests {
         assert_eq!(keyboard_action(false, false), None); // unchanged
     }
 
-    /// The compact shell keeps one root, one navigation and one heading
-    /// (REQ-UI-03/REQ-UI-04): every destination gets the tab's own heading in
-    /// the headline role while a pushed settings screen keeps its own back row
-    /// and title instead, the platform bar stays visible on pushes, the active
-    /// tab identity never changes, the measured safe-area top is the only top
-    /// inset, and the bottom reservation is measured — never the old blind
-    /// 100 px, never a second copy of an in-flow bar.
+    /// The compact shell keeps one root, one navigation and one content frame
+    /// (REQ-UI-03/REQ-UI-04): no page title repeats the tab bar's own label, the
+    /// platform bar stays visible on pushes, the active tab identity never
+    /// changes, the measured safe-area top is the only top inset, and the
+    /// bottom reservation is measured — never the old blind 100 px, never a
+    /// second copy of an in-flow bar.
     /// @req REQ-UI-03 @req REQ-UI-04
     #[test]
     fn mobile_shell_preserves_navigation_and_single_root() {
         use crate::components::tab_bar::reserved_height;
         use snackpilot_model::desktop::HostKind;
-        use snackpilot_model::navigation::{Screen, Tab};
+        use snackpilot_model::navigation::Tab;
 
-        // One heading per destination, in the shell's headline role.
-        for tab in Tab::ALL {
-            assert_eq!(
-                shell_heading(tab, false),
-                Some(tab.title()),
-                "{tab:?} keeps the shell heading"
-            );
-            assert_eq!(
-                shell_heading(tab, true),
-                None,
-                "a pushed settings screen draws its own back row and title"
-            );
-        }
-        assert_eq!((HEADING_TOP, HEADING_GAP), (16., 16.));
+        // The screen's first row starts 8 px below the measured inset: the
+        // 64 px title row the shell used to paint is list height now.
+        assert_eq!(CONTENT_TOP, 8.);
 
         // The compact plan at the accepted widths: one centred column, the bar
         // always visible and the identity kept. The iOS host anchors the view
         // below the status band, so its measured top inset is 0 (see
         // `mobile_heading_is_inset_once_below_the_measured_safe_top`).
         for (width, content) in [(360., 328.), (390., 358.), (768., 560.), (1280., 560.)] {
-            let plan = compact_shell_plan(
-                HostKind::Phone,
-                width,
-                width,
-                Tab::Menus,
-                Screen::Menus,
-                false,
-                0.,
-                0.,
-                0.,
-            );
+            let plan =
+                compact_shell_plan(HostKind::Phone, width, width, Tab::Menus, false, 0., 0., 0.);
             assert_eq!(plan.content_width, content, "centred column at {width}");
-            assert_eq!(plan.heading, Some("Menüs"));
             assert_eq!(plan.safe_top, 0., "only the measured inset is applied");
             assert!(plan.bar_visible, "the platform bar stays visible");
             assert_eq!(plan.active, Tab::Menus);
@@ -2140,7 +2074,6 @@ mod tests {
             390.,
             390.,
             Tab::Settings,
-            Screen::SettingsDetail,
             false,
             0.,
             0.,
@@ -2155,7 +2088,6 @@ mod tests {
             pushed.bar_visible,
             "changing bar visibility on a push is out of scope"
         );
-        assert_eq!(pushed.heading, None, "the pushed screen owns its title");
         assert_eq!(pushed.content_width, 358.);
 
         // A credential form keeps the 440 px cap inside the column at 768/1280.
@@ -2165,7 +2097,6 @@ mod tests {
                 width,
                 width,
                 Tab::Settings,
-                Screen::SettingsDetail,
                 true,
                 0.,
                 0.,
@@ -2190,17 +2121,17 @@ mod tests {
         );
     }
 
-    /// The compact heading sits one measured safe-area inset plus its own 16 px
-    /// below the content origin (REQ-UI-03/REQ-UI-15). The iOS host anchors the
+    /// The compact content starts one measured safe-area inset plus its own
+    /// 8 px below the window top (REQ-UI-03/REQ-UI-15). The iOS host anchors the
     /// GPUI view below the status band, so that view reports no *remaining* top
     /// inset and the shell must apply exactly what it measured: the old 59 px
     /// device fallback stacked a second status band under it, which is the dead
     /// band the simulator capture showed.
     /// @req REQ-UI-03 @req REQ-UI-15
     #[test]
-    fn mobile_heading_is_inset_once_below_the_measured_safe_top() {
+    fn mobile_content_is_inset_once_below_the_measured_safe_top() {
         use snackpilot_model::desktop::HostKind;
-        use snackpilot_model::navigation::{Screen, Tab};
+        use snackpilot_model::navigation::Tab;
 
         // The shell contributes no inset of its own on this host: it applies
         // the measured view inset verbatim, never a device fallback.
@@ -2218,49 +2149,40 @@ mod tests {
                 390.,
                 402.,
                 Tab::Menus,
-                Screen::Menus,
                 false,
                 top,
                 bottom,
                 0.,
             );
             let frame = compact_frame(&plan);
-            assert_eq!(frame.top, top, "one measured safe top outside the column");
-            let heading = frame.heading.expect("the Menüs heading");
-            assert_eq!(heading, top + HEADING_TOP, "16 px below that one inset");
+            assert_eq!(
+                frame.top,
+                top + CONTENT_TOP,
+                "one measured safe top plus the content's own offset"
+            );
             assert!(
-                heading <= plan.safe_top + HEADING_TOP,
-                "the heading is never a second safe area down"
+                frame.top <= plan.safe_top + CONTENT_TOP,
+                "the content is never a second safe area down"
             );
         }
 
-        // The embedded iOS case the capture showed: the heading is 16 px below
-        // the content origin, not 59 + 16 below it.
-        let embedded = compact_shell_plan(
-            HostKind::Phone,
-            390.,
-            402.,
-            Tab::Menus,
-            Screen::Menus,
-            false,
-            0.,
-            0.,
-            0.,
-        );
-        assert_eq!(compact_frame(&embedded).heading, Some(HEADING_TOP));
-        // A pushed screen draws its own back row, so the shell has no heading.
+        // The embedded iOS case the capture showed: the first row is 8 px below
+        // the content origin, not 59 + 8 below it.
+        let embedded =
+            compact_shell_plan(HostKind::Phone, 390., 402., Tab::Menus, false, 0., 0., 0.);
+        assert_eq!(compact_frame(&embedded).top, CONTENT_TOP);
+        // A pushed screen uses the same frame: its own back row is its first row.
         let pushed = compact_shell_plan(
             HostKind::Phone,
             390.,
             402.,
             Tab::Settings,
-            Screen::SettingsDetail,
             false,
             62.,
             34.,
             0.,
         );
-        assert_eq!(compact_frame(&pushed).heading, None);
+        assert_eq!(compact_frame(&pushed).top, 62. + CONTENT_TOP);
     }
 
     /// The compact column owns one bottom inset (REQ-UI-03/15): the 8 px
@@ -2273,17 +2195,8 @@ mod tests {
         use snackpilot_model::navigation::{Screen, Tab};
 
         for width in [360., 390., 768., 1280.] {
-            let plan = compact_shell_plan(
-                HostKind::Phone,
-                width,
-                width,
-                Tab::Menus,
-                Screen::Menus,
-                false,
-                0.,
-                0.,
-                0.,
-            );
+            let plan =
+                compact_shell_plan(HostKind::Phone, width, width, Tab::Menus, false, 0., 0., 0.);
             assert_eq!(
                 compact_content_bottom(&plan),
                 SCROLL_END_GAP,
@@ -2302,7 +2215,6 @@ mod tests {
                     width,
                     width,
                     Tab::Menus,
-                    top,
                     false,
                     0.,
                     0.,
@@ -2404,7 +2316,6 @@ mod tests {
                         390.,
                         402.,
                         Tab::Menus,
-                        Screen::Menus,
                         false,
                         0.,
                         safe_bottom,

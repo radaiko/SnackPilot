@@ -28,7 +28,7 @@ use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::MonthOption;
 use snackpilot_model::desktop::{ControlState, LayoutMode};
-use snackpilot_model::navigation::{ListKind, Screen};
+use snackpilot_model::navigation::{ListKind, Screen, Tab};
 use snackpilot_model::{format_eur, AppModel, BillingEntry, BillingSource, BillingTotals, State};
 
 const EMPTY_COPY: (&str, &str) = (
@@ -77,20 +77,31 @@ pub fn billing_tab(
 
     // One flex child of the shell's column: the one compact filter band (month
     // chips over the source segments) stays outside the record scroll, and the
-    // column takes exactly the height left under the shell heading.
+    // column takes exactly the height left under the content top. The month
+    // chips scroll at the band's full width — a chip cut at the screen edge
+    // reads as "there is more" — and the tab's refresh action sits on the
+    // source row below, where the row has room for it without cutting a chip.
     let mut column = div().flex_1().min_h(px(0.)).flex().flex_col();
-    column = column
-        .child(mobile_month_row(
-            &state.month_options,
-            state.selected_offset,
-            month_select(model, off_thread, cx),
-            theme,
-        ))
-        .child(mobile_source_row(
+    let month_band = div().w_full().child(mobile_month_row(
+        &state.month_options,
+        state.selected_offset,
+        month_select(model, off_thread, cx),
+        theme,
+    ));
+    let mut source_band = div()
+        .w_full()
+        .flex()
+        .items_center()
+        .gap(px(theme.scale.space_2))
+        .child(div().flex_1().min_w(px(0.)).child(mobile_source_row(
             state.billing_source,
             source_select(model, off_thread, cx),
             theme,
-        ));
+        )));
+    if let Some(action) = crate::app::refresh_action(Tab::Billing, state, Some(model), theme) {
+        source_band = source_band.child(action);
+    }
+    column = column.child(month_band).child(source_band);
 
     let mut content = div().w_full().flex_1().min_h(px(0.)).flex().flex_col();
 

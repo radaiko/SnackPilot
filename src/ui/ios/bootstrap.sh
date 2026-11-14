@@ -27,7 +27,9 @@ cargo_profile=()
 [[ "$profile" == release ]] && cargo_profile=(--release)
 for target in "${RUST_IOS_TARGETS:-aarch64-apple-ios-sim}"; do
   echo "==> cargo staticlib: snackpilot-app for $target ($profile)"
-  ( cd "$UI" && cargo rustc -p snackpilot-app --lib --target "$target" "${cargo_profile[@]}" -- --crate-type=staticlib )
+  # macOS ships bash 3.2, where an empty array under `set -u` is an error, so
+  # the debug profile has to expand through the `+` form.
+  ( cd "$UI" && cargo rustc -p snackpilot-app --lib --target "$target" ${cargo_profile[@]+"${cargo_profile[@]}"} -- --crate-type=staticlib )
   out="$UI/target/$target/$profile"
   cp "$out/deps/libsnackpilot_app.a" "$out/libsnackpilot_app.a"
   ls -la "$out/libsnackpilot_app.a"

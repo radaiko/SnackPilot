@@ -35,7 +35,7 @@ use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::{MenuCategory, MenuItem};
 use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
-use snackpilot_model::navigation::ListKind;
+use snackpilot_model::navigation::{ListKind, Tab};
 use snackpilot_model::tokens;
 use snackpilot_model::{category_heading, format_day_short, menu_key, AppModel, State};
 
@@ -57,28 +57,32 @@ pub fn menus_tab(
 
     let mut column = div().size_full().flex().flex_col();
 
+    // The screen's first row: the day navigator takes the width, the tab's one
+    // refresh action sits at its trailing edge. There is no page title above
+    // it — the tab bar already names the destination.
+    let mut day_row = div()
+        .w_full()
+        .flex()
+        .items_center()
+        .gap(px(theme.scale.space_2));
     if let Some(snapshot) = &state.menu_snapshot {
         if !snapshot.available_dates.is_empty() {
             let dates = snapshot.available_dates.clone();
             let selected = state.selected_day.clone();
-            column = column.child(mobile_day_navigator(
+            day_row = day_row.child(div().flex_1().min_w(px(0.)).child(mobile_day_navigator(
                 &dates,
                 selected.as_deref(),
                 theme,
                 day_handler(cx, DayStep::Prev),
                 day_handler(cx, DayStep::Next),
                 day_handler(cx, DayStep::Today),
-            ));
+            )));
         }
     }
-
-    if state.order_progress.is_none() {
-        if let Some(snapshot) = &state.menu_snapshot {
-            if snapshot.refreshing {
-                column = column.child(refresh_line(theme));
-            }
-        }
+    if let Some(action) = crate::app::refresh_action(Tab::Menus, state, model, theme) {
+        day_row = day_row.child(action);
     }
+    column = column.child(day_row);
     let host = state.host_kind;
     if let Some(error) = &state.error_text {
         column = column.child(mobile_error_banner(
@@ -337,26 +341,6 @@ fn loading_state(theme: &AppTheme) -> AnyElement {
         .justify_center()
         .p(px(theme.scale.space_4))
         .child(spinner(theme.text_secondary, theme.scale.icon))
-        .into_any_element()
-}
-
-/// The cached refresh keeps the day and rows: one quiet 20 px spinner with the
-/// existing `Aktualisiere...` metadata line, never a decorative card.
-fn refresh_line(theme: &AppTheme) -> AnyElement {
-    div()
-        .py(px(theme.scale.space_2))
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap(px(theme.scale.space_2))
-        .child(spinner(theme.text_secondary, theme.scale.icon))
-        .child(
-            div()
-                .text_size(px(theme.scale.meta))
-                .line_height(px(theme.scale.meta_line))
-                .text_color(theme.text_secondary)
-                .child("Aktualisiere..."),
-        )
         .into_any_element()
 }
 
