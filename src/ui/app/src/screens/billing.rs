@@ -589,7 +589,6 @@ fn month_row(
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> Div {
-    let border = theme.border;
     let bg = theme.surface;
     let mut row = div().flex().w_full().bg(bg);
     for option in state.month_options.iter() {

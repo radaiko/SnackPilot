@@ -39,12 +39,16 @@ pub fn dish_label(item: &MenuItem) -> String {
 }
 
 /// The row's one status word, in the design's precedence:
-/// pending cancellation → ordered → pending selection → sold out → open.
-/// A dish past the cutoff is simply not tappable and carries no chip.
+/// pending cancellation → ordered → sold out → open.
+///
+/// A pending selection is deliberately not one of them: marking a dish for the
+/// order is not a reservation, and a row that says "Reserviert" promises
+/// something the store has not agreed to. The tinted row and its check carry
+/// that state; only words the store stands behind become a chip. A dish past
+/// the cutoff is simply not tappable and carries no chip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuStatus {
     Open,
-    Reserved,
     Ordered,
     Cancelling,
     SoldOut,
@@ -55,7 +59,6 @@ impl MenuStatus {
     pub fn label(self) -> &'static str {
         match self {
             Self::Open => "Geöffnet",
-            Self::Reserved => "Reserviert",
             Self::Ordered => "Bestellt",
             Self::Cancelling => "Stornierung offen",
             Self::SoldOut => "Ausgebucht",
@@ -69,8 +72,6 @@ pub fn mobile_menu_status(state: &MenuCardState) -> Option<MenuStatus> {
         MenuStatus::Cancelling
     } else if state.ordered {
         MenuStatus::Ordered
-    } else if state.selected {
-        MenuStatus::Reserved
     } else if !state.available {
         MenuStatus::SoldOut
     } else if state.cutoff {
@@ -85,9 +86,6 @@ pub fn mobile_menu_status(state: &MenuCardState) -> Option<MenuStatus> {
 pub fn mobile_status_tones(status: MenuStatus, theme: &AppTheme) -> (Hsla, Hsla, Hsla) {
     match status {
         MenuStatus::Open => (theme.surface_alt, theme.text_secondary, theme.border),
-        // The accent on its own tint reaches only 4.44:1 in light, so the word
-        // takes the primary text role and the boundary keeps the accent.
-        MenuStatus::Reserved => (theme.accent_surface, theme.text_primary, theme.accent),
         MenuStatus::Ordered => (theme.success_surface, theme.success, theme.success),
         MenuStatus::Cancelling => (theme.warning_surface, theme.warning, theme.warning),
         MenuStatus::SoldOut => (theme.error_surface, theme.error, theme.error),
@@ -449,8 +447,11 @@ mod tests {
             selected: true,
             ..state()
         };
-        assert_eq!(mobile_menu_status(&reserved), Some(MenuStatus::Reserved));
-        assert_eq!(MenuStatus::Reserved.label(), "Reserviert");
+        assert_eq!(
+            mobile_menu_status(&reserved),
+            Some(MenuStatus::Open),
+            "a pending selection is not a reservation and carries no word of its own"
+        );
         assert_eq!(
             mobile_menu_status(&MenuCardState {
                 available: false,
@@ -475,7 +476,6 @@ mod tests {
             let theme = AppTheme::build(dark);
             for status in [
                 MenuStatus::Open,
-                MenuStatus::Reserved,
                 MenuStatus::Ordered,
                 MenuStatus::Cancelling,
                 MenuStatus::SoldOut,
