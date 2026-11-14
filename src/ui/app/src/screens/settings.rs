@@ -176,6 +176,7 @@ pub fn desktop_settings_tab(
     rows_focus: &[gpui::FocusHandle; 4],
     master_focus: &gpui::FocusHandle,
     appearance_design: &gpui::FocusHandle,
+    login_attempted: bool,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -367,6 +368,7 @@ pub fn desktop_settings_tab(
                         pass,
                         theme,
                         Some(pad),
+                        login_attempted,
                         cx,
                     )
                 }

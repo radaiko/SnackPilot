@@ -332,6 +332,43 @@ pub mod evidence {
         #[cfg(not(debug_assertions))]
         let _ = (model, scenario);
     }
+
+    /// Opens a pushed settings detail for a capture run, so a sub-screen can be
+    /// photographed without a tap: `--detail=login-kantine|login-automaten|
+    /// appearance|notifications` (or `SNACKPILOT_DETAIL`), plus `--attempted`
+    /// (`SNACKPILOT_ATTEMPTED=1`) to show the credential form's inline errors.
+    /// Evidence runs in debug builds only; a release binary has no knob.
+    #[cfg(debug_assertions)]
+    pub fn install_detail(
+        content: &gpui::Entity<crate::app::AppShell>,
+        window: &mut gpui::Window,
+        cx: &mut gpui::App,
+    ) {
+        if !requested() {
+            return;
+        }
+        let name = std::env::args()
+            .find_map(|a| a.strip_prefix("--detail=").map(str::to_owned))
+            .or_else(|| std::env::var("SNACKPILOT_DETAIL").ok())
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        let detail = match name.as_str() {
+            "login-kantine" => crate::app::Detail::LoginKantine,
+            "login-automaten" => crate::app::Detail::LoginAutomaten,
+            "appearance" => crate::app::Detail::Appearance,
+            "notifications" => crate::app::Detail::Notifications,
+            _ => return,
+        };
+        let attempted = std::env::args().any(|a| a == "--attempted")
+            || std::env::var("SNACKPILOT_ATTEMPTED").as_deref() == Ok("1");
+        content.update(cx, |shell, cx| {
+            shell.open_detail(detail, window, cx);
+            if attempted {
+                shell.evidence_attempt_login(window, cx);
+            }
+        });
+    }
 }
 
 /// Mount the single spike Root: bundled Inter fonts, kit init, one window.
@@ -351,6 +388,8 @@ pub fn mount(cx: &mut App) {
         },
         |window, cx| {
             let content = cx.new(|cx| app::AppShell::new(shell_model(), cx));
+            #[cfg(debug_assertions)]
+            evidence::install_detail(&content, window, cx);
             cx.new(|cx| Root::new(content, window, cx))
         },
     )
