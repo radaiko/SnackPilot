@@ -22,6 +22,10 @@ use std::sync::Arc;
 /// corrected (`docs/requirements/07-release.md`).
 const DATENSCHUTZ_MESSAGE: &str = crate::desktop::PRIVACY_PARAGRAPH;
 
+/// The Benachrichtigungen row hint: short enough to stay on one line in the
+/// compact row; the full sentence wrapped and made that one card taller.
+pub(crate) const NOTIFICATIONS_HINT: &str = "Erinnerungen und Standort";
+
 /// The Datenschutz alert body for this host: the approved paragraph alone on
 /// mobile, plus the truthful no-analytics sentence on desktop (REQ-SCR-04).
 pub(crate) fn datenschutz_message(desktop: bool) -> String {
@@ -78,7 +82,7 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
             "settings-notifications",
             IconName::Bell,
             "Benachrichtigungen",
-            "Erinnerungen und Standort-Benachrichtigungen".to_string(),
+            NOTIFICATIONS_HINT.to_string(),
             Detail::Notifications,
         ),
     ];
@@ -91,13 +95,17 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
         .gap(px(theme.scale.space_2))
         .overflow_y_scroll();
 
-    let section = div()
-        .mb(px(theme.scale.space_2))
-        .text_size(px(theme.scale.meta))
-        .line_height(px(theme.scale.meta_line))
-        .text_color(theme.text_secondary)
-        .child("Konto");
-    list = list.child(section);
+    let section_label = |text: &'static str| {
+        div()
+            .pt(px(theme.scale.space_4))
+            .mb(px(theme.scale.space_2))
+            .text_size(px(theme.scale.meta))
+            .line_height(px(theme.scale.meta_line))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(theme.text_secondary)
+            .child(text)
+    };
+    list = list.child(section_label("Konto"));
 
     for (index, (id, icon, title, hint, detail)) in rows.into_iter().enumerate() {
         // §3.4: Benachrichtigungen only where the platform supports them.
@@ -107,15 +115,7 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
             continue;
         }
         if index == 2 {
-            list = list.child(
-                div()
-                    .mt(px(theme.scale.space_4))
-                    .mb(px(theme.scale.space_2))
-                    .text_size(px(theme.scale.meta))
-                    .line_height(px(theme.scale.meta_line))
-                    .text_color(theme.text_secondary)
-                    .child("App"),
-            );
+            list = list.child(section_label("App"));
         }
         let entity = cx.entity().clone();
         let handler = Rc::new(move |window: &mut Window, cx: &mut App| {
@@ -139,27 +139,15 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
         });
     });
 
-    list.child(
-        div()
-            .id("datenschutz")
-            .w_full()
-            .min_h(px(theme.scale.target))
-            .flex()
-            .items_center()
-            .px(px(theme.scale.space_4))
-            .mt(px(theme.scale.space_2))
-            .cursor_pointer()
-            .focus(theme::desktop_focus(theme.accent))
-            .on_click(move |_, window, cx| on_privacy(window, cx))
-            .child(
-                div()
-                    .text_size(px(theme.scale.meta))
-                    .line_height(px(theme.scale.meta_line))
-                    .text_color(theme.text_secondary)
-                    .child("Datenschutz"),
-            ),
-    )
-    .into_any_element()
+    list = list.child(settings_row(
+        "datenschutz",
+        IconName::Shield,
+        "Datenschutz",
+        Some("Was die App speichert und überträgt".to_string()),
+        on_privacy,
+        theme,
+    ));
+    list.into_any_element()
 }
 
 /// Desktop Einstellungen (REQ-SCR-04): the same rows and forms beside a
@@ -235,7 +223,7 @@ pub fn desktop_settings_tab(
         (
             "settings-notifications",
             "Benachrichtigungen",
-            "Erinnerungen und Standort-Benachrichtigungen".to_string(),
+            NOTIFICATIONS_HINT.to_string(),
             Detail::Notifications,
             SettingsDetail::Notifications,
         ),
@@ -430,7 +418,19 @@ pub(crate) fn placeholder_detail(
 
 #[cfg(test)]
 mod tests {
-    use super::datenschutz_message;
+    use super::{datenschutz_message, NOTIFICATIONS_HINT};
+
+    /// The compact Benachrichtigungen row hint stays on one line so that row
+    /// keeps the same card height as every other settings row.
+    /// @req REQ-UI-15 @req REQ-SCR-04
+    #[test]
+    fn notifications_row_hint_stays_on_one_line() {
+        assert_eq!(NOTIFICATIONS_HINT, "Erinnerungen und Standort");
+        assert!(
+            !NOTIFICATIONS_HINT.contains("Benachrichtigungen"),
+            "the long hint wrapped: {NOTIFICATIONS_HINT}"
+        );
+    }
 
     /// The mobile Datenschutz alert carries the approved Aptabase paragraph
     /// and nothing else; only desktop appends its no-analytics sentence
