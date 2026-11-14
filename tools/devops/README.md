@@ -5,7 +5,31 @@ Run `make help` for the target list; `make doctor` to check prerequisites.
 
 ## Build & run
 - `make ios-run` — build + install + launch on a simulator. `DEVICE=<udid>` or `IOS_SIM="<name>"` to pick one.
-- `make android-run` — build + install + launch on an emulator/device. `ANDROID_AVD="<name>"` to pick the AVD started when none is connected.
+- `make android-run` — build + install + launch on an emulator/device. `ANDROID_AVD="<name>"` to pick the AVD started when none is connected (otherwise the first AVD on the host is used).
+
+### Android emulator on this VM
+
+This VM is itself a KVM guest, and the emulator's nested-KVM vCPUs hang within
+seconds (`detected a hanging thread 'QEMU2 CPU0'`), so `run-android.sh` starts it
+with software emulation (`ANDROID_EMU_ACCEL`, default `-accel off`). Two other
+things are required and are set by the script:
+
+- `ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL` is raised (default 30 min). The
+  emulator's hang watchdog otherwise kills its own vCPUs after 15 s, which a
+  slow software-emulated boot routinely exceeds.
+- `ANDROID_HOME=$HOME/android-sdk` and a **JDK** (not just a JRE): Temurin 17 in
+  `~/.local/jdk` is picked up automatically, or install `openjdk-17-jdk` and
+  export `JAVA_HOME`. The distro's `java-17-openjdk-amd64` here is JRE-only and
+  fails `:app:compileDebugJavaWithJavac` with "does not provide the required
+  capabilities: [JAVA_COMPILER]".
+
+Expect a cold boot of ~5–6 minutes and an app start of ~40 s; the guest is slow
+enough that Android shows "… isn't responding" dialogs. `adb shell settings put
+global hide_error_dialogs 1` silences them, and the app itself renders correctly.
+
+Build the Rust library with `--release` for emulator runs
+(`bash tools/devops/ui-android-build.sh --release` before `assembleDebug`):
+the debug `.so` makes the guest unusably slow.
 
 Both rerun the platform `bootstrap.sh` only when `src/core/src` changed since the last binding build.
 
