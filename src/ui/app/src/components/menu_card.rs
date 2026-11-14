@@ -1,9 +1,9 @@
 //! Menu row — docs/requirements/04-ui-ux.md §4.5.
 //!
 //! One flat row per menu item: surface, 1 px hairline, 12 radius, 16 padding,
-//! dish and price strong on the same line, allergens quiet below, a status
-//! chip that always carries its word, and the reserved 24 px check while the
-//! dish is pending.
+//! the dish strong across the full width, and a quiet meta line below —
+//! allergens left, an exceptional status word and the price at the right. The
+//! default "Geöffnet" is not repeated on every row.
 //! Tappability is decided by the caller from the model
 //! (`ordered || (available && !cutoff)`).
 
@@ -100,27 +100,26 @@ pub const MOBILE_CHECK: f32 = 24.;
 /// The status chip's one height.
 pub const MOBILE_CHIP_HEIGHT: f32 = 24.;
 
-/// One slot of the compact row's name line, in paint order: the flexible dish,
-/// the check only while pending, and the price last at the trailing edge, so a
-/// wrapped two-line dish shrinks instead of pushing the price away.
+/// One trailing part of the compact row's meta line, in paint order, after the
+/// flexible allergens: the status word only when it is not the default open
+/// state, then the price at the trailing edge.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MobileRowSlot {
-    Dish,
-    Check(f32),
+pub enum MobileMetaSlot {
+    Status(MenuStatus),
     Price,
 }
 
-pub fn mobile_row_slots(selected: bool) -> Vec<MobileRowSlot> {
-    let mut slots = vec![MobileRowSlot::Dish];
-    if selected {
-        slots.push(MobileRowSlot::Check(MOBILE_CHECK));
+pub fn mobile_meta_slots(status: Option<MenuStatus>) -> Vec<MobileMetaSlot> {
+    let mut slots = Vec::new();
+    if let Some(status) = status.filter(|s| *s != MenuStatus::Open) {
+        slots.push(MobileMetaSlot::Status(status));
     }
-    slots.push(MobileRowSlot::Price);
+    slots.push(MobileMetaSlot::Price);
     slots
 }
 
 /// The compact row's quiet meta line, left: the complete allergen list, when
-/// the dish has one. The price rides the name line.
+/// the dish has one.
 pub fn mobile_allergens(item: &MenuItem) -> Option<String> {
     (!item.allergens.is_empty()).then(|| format!("Allergene: {}", item.allergens.join(", ")))
 }
@@ -231,8 +230,8 @@ pub fn menu_card(
             .on_click(move |_, window, cx| on_tap(window, cx));
     }
 
-    // Name line: the flexible dish, the reserved check while pending, and the
-    // price last at the trailing edge — never wrapped, never narrowed.
+    // Name line: the dish across the full width, plus the reserved check while
+    // pending.
     let dish_text = div()
         .flex_1()
         .min_w(px(0.))
@@ -267,20 +266,10 @@ pub fn menu_card(
                 ),
         );
     }
-    name = name.child(
-        div()
-            .flex_shrink_0()
-            .whitespace_nowrap()
-            .text_size(px(tokens::BODY_STRONG.size))
-            .line_height(px(tokens::BODY_STRONG.line_height))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(theme.text_primary)
-            .child(item.price.clone()),
-    );
     card = card.child(name);
 
-    // Quiet meta row: the wrapping allergens on the left, the status word at
-    // the trailing edge.
+    // Quiet meta row: the wrapping allergens on the left, then the trailing
+    // parts — an exceptional status word and the price, never wrapped.
     let mut footer = div().flex().items_start().gap(px(m.space_2));
     footer = footer.child(match mobile_allergens(item) {
         Some(allergens) => div()
@@ -292,8 +281,18 @@ pub fn menu_card(
             .child(allergens),
         None => div().flex_1(),
     });
-    if let Some(status) = mobile_menu_status(&state) {
-        footer = footer.child(status_chip(status, theme));
+    for slot in mobile_meta_slots(mobile_menu_status(&state)) {
+        footer = footer.child(match slot {
+            MobileMetaSlot::Status(status) => status_chip(status, theme),
+            MobileMetaSlot::Price => div()
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .text_size(px(tokens::BODY_STRONG.size))
+                .line_height(px(tokens::BODY_STRONG.line_height))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.text_primary)
+                .child(item.price.clone()),
+        });
     }
     card.child(footer)
 }
@@ -302,8 +301,8 @@ pub fn menu_card(
 mod tests {
     use super::{
         mobile_allergens, mobile_card_treatment, mobile_dish, mobile_menu_status,
-        mobile_menu_tappable, mobile_row_slots, mobile_status_tones, MenuCardState, MenuStatus,
-        MobileCardTreatment, MobileRowSlot, MOBILE_CHECK, MOBILE_CHIP_HEIGHT,
+        mobile_menu_tappable, mobile_meta_slots, mobile_status_tones, MenuCardState, MenuStatus,
+        MobileCardTreatment, MobileMetaSlot, MOBILE_CHECK, MOBILE_CHIP_HEIGHT,
     };
     use crate::theme::{to_rgb, AppTheme};
     use snackpilot_core::domain::{MenuCategory, MenuItem};
@@ -358,29 +357,33 @@ mod tests {
     }
 
     /// The flat row's name and meta lines (REQ-SCR-01/REQ-UI-15): the price
-    /// rides the name line last, in the strong body role, so the flexible dish
-    /// shrinks instead of pushing it onto the meta row; the 24 px pending check
-    /// stays reserved before it. The meta row keeps only the wrapping allergens
-    /// at the left and the status word at the right. The shared row recipe is
-    /// the one 12 radius / 16 padding / 1 px surface.
+    /// closes the meta line in the strong body role, never wrapped, so the
+    /// dish keeps the full width of its own line; the 24 px pending check stays
+    /// reserved on the name line. An open menu carries no status word — the
+    /// chip only marks an exception — and the shared row recipe is the one
+    /// 12 radius / 16 padding / 1 px surface.
     /// @req REQ-SCR-01 @req REQ-UI-15
     #[test]
-    fn mobile_menu_price_shares_the_title_line() {
+    fn mobile_menu_meta_line_carries_allergens_and_price() {
         assert_eq!(
-            mobile_row_slots(true),
+            mobile_meta_slots(Some(MenuStatus::Open)),
+            vec![MobileMetaSlot::Price],
+            "the default open state is not repeated on every row"
+        );
+        assert_eq!(
+            mobile_meta_slots(Some(MenuStatus::SoldOut)),
             vec![
-                MobileRowSlot::Dish,
-                MobileRowSlot::Check(MOBILE_CHECK),
-                MobileRowSlot::Price
+                MobileMetaSlot::Status(MenuStatus::SoldOut),
+                MobileMetaSlot::Price
             ],
-            "the price closes the name line after the reserved check"
+            "an exceptional status sits before the price"
+        );
+        assert_eq!(
+            mobile_meta_slots(None),
+            vec![MobileMetaSlot::Price],
+            "past the cutoff only the price remains"
         );
         assert_eq!(MOBILE_CHECK, 24.);
-        assert_eq!(
-            mobile_row_slots(false),
-            vec![MobileRowSlot::Dish, MobileRowSlot::Price],
-            "the price is on the name line even when nothing is selected"
-        );
 
         let full = item("MENÜ II", "Gemüse-Curry mit Basmatireis und Naan-Brot");
         assert_eq!(
@@ -395,7 +398,7 @@ mod tests {
         assert_eq!(
             mobile_allergens(&plain),
             None,
-            "no allergen line without allergens; the price is not a meta part"
+            "no allergen text without allergens; the price still closes the line"
         );
         assert_eq!(full.price, "6,40 €", "the price string is unchanged");
 
