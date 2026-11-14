@@ -14,10 +14,10 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{Icon, Sizable};
 
 use crate::app::AppShell;
+use crate::components::button::{mobile_action, mobile_action_action, ButtonKind};
 use crate::components::segment_tabs::{segment_options, SegmentOptionHandler};
 use crate::components::time_chips::time_chips;
-use crate::navigation::ClickHandler;
-use crate::theme::{self, AppTheme};
+use crate::theme::AppTheme;
 use snackpilot_model::{tokens, AppModel, State};
 
 /// The two activation windows the diagnostic log offers (notification-log §2).
@@ -77,52 +77,25 @@ pub fn notification_action_height(theme: &AppTheme) -> f32 {
     theme.scale.action_height
 }
 
-fn primary(
-    id: &'static str,
-    label: String,
-    icon: Option<IconName>,
-    on_click: ClickHandler,
-    theme: &AppTheme,
-) -> AnyElement {
-    let enabled = !label.contains("...");
-    let button = div()
-        .w_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .min_h(px(notification_action_height(theme)))
-        .px(px(theme.scale.space_4))
-        .py(px(theme.scale.space_2))
-        .rounded(px(theme.scale.radius_control));
-    let button = theme::apply(button, &theme.button_secondary()).id(SharedString::from(id));
-    let button = if enabled {
-        button
-            .cursor_pointer()
-            .on_click(move |_, window, cx| on_click(window, cx))
-    } else {
-        button.opacity(0.6)
-    };
-    let mut button = button;
-    if let Some(icon) = icon {
-        button = button.child(
-            Icon::new(icon)
-                .with_size(px(theme.scale.icon))
-                .text_color(theme.text_primary),
-        );
+/// The screen's three actions, whose hierarchy the shared buttons carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotificationAction {
+    SetLocation,
+    RemoveLocation,
+    SendLog,
+}
+
+fn action_kind(action: NotificationAction) -> ButtonKind {
+    match action {
+        NotificationAction::SetLocation => ButtonKind::Primary,
+        NotificationAction::RemoveLocation => ButtonKind::Danger,
+        NotificationAction::SendLog => ButtonKind::Secondary,
     }
-    button
-        .child(
-            div()
-                .min_w(px(0.))
-                .ml(px(theme.scale.space_2))
-                .text_size(px(theme.scale.body))
-                .line_height(px(theme.scale.body_line))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_center()
-                .text_color(theme.text_primary)
-                .child(label),
-        )
-        .into_any_element()
+}
+
+/// A busy label (`...`) keeps its control non-interactive instead of firing.
+fn action_enabled(label: &str) -> bool {
+    !label.contains("...")
 }
 
 /// The pushed Benachrichtigungen screen.
@@ -291,7 +264,7 @@ pub fn notifications_screen(
             }
             let _ = shell.update(cx, |_, cx| cx.notify());
         });
-        let danger = theme.button_danger();
+        let danger = action_kind(NotificationAction::RemoveLocation);
         div()
             .flex()
             .flex_col()
@@ -304,26 +277,16 @@ pub fn notifications_screen(
                     .child("Firmenstandort gesetzt"),
             )
             .child(
-                theme::apply(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .h(px(theme.scale.action_height))
-                        .px(px(theme.scale.space_4)),
-                    &danger,
+                mobile_action_action(
+                    "location-remove",
+                    "Standort entfernen",
+                    danger,
+                    theme,
+                    cx,
+                    move |_, window, cx| remove(window, cx),
                 )
-                .id("location-remove")
-                .cursor_pointer()
-                .on_click(move |_, window, cx| remove(window, cx))
-                .child(
-                    div()
-                        .text_size(px(theme.scale.body))
-                        .line_height(px(theme.scale.body_line))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme.on_accent)
-                        .child("Standort entfernen"),
-                ),
+                .w_full()
+                .justify_center(),
             )
     } else {
         let shell = cx.entity().clone();
@@ -339,9 +302,22 @@ pub fn notifications_screen(
         } else {
             "Standort setzen"
         };
+        let kind = action_kind(NotificationAction::SetLocation);
+        let button = if action_enabled(label) {
+            mobile_action_action(
+                "location-set",
+                label,
+                kind,
+                theme,
+                cx,
+                move |_, window, cx| set(window, cx),
+            )
+        } else {
+            mobile_action("location-set", label, kind, false, theme, cx)
+        };
         // The hint above already says what the button does; a second caption
         // under it only repeated the label in different words.
-        div().child(primary("location-set", label.to_string(), None, set, theme))
+        div().child(button.w_full().justify_center())
     };
 
     // Section 3: notification log.
@@ -392,13 +368,18 @@ pub fn notifications_screen(
                     .text_color(theme.text_secondary)
                     .child(state.log_status.clone()),
             )
-            .child(primary(
-                "log-send",
-                "Log per E-Mail senden".to_string(),
-                Some(IconName::Mail),
-                send,
-                theme,
-            ))
+            .child(
+                mobile_action_action(
+                    "log-send",
+                    "Log per E-Mail senden",
+                    action_kind(NotificationAction::SendLog),
+                    theme,
+                    cx,
+                    move |_, window, cx| send(window, cx),
+                )
+                .w_full()
+                .justify_center(),
+            )
             .child(
                 div()
                     .id("log-discard")
@@ -487,10 +468,37 @@ pub fn notifications_screen(
 
 #[cfg(test)]
 mod tests {
-    use super::{notification_action_height, LogDuration, LOG_DURATION_DEFAULT};
+    use super::{
+        action_enabled, action_kind, notification_action_height, LogDuration, NotificationAction,
+        LOG_DURATION_DEFAULT,
+    };
+    use crate::components::button::ButtonKind;
     use crate::components::segment_tabs::segment_options;
     use crate::components::time_chips::{label, time_chips, times};
     use crate::theme::AppTheme;
+
+    /// The screen's hierarchy is carried by the shared buttons: the location
+    /// control is its committing action, removal is destructive and the mail
+    /// export is a one-off; a busy label disables instead of firing
+    /// (REQ-SCR-08).
+    /// @req REQ-SCR-08
+    #[test]
+    fn notification_actions_use_the_shared_hierarchy() {
+        assert_eq!(
+            action_kind(NotificationAction::SetLocation),
+            ButtonKind::Primary
+        );
+        assert_eq!(
+            action_kind(NotificationAction::RemoveLocation),
+            ButtonKind::Danger
+        );
+        assert_eq!(
+            action_kind(NotificationAction::SendLog),
+            ButtonKind::Secondary
+        );
+        assert!(action_enabled("Standort setzen"));
+        assert!(!action_enabled("Standort wird ermittelt..."));
+    }
 
     /// The reminder keeps the twelve pinned times and 44 px chips, and the
     /// location/diagnostics actions keep the 48 px floor (REQ-SCR-08).

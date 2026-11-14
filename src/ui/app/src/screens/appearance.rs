@@ -38,6 +38,16 @@ pub fn step_preference(current: ThemePreference, key: &str) -> Option<ThemePrefe
     Some(ALL[next])
 }
 
+/// Selected rows tint like every other selected surface; unselected rows stay
+/// on the plain card fill.
+fn row_fill(selected: bool, theme: &AppTheme) -> Hsla {
+    if selected {
+        theme.accent_surface
+    } else {
+        theme.surface
+    }
+}
+
 /// One selectable appearance row: surface, hairline border, 12 radius, 16
 /// padding, body label and a trailing accent check on the selected choice. The
 /// whole row is the 56 px target.
@@ -57,11 +67,10 @@ fn appearance_row(
         .items_center()
         .p(px(theme.scale.space_4))
         .rounded(px(theme.scale.radius_card))
-        .bg(theme.surface)
+        .bg(row_fill(selected, theme))
         .border(px(1.))
         .border_color(if selected { theme.accent } else { theme.border })
         .cursor_pointer()
-        .hover(|s| s.bg(theme.pressed(theme.surface)))
         .focus(theme::desktop_focus(theme.accent))
         .on_click(move |_, window, cx| on_click(window, cx))
         .child(
@@ -72,6 +81,9 @@ fn appearance_row(
                 .text_color(theme.text_primary)
                 .child(label),
         );
+    if !selected {
+        row = row.hover(|s| s.bg(theme.pressed(theme.surface)));
+    }
     if selected {
         row = row.child(
             Icon::new(IconName::Check)
@@ -177,8 +189,20 @@ pub fn appearance_screen(
 
 #[cfg(test)]
 mod tests {
-    use super::{step_preference, APPEARANCE_OPTIONS};
+    use super::{row_fill, step_preference, APPEARANCE_OPTIONS};
+    use crate::theme::AppTheme;
     use snackpilot_model::ThemePreference;
+
+    /// The selected row tints like every other selected surface instead of
+    /// staying on the plain card fill (REQ-SCR-07, REQ-UI-15).
+    /// @req REQ-SCR-07 @req REQ-UI-15
+    #[test]
+    fn selected_row_tints_like_every_other_selected_surface() {
+        let theme = AppTheme::build(false);
+        assert_ne!(row_fill(true, &theme), row_fill(false, &theme));
+        assert_eq!(row_fill(true, &theme), theme.accent_surface);
+        assert_eq!(row_fill(false, &theme), theme.surface);
+    }
 
     /// The screen offers exactly the three appearance choices, in order, and
     /// nothing else (REQ-SCR-07): System / Hell / Dunkel.
