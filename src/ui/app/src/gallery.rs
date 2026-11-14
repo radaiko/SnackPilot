@@ -15,7 +15,7 @@ use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
 use snackpilot_model::navigation::Tab;
 use snackpilot_model::{BillingEntry, BillingLine, BillingSource, BillingTotals, EntrySource};
 
-use crate::components::bill_card::bill_card;
+use crate::components::bill_card::bill_list;
 use crate::components::day_navigator::mobile_day_navigator;
 use crate::components::fab::{dock_height_for_lines, mobile_dock, DockState};
 use crate::components::menu_card::{menu_card, DesktopMenuRowState, MenuCardState};
@@ -1019,11 +1019,6 @@ fn mobile_billing_case(width: f32, theme: &AppTheme) -> AnyElement {
         })
         .collect();
 
-    let mut cards = div().w_full().flex().flex_col();
-    for entry in &entries {
-        cards = cards.child(bill_card(entry, theme));
-    }
-
     let column = div()
         .w(px(width))
         .flex()
@@ -1037,7 +1032,7 @@ fn mobile_billing_case(width: f32, theme: &AppTheme) -> AnyElement {
             BillingSource::All,
             theme,
         ))
-        .child(cards)
+        .child(bill_list(&entries, theme))
         .child(
             div().p(px(theme.scale.space_4)).child(
                 div()
