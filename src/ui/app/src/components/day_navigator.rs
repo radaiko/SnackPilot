@@ -92,13 +92,6 @@ pub fn day_navigator(
                         .map(|d| SharedString::from(format_day_short(d)))
                         .unwrap_or_default(),
                 ),
-        )
-        .child(
-            div()
-                .mt(px(2.))
-                .text_size(px(12.))
-                .text_color(theme.text_tertiary)
-                .child(format!("{} / {}", index + 1, dates.len())),
         );
 
     container

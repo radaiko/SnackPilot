@@ -286,6 +286,16 @@ pub mod evidence {
         None
     }
 
+    /// Whether this capture run asks for the wide desktop projection
+    /// (`--host=desktop` / `SNACKPILOT_HOST=desktop`). Debug builds only.
+    #[cfg(debug_assertions)]
+    fn desktop_host_requested() -> bool {
+        std::env::var("SNACKPILOT_HOST")
+            .ok()
+            .or_else(|| std::env::args().find_map(|a| a.strip_prefix("--host=").map(str::to_owned)))
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("desktop"))
+    }
+
     /// The selected synthetic scenario, normalized to the model's names.
     /// Debug builds only; a release binary has no scenario knob.
     #[cfg(debug_assertions)]
@@ -316,7 +326,15 @@ pub mod evidence {
             if !model.evidence_mode() {
                 return;
             }
-            model.set_host_kind(snackpilot_model::desktop::HostKind::Phone);
+            // A phone projection by default; `--host=desktop` lets a capture
+            // run photograph the wide shell on a wide window (an iPad
+            // simulator), which no production phone host ever reports.
+            let host = if desktop_host_requested() {
+                snackpilot_model::desktop::HostKind::Desktop
+            } else {
+                snackpilot_model::desktop::HostKind::Phone
+            };
+            model.set_host_kind(host);
             model.set_content_width(viewport.logical_width());
         }
         #[cfg(not(debug_assertions))]
