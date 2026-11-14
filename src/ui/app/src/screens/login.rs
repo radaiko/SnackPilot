@@ -10,14 +10,17 @@ use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::*;
-use gpui_kit::component::input::InputState;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{Icon, Sizable};
 use snackpilot_model::desktop::ControlState;
+use snackpilot_model::tokens;
 
 use crate::app::AppShell;
 use crate::components::button::{mobile_action_action, mobile_action_metrics, ButtonKind};
 use crate::components::dialog::Dialog;
 use crate::components::spinner::spinner;
-use crate::components::text_field::{desktop_field_with_state, field_with_state};
 use crate::theme::AppTheme;
 use snackpilot_model::{AppModel, PlatformError, State};
 
@@ -36,6 +39,37 @@ const FAILURE_FALLBACK: &str = "Anmeldung nicht möglich. Bitte Zugangsdaten pr�
 /// The in-place busy glyph: the button keeps its 48 px frame and swaps the
 /// label for a 20 px spinner.
 pub const LOGIN_SPINNER: f32 = 20.;
+
+/// Inline credential-field errors: shown once a save was attempted and the
+/// field is still empty (REQ-SCR-05).
+const USER_REQUIRED: &str = "Benutzername erforderlich";
+const PASS_REQUIRED: &str = "Passwort erforderlich";
+
+/// Which inline errors a render shows: none before the first save attempt,
+/// then only for the fields that are still empty (REQ-SCR-05).
+fn missing_messages(
+    attempted: bool,
+    user_empty: bool,
+    pass_empty: bool,
+) -> (Option<&'static str>, Option<&'static str>) {
+    if !attempted {
+        return (None, None);
+    }
+    (
+        user_empty.then_some(USER_REQUIRED),
+        pass_empty.then_some(PASS_REQUIRED),
+    )
+}
+
+/// The reveal control's copy and element id: the action it offers, never the
+/// field's content.
+fn reveal_label(masked: bool) -> &'static str {
+    if masked {
+        "Passwort anzeigen"
+    } else {
+        "Passwort verbergen"
+    }
+}
 
 /// Whether a field renders masked. Both credential screens mask the password,
 /// so the pinned input disables copy/cut for it (REQ-UI-11).
@@ -107,6 +141,9 @@ pub fn login_screen(
     // (desktop 720+): no back row, desktop tokens, form max 440 px. `None` is
     // the incumbent pushed mobile/narrow screen.
     containment: Option<f32>,
+    // Set by the shell's `login_attempted`: the fields show their inline
+    // errors only after a save that found one empty (REQ-SCR-05).
+    attempted: bool,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     let back = back_handler(cx);
@@ -170,20 +207,40 @@ pub fn login_screen(
             }
         })
     };
-    let (user_field, pass_field) = if desktop {
-        (
-            submit_on_enter(desktop_field_with_state(user, ControlState::Rest, theme)),
-            submit_on_enter(desktop_field_with_state(pass, ControlState::Rest, theme)),
-        )
-    } else {
-        (
-            field_with_state(user, theme, cx),
-            field_with_state(pass, theme, cx),
-        )
-    };
+    let (user_missing, pass_missing) = missing_messages(
+        attempted,
+        user.read(cx).value().trim().is_empty(),
+        pass.read(cx).value().is_empty(),
+    );
+    let user_field = submit_on_enter(credential_row(
+        user,
+        None,
+        user_missing.is_some(),
+        desktop,
+        theme,
+        cx,
+    ));
+    let pass_field = submit_on_enter(credential_row(
+        pass,
+        Some(reveal_toggle(pass, theme, cx)),
+        pass_missing.is_some(),
+        desktop,
+        theme,
+        cx,
+    ));
     form = form
-        .child(group(kind.username_label(), user_field, theme))
-        .child(group(kind.password_label(), pass_field, theme));
+        .child(group(
+            kind.username_label(),
+            user_field,
+            user_missing,
+            theme,
+        ))
+        .child(group(
+            kind.password_label(),
+            pass_field,
+            pass_missing,
+            theme,
+        ));
 
     if let Some(error) = login_error(kind, state) {
         form = form.child(
@@ -282,7 +339,115 @@ fn login_error(kind: LoginKind, state: &State) -> Option<String> {
     }
 }
 
-fn group(label: &'static str, field: Div, theme: &AppTheme) -> Div {
+/// The reveal control inside the password row's trailing edge: a 44×44 target
+/// 8 px from the text, flipping the field's mask. It never grows the 48 px row
+/// and names the action it offers.
+fn reveal_toggle(pass: &Entity<InputState>, theme: &AppTheme, cx: &App) -> AnyElement {
+    let masked = pass.read(cx).presentation().is_masked();
+    let label = reveal_label(masked);
+    let pass = pass.clone();
+    div()
+        .id(label)
+        .tab_index(0)
+        .w(px(tokens::TARGET))
+        .h(px(tokens::TARGET))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .rounded(px(tokens::RADIUS_CHIP))
+        .hover(move |s| s.bg(theme.hover(theme.surface)))
+        .focus(crate::theme::desktop_focus(theme.accent))
+        .role(Role::Button)
+        .aria_label(label)
+        .accessibility_id(label)
+        .on_click(move |_, window, cx| {
+            pass.update(cx, |state, cx| state.toggle_masked(window, cx));
+        })
+        .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+        .child(
+            Icon::new(if masked {
+                IconName::Eye
+            } else {
+                IconName::EyeOff
+            })
+            .with_size(px(theme.scale.icon))
+            .text_color(theme.text_secondary),
+        )
+        .into_any_element()
+}
+
+/// One credential field: the shared 48 px row (surface fill, 1 px border,
+/// 10 px radius), an optional trailing control inside it, and the error
+/// border while its inline message is showing.
+fn credential_row(
+    state: &Entity<InputState>,
+    trailing: Option<AnyElement>,
+    error: bool,
+    desktop: bool,
+    theme: &AppTheme,
+    cx: &App,
+) -> Div {
+    let (fill, border) = if desktop {
+        (
+            theme.control_fill(ControlState::Rest),
+            if error {
+                theme.error
+            } else {
+                theme.control_border(ControlState::Rest)
+            },
+        )
+    } else {
+        (
+            theme.surface,
+            if error {
+                theme.error
+            } else {
+                theme.text_tertiary
+            },
+        )
+    };
+    let mut row = div()
+        .w_full()
+        .min_h(px(tokens::ACTION_HEIGHT))
+        .flex()
+        .items_center()
+        .gap(px(tokens::SPACE_2))
+        .px(px(tokens::SPACE_4))
+        .rounded(px(tokens::RADIUS_CONTROL))
+        .bg(fill)
+        .border(px(1.))
+        .border_color(border)
+        .child(
+            Input::new(state)
+                .bg(fill)
+                .rounded(px(tokens::RADIUS_CONTROL))
+                .bordered(false),
+        );
+    if let Some(trailing) = trailing {
+        row = row.child(trailing);
+    }
+    if desktop {
+        return crate::theme::focus_frame(row, ControlState::Rest, tokens::RADIUS_CONTROL, theme);
+    }
+    let focus = state.read(cx).focus_handle(cx);
+    div()
+        .w_full()
+        .p(px(tokens::FOCUS_GAP))
+        .rounded(px(tokens::RADIUS_CONTROL
+            + tokens::FOCUS_GAP
+            + tokens::FOCUS_WIDTH))
+        .border(px(tokens::FOCUS_WIDTH))
+        .border_color(hsla(0., 0., 0., 0.))
+        .track_focus(&focus)
+        .focus(crate::theme::desktop_focus(theme.accent))
+        .child(row)
+}
+
+/// One labelled field with its inline error, 4 px under the field and only
+/// while that error is showing (REQ-SCR-05).
+fn group(label: &'static str, field: Div, error: Option<&'static str>, theme: &AppTheme) -> Div {
     div()
         .flex()
         .flex_col()
@@ -294,7 +459,23 @@ fn group(label: &'static str, field: Div, theme: &AppTheme) -> Div {
                 .text_color(theme.text_secondary)
                 .child(label),
         )
-        .child(field)
+        .child(
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap(px(tokens::SPACE_1))
+                .child(field)
+                .when_some(error, |d, message| {
+                    d.child(
+                        div()
+                            .text_size(px(theme.scale.meta))
+                            .line_height(px(theme.scale.meta_line))
+                            .text_color(theme.error)
+                            .child(message),
+                    )
+                }),
+        )
 }
 
 fn back_handler(cx: &mut Context<AppShell>) -> crate::navigation::ClickHandler {
@@ -323,15 +504,14 @@ fn save_handler(
         ));
         let _ = shell.update(cx, |s, cx| {
             if username.trim().is_empty() || password.is_empty() {
-                s.set_dialog(
-                    crate::components::dialog::Dialog::Alert {
-                        title: "Fehler".into(),
-                        message: Some("Bitte Benutzername und Passwort eingeben".into()),
-                    },
-                    cx,
-                );
+                // Nothing is submitted; the form itself shows which field is
+                // missing and clears that message as soon as it is filled
+                // (REQ-SCR-05).
+                s.login_attempted = true;
+                cx.notify();
                 return;
             }
+            s.login_attempted = false;
             let Some(model) = s.model.clone() else {
                 // iOS before task 5.7 has no session model installed yet;
                 // show the §3.5 failure alert instead of swallowing the tap.
@@ -443,7 +623,8 @@ fn logout_handler(kind: LoginKind, cx: &mut Context<AppShell>) -> crate::navigat
 #[cfg(test)]
 mod tests {
     use super::{
-        login_error, password_is_masked, LoginKind, FAILURE_FALLBACK, FAILURE_TITLE, LOGIN_SPINNER,
+        login_error, missing_messages, password_is_masked, reveal_label, LoginKind,
+        FAILURE_FALLBACK, FAILURE_TITLE, LOGIN_SPINNER, PASS_REQUIRED, USER_REQUIRED,
     };
     use crate::components::text_field::clipboard_copyable;
     use snackpilot_model::{ErrorText, State};
@@ -506,5 +687,34 @@ mod tests {
             FAILURE_FALLBACK,
             "Anmeldung nicht möglich. Bitte Zugangsdaten prüfen."
         );
+    }
+
+    /// Inline errors appear only after a save attempt, and only on a field
+    /// that is still empty; filling it clears its message on the next render.
+    /// @req REQ-SCR-05
+    #[test]
+    fn missing_messages_follow_attempt_and_empty_fields() {
+        assert_eq!(missing_messages(false, true, true), (None, None));
+        assert_eq!(
+            missing_messages(true, true, true),
+            (Some(USER_REQUIRED), Some(PASS_REQUIRED))
+        );
+        assert_eq!(
+            missing_messages(true, false, true),
+            (None, Some(PASS_REQUIRED))
+        );
+        assert_eq!(
+            missing_messages(true, true, false),
+            (Some(USER_REQUIRED), None)
+        );
+        assert_eq!(missing_messages(true, false, false), (None, None));
+    }
+
+    /// The reveal control names the action it offers.
+    /// @req REQ-UI-11
+    #[test]
+    fn password_reveal_copy_follows_masking() {
+        assert_eq!(reveal_label(true), "Passwort anzeigen");
+        assert_eq!(reveal_label(false), "Passwort verbergen");
     }
 }

@@ -531,6 +531,9 @@ pub struct AppShell {
     /// Login form fields, created on push so typing survives re-renders.
     login_user: Option<Entity<InputState>>,
     login_pass: Option<Entity<InputState>>,
+    /// A credential save found an empty field: the form shows its inline
+    /// errors until the next entry or a save that runs (REQ-SCR-05).
+    pub(crate) login_attempted: bool,
     /// Window activation watcher: a false→true transition is a foreground
     /// return and drives `AppModel::on_foreground` on every host (5.7).
     was_active: bool,
@@ -644,6 +647,7 @@ impl AppShell {
             detail: Detail::Settings,
             login_user: None,
             login_pass: None,
+            login_attempted: false,
             was_active: true,
             seen_frame: false,
             pending_detail: None,
@@ -818,6 +822,10 @@ impl AppShell {
             return;
         }
         self.detail = detail;
+        // A freshly entered credential screen starts without inline errors.
+        if matches!(detail, Detail::LoginKantine | Detail::LoginAutomaten) {
+            self.login_attempted = false;
+        }
         if detail == Detail::Notifications {
             if let Some(model) = &self.model {
                 model.refresh_diagnostic_log();
@@ -1247,6 +1255,7 @@ impl AppShell {
                 &self.settings_rows,
                 &self.settings_master,
                 &self.appearance_design,
+                self.login_attempted,
                 theme,
                 cx,
             );
@@ -1261,6 +1270,7 @@ impl AppShell {
                     pass,
                     theme,
                     None,
+                    self.login_attempted,
                     cx,
                 ),
                 (Detail::LoginAutomaten, Some(user), Some(pass)) => login_screen(
@@ -1271,6 +1281,7 @@ impl AppShell {
                     pass,
                     theme,
                     None,
+                    self.login_attempted,
                     cx,
                 ),
                 (Detail::Appearance, _, _) => appearance_screen(
