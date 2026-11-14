@@ -802,6 +802,21 @@ impl AppShell {
         }
     }
 
+    /// Empty the credential fields and flag a save attempt, so a capture run
+    /// can photograph the form's inline error state (debug builds only).
+    #[cfg(debug_assertions)]
+    pub(crate) fn evidence_attempt_login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for field in [&self.login_user, &self.login_pass]
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            field.update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        self.login_attempted = true;
+    }
+
     /// Push a settings detail screen; login details create fresh inputs.
     pub(crate) fn open_detail(
         &mut self,

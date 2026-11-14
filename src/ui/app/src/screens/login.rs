@@ -11,7 +11,7 @@ use std::sync::Arc;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable};
 use snackpilot_model::desktop::ControlState;
@@ -21,6 +21,7 @@ use crate::app::AppShell;
 use crate::components::button::{mobile_action_action, mobile_action_metrics, ButtonKind};
 use crate::components::dialog::Dialog;
 use crate::components::spinner::spinner;
+use crate::components::text_field::{desktop_field_slot, field_slot};
 use crate::theme::AppTheme;
 use snackpilot_model::{AppModel, PlatformError, State};
 
@@ -212,22 +213,29 @@ pub fn login_screen(
         user.read(cx).value().trim().is_empty(),
         pass.read(cx).value().is_empty(),
     );
-    let user_field = submit_on_enter(credential_row(
-        user,
-        None,
-        user_missing.is_some(),
-        desktop,
-        theme,
-        cx,
-    ));
-    let pass_field = submit_on_enter(credential_row(
-        pass,
-        Some(reveal_toggle(pass, theme, cx)),
-        pass_missing.is_some(),
-        desktop,
-        theme,
-        cx,
-    ));
+    let user_field = submit_on_enter(if desktop {
+        desktop_field_slot(
+            user,
+            ControlState::Rest,
+            theme,
+            None,
+            user_missing.is_some(),
+        )
+    } else {
+        field_slot(user, theme, cx, None, user_missing.is_some())
+    });
+    let reveal = Some(reveal_toggle(pass, theme, cx));
+    let pass_field = submit_on_enter(if desktop {
+        desktop_field_slot(
+            pass,
+            ControlState::Rest,
+            theme,
+            reveal,
+            pass_missing.is_some(),
+        )
+    } else {
+        field_slot(pass, theme, cx, reveal, pass_missing.is_some())
+    });
     form = form
         .child(group(
             kind.username_label(),
@@ -312,7 +320,6 @@ pub fn login_screen(
                         .min_h(px(theme.scale.action_height))
                         .flex()
                         .items_center()
-                        .px(px(theme.scale.space_4))
                         .cursor_pointer()
                         .focus(crate::theme::desktop_focus(theme.accent))
                         .on_click(move |_, window, cx| logout(window, cx))
@@ -378,82 +385,19 @@ fn reveal_toggle(pass: &Entity<InputState>, theme: &AppTheme, cx: &App) -> AnyEl
         .into_any_element()
 }
 
-/// One credential field: the shared 48 px row (surface fill, 1 px border,
-/// 10 px radius), an optional trailing control inside it, and the error
-/// border while its inline message is showing.
-fn credential_row(
-    state: &Entity<InputState>,
-    trailing: Option<AnyElement>,
-    error: bool,
-    desktop: bool,
-    theme: &AppTheme,
-    cx: &App,
-) -> Div {
-    let (fill, border) = if desktop {
-        (
-            theme.control_fill(ControlState::Rest),
-            if error {
-                theme.error
-            } else {
-                theme.control_border(ControlState::Rest)
-            },
-        )
-    } else {
-        (
-            theme.surface,
-            if error {
-                theme.error
-            } else {
-                theme.text_tertiary
-            },
-        )
-    };
-    let mut row = div()
-        .w_full()
-        .min_h(px(tokens::ACTION_HEIGHT))
-        .flex()
-        .items_center()
-        .gap(px(tokens::SPACE_2))
-        .px(px(tokens::SPACE_4))
-        .rounded(px(tokens::RADIUS_CONTROL))
-        .bg(fill)
-        .border(px(1.))
-        .border_color(border)
-        .child(
-            Input::new(state)
-                .bg(fill)
-                .rounded(px(tokens::RADIUS_CONTROL))
-                .bordered(false),
-        );
-    if let Some(trailing) = trailing {
-        row = row.child(trailing);
-    }
-    if desktop {
-        return crate::theme::focus_frame(row, ControlState::Rest, tokens::RADIUS_CONTROL, theme);
-    }
-    let focus = state.read(cx).focus_handle(cx);
-    div()
-        .w_full()
-        .p(px(tokens::FOCUS_GAP))
-        .rounded(px(tokens::RADIUS_CONTROL
-            + tokens::FOCUS_GAP
-            + tokens::FOCUS_WIDTH))
-        .border(px(tokens::FOCUS_WIDTH))
-        .border_color(hsla(0., 0., 0., 0.))
-        .track_focus(&focus)
-        .focus(crate::theme::desktop_focus(theme.accent))
-        .child(row)
-}
-
 /// One labelled field with its inline error, 4 px under the field and only
 /// while that error is showing (REQ-SCR-05).
 fn group(label: &'static str, field: Div, error: Option<&'static str>, theme: &AppTheme) -> Div {
+    // The field's wrapper reserves the focus ring's 2 px gap and 2 px width, so
+    // the label and the message carry the same inset to line up with its edge.
+    let inset = px(tokens::FOCUS_GAP + tokens::FOCUS_WIDTH);
     div()
         .flex()
         .flex_col()
         .gap(px(theme.scale.space_2))
         .child(
             div()
+                .pl(inset)
                 .text_size(px(theme.scale.meta))
                 .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
@@ -469,6 +413,7 @@ fn group(label: &'static str, field: Div, error: Option<&'static str>, theme: &A
                 .when_some(error, |d, message| {
                     d.child(
                         div()
+                            .pl(inset)
                             .text_size(px(theme.scale.meta))
                             .line_height(px(theme.scale.meta_line))
                             .text_color(theme.error)
