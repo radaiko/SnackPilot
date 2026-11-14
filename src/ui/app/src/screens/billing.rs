@@ -12,7 +12,7 @@ use std::sync::Arc;
 use gpui::*;
 use gpui_kit::prelude::Styled;
 
-use crate::app::{dispatch_off_thread, AppShell};
+use crate::app::AppShell;
 use crate::components::bill_card::{
     bill_list, desktop_bill_detail, desktop_bill_header, desktop_bill_row,
 };
@@ -75,7 +75,6 @@ pub fn billing_tab(
     // Host-gated dispatch: a narrow desktop window projects as the phone shell
     // but still runs its blocking billing work off the render thread; only a
     // phone/tablet host stays synchronous.
-    let off_thread = dispatch_off_thread(state.host_kind);
 
     // One flex child of the shell's column: the one compact filter band (month
     // chips over the source segments) stays outside the record scroll, and the
@@ -87,12 +86,12 @@ pub fn billing_tab(
     let month_band = div().w_full().child(mobile_month_row(
         &state.month_options,
         state.selected_offset,
-        month_select(model, off_thread, cx),
+        month_select(model, cx),
         theme,
     ));
     column = column.child(month_band).child(mobile_source_row(
         state.billing_source,
-        source_select(model, off_thread, cx),
+        source_select(model, cx),
         theme,
     ));
 
@@ -499,32 +498,24 @@ pub(crate) fn mobile_summary_surface(
     .into_any_element()
 }
 
-fn month_select(
-    model: &Arc<AppModel>,
-    off_thread: bool,
-    cx: &mut Context<AppShell>,
-) -> MonthSelect {
+fn month_select(model: &Arc<AppModel>, cx: &mut Context<AppShell>) -> MonthSelect {
     // The model is already in hand: reading the shell here would hit the
     // entity while the render that calls this projection still updates it.
     let model = Arc::clone(model);
     let shell = cx.entity().clone();
     Rc::new(move |offset: u8, _: &mut Window, cx: &mut App| {
         let model = Arc::clone(&model);
-        dispatch_billing_action(off_thread, cx, move || model.select_month(offset));
+        dispatch_billing_action(cx, move || model.select_month(offset));
         let _ = shell.update(cx, |_, cx| cx.notify());
     })
 }
 
-fn source_select(
-    model: &Arc<AppModel>,
-    off_thread: bool,
-    cx: &mut Context<AppShell>,
-) -> SourceSelect {
+fn source_select(model: &Arc<AppModel>, cx: &mut Context<AppShell>) -> SourceSelect {
     let model = Arc::clone(model);
     let shell = cx.entity().clone();
     Rc::new(move |source: BillingSource, _: &mut Window, cx: &mut App| {
         let model = Arc::clone(&model);
-        dispatch_billing_action(off_thread, cx, move || model.set_billing_source(source));
+        dispatch_billing_action(cx, move || model.set_billing_source(source));
         let _ = shell.update(cx, |_, cx| cx.notify());
     })
 }
@@ -533,7 +524,6 @@ fn month_row(
     state: &State,
     model: &Arc<AppModel>,
     theme: &AppTheme,
-    off_thread: bool,
     cx: &mut Context<AppShell>,
 ) -> Div {
     let border = theme.border;
@@ -550,7 +540,7 @@ fn month_row(
         let shell = cx.entity().clone();
         let model = Arc::clone(model);
         let action: ClickHandler = Rc::new(move |_: &mut Window, cx: &mut App| {
-            dispatch_billing_action(off_thread, cx, {
+            dispatch_billing_action(cx, {
                 let model = Arc::clone(&model);
                 move || model.select_month(offset)
             });
@@ -594,7 +584,6 @@ fn desktop_chips_row(
     state: &State,
     model: &Arc<AppModel>,
     theme: &AppTheme,
-    off_thread: bool,
     cx: &mut Context<AppShell>,
 ) -> Div {
     let mut row = div()
@@ -612,7 +601,7 @@ fn desktop_chips_row(
         let shell = cx.entity().clone();
         let model = Arc::clone(model);
         let action: ClickHandler = Rc::new(move |_: &mut Window, cx: &mut App| {
-            dispatch_billing_action(off_thread, cx, {
+            dispatch_billing_action(cx, {
                 let model = Arc::clone(&model);
                 move || model.set_billing_source(source)
             });
@@ -638,14 +627,15 @@ fn desktop_chips_row(
 /// dispatches off the render thread so the cached rows keep painting, the
 /// narrow window included (the rail is irrelevant), while a phone or tablet
 /// host keeps the incumbent synchronous path.
-fn dispatch_billing_action(off_thread: bool, cx: &mut App, action: impl FnOnce() + Send + 'static) {
-    if off_thread {
-        cx.background_executor()
-            .spawn(async move { action() })
-            .detach();
-    } else {
-        action();
-    }
+/// Abrechnung's work is one or two network fetches. It runs on the background
+/// executor on every host: switching a month used to run inline on the phone,
+/// which froze the screen for as long as Gourmet and Ventopay took to answer.
+/// The selection is published before the fetch starts, so the chip answers the
+/// tap immediately and the rows keep their place until the new ones arrive.
+fn dispatch_billing_action(cx: &mut App, action: impl FnOnce() + Send + 'static) {
+    cx.background_executor()
+        .spawn(async move { action() })
+        .detach();
 }
 
 fn error_banner(message: &str, theme: &AppTheme) -> AnyElement {
@@ -690,15 +680,14 @@ pub fn desktop_billing_tab(
     let totals = model.billing_totals();
     let geometry = model.desktop_geometry();
     let compact = layout == LayoutMode::DesktopCompact;
-    let off_thread = dispatch_off_thread(state.host_kind);
 
     let mut column = div()
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
-        .child(month_row(state, model, theme, off_thread, cx))
-        .child(desktop_chips_row(state, model, theme, off_thread, cx));
+        .child(month_row(state, model, theme, cx))
+        .child(desktop_chips_row(state, model, theme, cx));
     if !entries.is_empty() {
         column = column.child(desktop_summary_line(
             &entries,

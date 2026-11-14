@@ -343,11 +343,16 @@ impl Drop for MutationTicket {
 pub(crate) fn dispatch_refresh(
     model: &Arc<AppModel>,
     intent: RefreshIntent,
-    host: HostKind,
+    _host: HostKind,
     cx: &mut App,
 ) {
+    // A refresh is a network fetch on every host. Inline, it froze the phone
+    // for as long as the store took to answer — the pull had already released,
+    // so the user saw a dead screen instead of the progress the model reports.
     let model = Arc::clone(model);
-    run_blocking(host, cx, move || run_refresh(&model, intent));
+    cx.background_executor()
+        .spawn(async move { run_refresh(&model, intent) })
+        .detach();
 }
 
 /// Safe-area insets (top, bottom, left, right) in logical px, read from the
