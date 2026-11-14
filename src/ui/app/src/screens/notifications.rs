@@ -14,21 +14,52 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{Icon, Sizable};
 
 use crate::app::AppShell;
+use crate::components::segment_tabs::{segment_options, SegmentOptionHandler};
 use crate::components::time_chips::time_chips;
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
-use snackpilot_model::{AppModel, State};
+use snackpilot_model::{tokens, AppModel, State};
 
+/// The two activation windows the diagnostic log offers (notification-log §2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LogDuration {
+    Hours12,
+    Hours24,
+}
+
+impl LogDuration {
+    /// The window length passed to the existing model setter.
+    fn hours(self) -> u32 {
+        match self {
+            Self::Hours12 => 12,
+            Self::Hours24 => 24,
+        }
+    }
+}
+
+/// The window an inactive log reports as its current choice: activation
+/// defaults to 24 hours (v1 `activateLog(hours = 24)`).
+const LOG_DURATION_DEFAULT: LogDuration = LogDuration::Hours24;
+
+/// One section card: surface, 12 px radius, 1 px hairline, 16 px padding,
+/// `BODY_STRONG` title, `META` hint and the group's controls.
 fn section(title: &'static str, hint: &'static str, theme: &AppTheme, body: Div) -> Div {
     div()
+        .w_full()
         .flex()
         .flex_col()
         .gap(px(theme.scale.space_2))
+        .p(px(theme.scale.space_4))
+        .rounded(px(theme.scale.radius_card))
+        .border(px(1.))
+        .border_color(theme.border)
+        .bg(theme.surface)
         .child(
             div()
-                .text_size(px(theme.scale.meta))
-                .line_height(px(theme.scale.meta_line))
-                .text_color(theme.text_secondary)
+                .text_size(px(tokens::BODY_STRONG.size))
+                .line_height(px(tokens::BODY_STRONG.line_height))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.text_primary)
                 .child(title),
         )
         .child(
@@ -187,6 +218,7 @@ pub fn notifications_screen(
         .flex()
         .flex_col()
         .gap(px(theme.scale.space_3))
+        .child(div().w_full().h(px(1.)).bg(theme.border))
         .child(reminder_row);
     if state.daily_reminder_enabled {
         let shell = cx.entity().clone();
@@ -305,12 +337,20 @@ pub fn notifications_screen(
         let label = if state.location_busy {
             "Standort wird ermittelt..."
         } else {
-            "Aktuellen Standort als Firmenstandort setzen"
+            "Standort setzen"
         };
         div()
             .flex()
             .flex_col()
+            .gap(px(theme.scale.space_1))
             .child(primary("location-set", label.to_string(), None, set, theme))
+            .child(
+                div()
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
+                    .text_color(theme.text_secondary)
+                    .child("Aktuellen Standort als Firmenstandort setzen"),
+            )
     };
 
     // Section 3: notification log.
@@ -387,38 +427,24 @@ pub fn notifications_screen(
             )
     } else {
         let shell = cx.entity().clone();
-        let twelve_model = model.clone();
-        let twelve = Rc::new(move |_: &mut Window, cx: &mut App| {
-            if let Some(model) = &twelve_model {
-                model.activate_diagnostic_log(12);
-            }
-            let _ = shell.update(cx, |_, cx| cx.notify());
-        });
-        let shell2 = cx.entity().clone();
-        let twenty_four_model = model.clone();
-        let twenty_four = Rc::new(move |_: &mut Window, cx: &mut App| {
-            if let Some(model) = &twenty_four_model {
-                model.activate_diagnostic_log(24);
-            }
-            let _ = shell2.update(cx, |_, cx| cx.notify());
-        });
-        div()
-            .flex()
-            .gap(px(12.))
-            .child(primary(
-                "log-12",
-                "12 Stunden".to_string(),
-                None,
-                twelve,
-                theme,
-            ))
-            .child(primary(
-                "log-24",
-                "24 Stunden".to_string(),
-                None,
-                twenty_four,
-                theme,
-            ))
+        let select_model = model.clone();
+        let select: SegmentOptionHandler<LogDuration> = Rc::new(
+            move |duration: LogDuration, _w: &mut Window, cx: &mut App| {
+                if let Some(model) = &select_model {
+                    model.activate_diagnostic_log(duration.hours());
+                }
+                let _ = shell.update(cx, |_, cx| cx.notify());
+            },
+        );
+        div().child(segment_options(
+            [
+                ("log-12", "12 Stunden".to_string(), LogDuration::Hours12),
+                ("log-24", "24 Stunden".to_string(), LogDuration::Hours24),
+            ],
+            LOG_DURATION_DEFAULT,
+            select,
+            theme,
+        ))
     };
 
     div()
@@ -441,30 +467,37 @@ pub fn notifications_screen(
                 .text_color(theme.text_primary)
                 .child("Benachrichtigungen"),
         )
-        .child(section(
-            "Bestell-Erinnerung",
-            "Tägliche Erinnerung an deine Bestellung",
-            theme,
-            reminder_body,
-        ))
-        .child(section(
-            "Standort-Benachrichtigungen",
-            "Erinnerung um 8:45 basierend auf deinem Standort",
-            theme,
-            location_body,
-        ))
-        .child(section(
-            "Benachrichtigungs-Log",
-            "Zeichnet 24 Stunden lang Diagnose-Daten auf, um Probleme mit Benachrichtigungen zu analysieren.",
-            theme,
-            log_body,
-        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(theme.scale.space_3))
+                .child(section(
+                    "Bestell-Erinnerung",
+                    "Tägliche Erinnerung an deine Bestellung",
+                    theme,
+                    reminder_body,
+                ))
+                .child(section(
+                    "Standort-Benachrichtigungen",
+                    "Erinnerung um 8:45 basierend auf deinem Standort",
+                    theme,
+                    location_body,
+                ))
+                .child(section(
+                    "Benachrichtigungs-Log",
+                    "Zeichnet Diagnose-Daten auf, um Probleme mit Benachrichtigungen zu analysieren",
+                    theme,
+                    log_body,
+                )),
+        )
         .into_any_element()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::notification_action_height;
+    use super::{notification_action_height, LogDuration, LOG_DURATION_DEFAULT};
+    use crate::components::segment_tabs::segment_options;
     use crate::components::time_chips::{label, time_chips, times};
     use crate::theme::AppTheme;
 
@@ -480,5 +513,26 @@ mod tests {
         assert_eq!(theme.scale.target, 44.);
         assert_eq!(notification_action_height(&theme), 48.);
         let _ = time_chips(None, std::rc::Rc::new(|_, _, _, _| {}), &theme);
+    }
+
+    /// The log duration segment reports the current 24-hour choice as selected
+    /// and the 12-hour choice as not, so the recording window is visible.
+    /// @req REQ-SCR-08 @req REQ-UI-15
+    #[test]
+    fn log_duration_segment_marks_only_the_current_choice() {
+        let active = LOG_DURATION_DEFAULT;
+        assert_eq!(active.hours(), 24);
+        assert!(active == LogDuration::Hours24);
+        assert!(active != LogDuration::Hours12);
+        let theme = AppTheme::build(false);
+        let _ = segment_options(
+            [
+                ("log-12", "12 Stunden".to_string(), LogDuration::Hours12),
+                ("log-24", "24 Stunden".to_string(), LogDuration::Hours24),
+            ],
+            LOG_DURATION_DEFAULT,
+            std::rc::Rc::new(|_, _, _| {}),
+            &theme,
+        );
     }
 }
