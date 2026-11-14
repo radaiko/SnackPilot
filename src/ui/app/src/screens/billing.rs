@@ -10,6 +10,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::*;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::prelude::Styled;
 
 use crate::app::AppShell;
@@ -246,8 +248,8 @@ pub(crate) type MonthSelect = Rc<dyn Fn(u8, &mut Window, &mut App)>;
 
 /// The compact month chip's visible height: one single-line row instead of
 /// two-line tiles.
-pub const MOBILE_MONTH_CHIP_HEIGHT: f32 = 40.;
-/// The month chip's tap target: the 40 px pill sits inside the 44 px floor.
+/// The month stepper's row height: the 44 px arrow target plus the surface's
+/// own 16 px padding.
 pub const MOBILE_MONTH_TARGET_HEIGHT: f32 = 44.;
 
 const MONTHS_SHORT: [&str; 12] = [
@@ -275,79 +277,144 @@ pub(crate) fn month_chip_label(key: &str) -> String {
 /// @req REQ-SCR-03 @req REQ-UI-15
 #[cfg(test)]
 pub(crate) fn mobile_filter_band_height(theme: &AppTheme) -> f32 {
-    MOBILE_MONTH_TARGET_HEIGHT + mobile_segment_height(theme) + theme.scale.space_2
+    MOBILE_MONTH_TARGET_HEIGHT
+        + theme.scale.space_4
+        + mobile_segment_height(theme)
+        + theme.scale.space_2
 }
 
-/// The month choices: one scrollable row of 40 px single-line chips in the
-/// German short form, selected by the accent tint and boundary the mobile
-/// chips already use. The controls stay painted while a fetch runs.
+/// The month stepper: one surface with a back and a forward arrow around the
+/// month, shaped exactly like the Menüs day navigator. Chips in a scroller
+/// always cut the third month in half and hide how far back the list goes; a
+/// stepper says "one month at a time", which is how a billing screen is read.
+/// Back walks into the past, forward toward the current month, and the
+/// shortcut home appears only when you are not on the current month.
 /// @req REQ-SCR-03 @req REQ-UI-15
 pub(crate) fn mobile_month_row(
     options: &[MonthOption],
     selected: u8,
     on_select: MonthSelect,
     theme: &AppTheme,
-) -> Stateful<Div> {
-    let mut row = div()
-        .id("billing-months")
-        .flex()
-        .w_full()
-        .gap(px(theme.scale.space_2))
-        .overflow_x_scroll();
-    for option in options {
-        let offset = option.offset;
-        let on = Rc::clone(&on_select);
-        let is_selected = offset == selected;
-        let (fill, border, ink) = if is_selected {
-            // The accent on its own tint reaches only 4.44:1 in light: the
-            // word takes the primary text role, the boundary keeps the accent.
-            (theme.accent_surface, theme.accent, theme.text_primary)
+) -> AnyElement {
+    let index = options
+        .iter()
+        .position(|option| option.offset == selected)
+        .unwrap_or(0);
+    let newer = index.checked_sub(1).and_then(|i| options.get(i));
+    let older = options.get(index + 1);
+
+    let arrow = |id: &'static str, icon: IconName, target: Option<u8>| {
+        let ink = if target.is_some() {
+            theme.text_primary
         } else {
-            (theme.surface, theme.border, theme.text_secondary)
+            theme.text_tertiary
         };
-        let hover = theme.pressed(fill);
-        row = row.child(
-            div()
-                .id(SharedString::from(format!("billing-month-{offset}")))
-                .flex_shrink_0()
-                .h(px(MOBILE_MONTH_TARGET_HEIGHT))
-                .flex()
-                .items_center()
-                // The focus ring's 2 px gap and 2 px width are reserved in
-                // every chip, so the selected (and therefore focused) one cannot
-                // grow and sit a few pixels above its neighbours.
-                .p(px(snackpilot_model::tokens::FOCUS_GAP))
-                .border(px(snackpilot_model::tokens::FOCUS_WIDTH))
-                .border_color(hsla(0., 0., 0., 0.))
-                .cursor_pointer()
-                .focus(theme::desktop_focus(ink))
-                .on_click(move |_, window, cx| on(offset, window, cx))
-                .child(
-                    div()
-                        .h(px(MOBILE_MONTH_CHIP_HEIGHT))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .px(px(theme.scale.space_3))
-                        .rounded(px(theme.scale.radius_chip))
-                        .bg(fill)
-                        .border(px(1.))
-                        .border_color(border)
-                        .hover(move |s| s.bg(hover))
-                        .child(
-                            div()
-                                .whitespace_nowrap()
-                                .text_size(px(theme.scale.body))
-                                .line_height(px(theme.scale.body_line))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_center()
-                                .text_color(ink)
-                                .child(month_chip_label(&option.key)),
-                        ),
-                ),
+        let button = div()
+            .w(px(theme.scale.target))
+            .h(px(theme.scale.target))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(theme.scale.radius_chip))
+            .child(
+                Icon::new(icon)
+                    .with_size(px(theme.scale.icon))
+                    .text_color(ink),
+            )
+            .id(SharedString::from(id))
+            .tab_index(0)
+            .focus(theme::desktop_focus(theme.accent));
+        match target {
+            Some(offset) => {
+                let on = Rc::clone(&on_select);
+                button
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(theme.surface_alt))
+                    .on_click(move |_, window, cx| on(offset, window, cx))
+            }
+            None => button,
+        }
+        .into_any_element()
+    };
+
+    let label = options
+        .get(index)
+        .map(|option| month_chip_label(&option.key))
+        .unwrap_or_default();
+    let row = theme::apply(
+        div()
+            .w_full()
+            .h(px(MOBILE_MONTH_TARGET_HEIGHT + theme.scale.space_4))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(theme.scale.space_2))
+            .px(px(theme.scale.space_2))
+            .child(arrow(
+                "billing-month-newer",
+                IconName::ChevronLeft,
+                newer.map(|option| option.offset),
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .whitespace_nowrap()
+                    .text_size(px(theme.scale.headline))
+                    .line_height(px(theme.scale.headline_line))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.text_primary)
+                    .child(label),
+            )
+            .child(arrow(
+                "billing-month-older",
+                IconName::ChevronRight,
+                older.map(|option| option.offset),
+            )),
+        &theme.card_surface(),
+    );
+
+    let mut column = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(px(theme.scale.space_2));
+    column = column.child(row);
+    if selected != 0 {
+        // The way home, only when there is a way back: one tap to the month
+        // the receipts are usually wanted from.
+        let on = Rc::clone(&on_select);
+        column = column.child(
+            div().w_full().flex().justify_center().child(
+                div()
+                    .id("billing-month-current")
+                    .h(px(theme.scale.target))
+                    .px(px(theme.scale.space_4))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(theme.scale.radius_chip))
+                    .bg(theme.surface)
+                    .cursor_pointer()
+                    .tab_index(0)
+                    .focus(theme::desktop_focus(theme.accent))
+                    .hover(move |s| s.bg(theme.surface_alt))
+                    .on_click(move |_, window, cx| on(0, window, cx))
+                    .child(
+                        div()
+                            .text_size(px(theme.scale.meta))
+                            .line_height(px(theme.scale.meta_line))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme.text_secondary)
+                            .child("Dieser Monat"),
+                    ),
+            ),
         );
     }
-    row
+    column.into_any_element()
 }
 
 /// One source filter activation (compact task 1.5).
@@ -873,7 +940,7 @@ mod mobile_tests {
     use super::{
         billing_context_cached, billing_context_matches, billing_owns_progress, billing_view,
         empty_copy, mobile_filter_band_height, mobile_summary, month_chip_label, BillingView,
-        MOBILE_MONTH_CHIP_HEIGHT, MOBILE_MONTH_TARGET_HEIGHT,
+        MOBILE_MONTH_TARGET_HEIGHT,
     };
     use crate::theme::AppTheme;
     use gpui_kit::px;
@@ -1029,15 +1096,14 @@ mod mobile_tests {
             "not-a-key",
             "an unparseable key falls back to itself instead of inventing a month"
         );
-        assert_eq!(MOBILE_MONTH_CHIP_HEIGHT, 40.);
         assert_eq!(
             MOBILE_MONTH_TARGET_HEIGHT,
             tokens::TARGET,
-            "the 40 px pill keeps the 44 px phone tap target"
+            "the stepper's arrows keep the 44 px phone tap target"
         );
         assert!(
-            mobile_filter_band_height(&AppTheme::build(false)) <= 100.,
-            "month chips and source segments fit one compact band"
+            mobile_filter_band_height(&AppTheme::build(false)) <= 120.,
+            "the month stepper and source segments fit one compact band"
         );
     }
     /// The compact Abrechnung controls share one selected-state language: the
@@ -1056,8 +1122,7 @@ mod mobile_tests {
         assert_eq!(card.radius, px(tokens::RADIUS_CARD));
         assert_eq!(card.border.map(|(w, _)| w), Some(px(1.)));
         assert_eq!(theme.scale.title, tokens::TITLE.size);
-        assert_eq!(theme.scale.title, 28.);
-        assert_eq!(MOBILE_MONTH_CHIP_HEIGHT, 40.);
+        assert_eq!(theme.scale.title, tokens::TITLE.size);
 
         let totals = BillingTotals {
             gesamt: 12.5,
