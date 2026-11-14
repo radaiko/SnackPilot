@@ -146,13 +146,7 @@ pub fn bill_row(entry: &BillingEntry, theme: &AppTheme) -> Div {
 /// all rows, which are separated by 1 px hairlines instead of one card each.
 /// @req REQ-SCR-03 @req REQ-UI-15
 pub fn bill_list(entries: &[BillingEntry], theme: &AppTheme) -> AnyElement {
-    let mut card = div()
-        .w_full()
-        .flex()
-        .flex_col()
-        .p(px(MOBILE_RECEIPT_CARD_PADDING))
-        .rounded(px(theme.scale.radius_card))
-        .bg(theme.surface);
+    let mut card = div().w_full().flex().flex_col().px(px(theme.scale.space_4));
     for (index, entry) in entries.iter().enumerate() {
         if index > 0 {
             card = card.child(div().h(px(MOBILE_RECEIPT_HAIRLINE)).bg(theme.border));

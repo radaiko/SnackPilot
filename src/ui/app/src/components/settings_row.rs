@@ -148,11 +148,9 @@ pub fn settings_row(
         .items_center()
         .gap(px(theme.scale.space_3))
         .p(px(theme.scale.space_4))
-        .rounded(px(theme.scale.radius_card))
-        .bg(theme.surface)
         .tab_index(0)
         .cursor_pointer()
-        .hover(|s| s.bg(theme.pressed(theme.surface)))
+        .hover(|s| s.bg(theme.pressed(theme.background)))
         .focus(theme::desktop_focus(theme.accent))
         .on_click(move |_, window, cx| on_tap(window, cx))
         .child(

@@ -198,25 +198,27 @@ pub fn menu_card(
 ) -> Stateful<Div> {
     let m = &theme.scale;
     let treatment = mobile_card_treatment(&state);
-    // Flat: a plain row is its surface alone. The two exceptional states keep
-    // their boundary, because a colour there is the message.
+    // Flat: a row is a row, not a box. Only a selection paints a fill, and
+    // only a pending cancellation keeps a boundary — there the colour is the
+    // message. The list draws the hairline between rows.
     let (fill, outline) = match treatment {
-        MobileCardTreatment::Selected => (theme.accent_surface, Some(theme.accent)),
-        MobileCardTreatment::PendingCancel => (theme.surface, Some(theme.warning)),
-        MobileCardTreatment::Plain => (theme.surface, None),
+        MobileCardTreatment::Selected => (Some(theme.accent_surface), None),
+        MobileCardTreatment::PendingCancel => (None, Some(theme.warning)),
+        MobileCardTreatment::Plain => (None, None),
     };
-    let pressed = theme.pressed(fill);
+    let pressed = theme.pressed(theme.surface);
 
     let mut card = div()
         .w_full()
         .flex()
         .flex_col()
         .gap(px(m.space_2))
-        .p(px(m.space_4))
-        .mb(px(m.space_2))
-        .rounded(px(theme.scale.radius_card))
-        .bg(fill)
+        .px(px(m.space_4))
+        .py(px(m.space_3))
         .id(SharedString::from(format!("menu-{}|{}", item.id, item.day)));
+    if let Some(fill) = fill {
+        card = card.bg(fill);
+    }
     if let Some(outline) = outline {
         card = card.border(px(1.)).border_color(outline);
     }

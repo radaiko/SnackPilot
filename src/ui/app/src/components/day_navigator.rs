@@ -65,10 +65,7 @@ pub fn day_navigator(
         .justify_between()
         .px(px(16.))
         .py(px(12.));
-    let container = container
-        .bg(theme.surface)
-        .border_b_1()
-        .border_color(theme.border);
+    let container = container.bg(theme.surface);
 
     let center = div()
         .id("day-today")
@@ -185,18 +182,18 @@ pub fn mobile_day_navigator(
         button.into_any_element()
     };
 
-    // The row is one surface: the shell supplies the outer 16 px gutter.
-    let container = theme::apply(
-        div()
-            .w_full()
-            .h(px(recipe.row))
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(recipe.gap))
-            .px(px(theme.scale.space_4)),
-        &theme.card_surface(),
-    );
+    // The row sits on the page, closed by one hairline: the shell supplies the
+    // outer 16 px gutter.
+    let container = div()
+        .w_full()
+        .h(px(recipe.row))
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(recipe.gap))
+        .px(px(theme.scale.space_4))
+        .border_b_1()
+        .border_color(theme.border);
 
     let center = div()
         .id("day-today")

@@ -267,16 +267,14 @@ pub fn order_item(
         .flex_row()
         .items_start()
         .gap(px(m.space_2))
-        .p(px(m.space_4))
-        .mb(px(m.space_2))
-        .rounded(px(theme.scale.radius_card))
-        .bg(theme.surface)
+        .px(px(m.space_4))
+        .py(px(m.space_3))
         .id(SharedString::from(format!("order-{}", order.position_id)));
     if let (true, Some(on_select)) = (mobile_order_card_tappable(select_mode), on_select) {
         row = row
             .tab_index(0)
             .cursor_pointer()
-            .hover(move |s| s.bg(theme.pressed(theme.surface)))
+            .hover(move |s| s.bg(theme.pressed(theme.background)))
             .focus(crate::theme::desktop_focus(theme.accent))
             .on_click(move |_, window, cx| on_select(window, cx));
     }

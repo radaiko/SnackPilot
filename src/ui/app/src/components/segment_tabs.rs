@@ -118,14 +118,7 @@ pub fn segment_options<T: Copy + PartialEq + 'static>(
     on_select: SegmentOptionHandler<T>,
     theme: &AppTheme,
 ) -> Div {
-    let mut control = div()
-        .flex()
-        .w_full()
-        .rounded(px(MOBILE_SEGMENT_RADIUS))
-        .border(px(MOBILE_SEGMENT_BORDER))
-        .border_color(theme.border)
-        .bg(theme.surface)
-        .overflow_hidden();
+    let mut control = div().flex().w_full().overflow_hidden();
     for (id, label, value) in options {
         control = control.child(segment_option(
             id,

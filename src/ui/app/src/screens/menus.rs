@@ -314,7 +314,10 @@ fn group(
                 .child(heading),
         );
     }
-    for item in items {
+    for (index, item) in items.into_iter().enumerate() {
+        if index > 0 {
+            group = group.child(div().h(px(1.)).bg(theme.border));
+        }
         let key = format!("{}|{}", item.id, item.day);
         let state = MenuCardState {
             selected: pending_orders.contains(&key),

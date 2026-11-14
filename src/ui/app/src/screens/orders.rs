@@ -137,7 +137,10 @@ pub fn orders_tab(
     if orders.is_empty() {
         list = list.child(empty_state(past, theme));
     } else {
-        for order in orders {
+        for (index, order) in orders.iter().enumerate() {
+            if index > 0 {
+                list = list.child(div().h(px(1.)).bg(theme.border));
+            }
             let cancelling = state.cancelling_id.as_deref() == Some(order.position_id.as_str());
             let can_cancel = !past && state.cancelling_id.is_none();
             let cutoff = model.is_cancellation_cutoff(order);

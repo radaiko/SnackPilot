@@ -92,7 +92,6 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
         .flex_1()
         .flex()
         .flex_col()
-        .gap(px(theme.scale.space_2))
         .overflow_y_scroll();
 
     let section_label = |text: &'static str| {
@@ -107,6 +106,8 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
     };
     list = list.child(section_label("Konto"));
 
+    // Flat rows are one column: a hairline separates neighbours, never a box.
+    let mut rule = false;
     for (index, (id, icon, title, hint, detail)) in rows.into_iter().enumerate() {
         // §3.4: Benachrichtigungen only where the platform supports them.
         if detail == Detail::Notifications
@@ -116,7 +117,12 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
         }
         if index == 2 {
             list = list.child(section_label("App"));
+            rule = false;
         }
+        if rule {
+            list = list.child(div().h(px(1.)).bg(theme.border));
+        }
+        rule = true;
         let entity = cx.entity().clone();
         let handler = Rc::new(move |window: &mut Window, cx: &mut App| {
             let _ = entity.update(cx, |this, cx| this.open_detail(detail, window, cx));
@@ -139,6 +145,7 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
         });
     });
 
+    list = list.child(div().h(px(1.)).bg(theme.border));
     list = list.child(settings_row(
         "datenschutz",
         IconName::Shield,

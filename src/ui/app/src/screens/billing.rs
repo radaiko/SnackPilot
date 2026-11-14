@@ -341,41 +341,40 @@ pub(crate) fn mobile_month_row(
         .get(index)
         .map(|option| month_chip_label(&option.key))
         .unwrap_or_default();
-    let row = theme::apply(
-        div()
-            .w_full()
-            .h(px(MOBILE_MONTH_TARGET_HEIGHT + theme.scale.space_4))
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(theme.scale.space_2))
-            .px(px(theme.scale.space_2))
-            .child(arrow(
-                "billing-month-newer",
-                IconName::ChevronLeft,
-                newer.map(|option| option.offset),
-            ))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .whitespace_nowrap()
-                    .text_size(px(theme.scale.headline))
-                    .line_height(px(theme.scale.headline_line))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.text_primary)
-                    .child(label),
-            )
-            .child(arrow(
-                "billing-month-older",
-                IconName::ChevronRight,
-                older.map(|option| option.offset),
-            )),
-        &theme.card_surface(),
-    );
+    let row = div()
+        .w_full()
+        .h(px(MOBILE_MONTH_TARGET_HEIGHT + theme.scale.space_4))
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(theme.scale.space_2))
+        .px(px(theme.scale.space_2))
+        .child(arrow(
+            "billing-month-newer",
+            IconName::ChevronLeft,
+            newer.map(|option| option.offset),
+        ))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .whitespace_nowrap()
+                .text_size(px(theme.scale.headline))
+                .line_height(px(theme.scale.headline_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.text_primary)
+                .child(label),
+        )
+        .child(arrow(
+            "billing-month-older",
+            IconName::ChevronRight,
+            older.map(|option| option.offset),
+        ))
+        .border_b_1()
+        .border_color(theme.border);
 
     let mut column = div()
         .w_full()
@@ -397,7 +396,6 @@ pub(crate) fn mobile_month_row(
                     .items_center()
                     .justify_center()
                     .rounded(px(theme.scale.radius_chip))
-                    .bg(theme.surface)
                     .cursor_pointer()
                     .tab_index(0)
                     .focus(theme::desktop_focus(theme.accent))
@@ -408,7 +406,7 @@ pub(crate) fn mobile_month_row(
                             .text_size(px(theme.scale.meta))
                             .line_height(px(theme.scale.meta_line))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.text_secondary)
+                            .text_color(theme.accent)
                             .child("Dieser Monat"),
                     ),
             ),
@@ -522,47 +520,45 @@ pub(crate) fn mobile_summary_surface(
 ) -> AnyElement {
     let m = &theme.scale;
     let (gesamt, meta) = mobile_summary(entries.len(), totals, source);
-    theme::apply(
-        div()
-            .mb(px(m.space_2))
-            .p(px(m.space_4))
-            .flex()
-            .flex_col()
-            .gap(px(m.space_1))
-            .child(
-                div()
-                    .flex()
-                    .items_baseline()
-                    .justify_between()
-                    .gap(px(m.space_2))
-                    .child(
-                        div()
-                            .text_size(px(m.meta))
-                            .line_height(px(m.meta_line))
-                            .text_color(theme.text_secondary)
-                            .child("Gesamt"),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .whitespace_nowrap()
-                            .text_size(px(m.title))
-                            .line_height(px(m.title_line))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.text_primary)
-                            .child(gesamt),
-                    ),
-            )
-            .child(
-                div()
-                    .text_size(px(m.meta))
-                    .line_height(px(m.meta_line))
-                    .text_color(theme.text_secondary)
-                    .child(meta),
-            ),
-        &theme.card_surface(),
-    )
-    .into_any_element()
+    div()
+        .mb(px(m.space_2))
+        .px(px(m.space_4))
+        .py(px(m.space_3))
+        .flex()
+        .flex_col()
+        .gap(px(m.space_1))
+        .child(
+            div()
+                .flex()
+                .items_baseline()
+                .justify_between()
+                .gap(px(m.space_2))
+                .child(
+                    div()
+                        .text_size(px(m.meta))
+                        .line_height(px(m.meta_line))
+                        .text_color(theme.text_secondary)
+                        .child("Gesamt"),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                        .text_size(px(m.title))
+                        .line_height(px(m.title_line))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme.text_primary)
+                        .child(gesamt),
+                ),
+        )
+        .child(
+            div()
+                .text_size(px(m.meta))
+                .line_height(px(m.meta_line))
+                .text_color(theme.text_secondary)
+                .child(meta),
+        )
+        .into_any_element()
 }
 
 fn month_select(model: &Arc<AppModel>, cx: &mut Context<AppShell>) -> MonthSelect {
@@ -595,12 +591,7 @@ fn month_row(
 ) -> Div {
     let border = theme.border;
     let bg = theme.surface;
-    let mut row = div()
-        .flex()
-        .w_full()
-        .bg(bg)
-        .border_b_1()
-        .border_color(border);
+    let mut row = div().flex().w_full().bg(bg);
     for option in state.month_options.iter() {
         let offset = option.offset;
         let selected = state.selected_offset == offset;
