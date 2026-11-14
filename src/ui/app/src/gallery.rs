@@ -855,7 +855,6 @@ fn mobile_menus_case(width: f32, theme: &AppTheme) -> AnyElement {
             Some("2026-11-17"),
             "2026-11-16",
             &gpui_kit::ScrollHandle::new(),
-            true,
             theme,
             Rc::new(|_: &str, _: &mut Window, _: &mut App| {}),
         ))

@@ -55,7 +55,6 @@ pub fn menus_tab(
     offset: f32,
     scroll: &ScrollHandle,
     days_scroll: &ScrollHandle,
-    strip_dragging: bool,
     pull: f32,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -72,27 +71,15 @@ pub fn menus_tab(
         if !snapshot.available_dates.is_empty() {
             let dates = &snapshot.available_dates;
             let selected = state.selected_day.clone();
-            let (down, moved, up) = strip_handlers(days_scroll, cx);
-            let strip = mobile_day_strip(
+            day_row = day_row.child(div().w_full().child(mobile_day_strip(
                 dates,
                 &day_facts(state, dates),
                 selected.as_deref(),
                 &today_key(),
-                // A drag in flight owns the offset: the selected day must not
-                // pull it back under the finger.
                 days_scroll,
-                !strip_dragging,
                 theme,
                 day_select_handler(cx),
-            );
-            day_row = day_row.child(
-                div()
-                    .w_full()
-                    .on_mouse_down(MouseButton::Left, move |e, w, cx| down(e, w, cx))
-                    .on_mouse_move(move |e, w, cx| moved(e, w, cx))
-                    .on_mouse_up(MouseButton::Left, move |e, w, cx| up(e, w, cx))
-                    .child(strip),
-            );
+            )));
         }
     }
     column = column.child(day_row);
@@ -201,69 +188,12 @@ fn day_select_handler(cx: &mut Context<AppShell>) -> DaySelectHandler {
     Rc::new(move |day: &str, _: &mut Window, cx: &mut App| {
         let day = day.to_string();
         shell.update(cx, |s, cx| {
-            // A drag that ends over a chip is a scroll, not a choice.
-            if std::mem::take(&mut s.strip_dragged) {
-                return;
-            }
             if let Some(model) = &s.model {
                 model.select_day(&day);
             }
             cx.notify();
         });
     })
-}
-
-/// Dragging the day strip sideways. gpui's own horizontal scroll does not see
-/// a touch drag on the phone, so the strip is moved the way the day swipe
-/// already is: read the pointer, write the offset, clamp at the ends. A drag
-/// past 10 px also marks the gesture as a scroll, so releasing it does not
-/// pick the day under the finger.
-fn strip_handlers(
-    scroll: &ScrollHandle,
-    cx: &mut Context<AppShell>,
-) -> (
-    Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>,
-    Rc<dyn Fn(&MouseMoveEvent, &mut Window, &mut App)>,
-    Rc<dyn Fn(&MouseUpEvent, &mut Window, &mut App)>,
-) {
-    let shell = cx.entity().clone();
-    let handle = scroll.clone();
-    let down = Rc::new(move |e: &MouseDownEvent, _: &mut Window, cx: &mut App| {
-        let start = f32::from(e.position.x);
-        let at = f32::from(handle.offset().x);
-        shell.update(cx, |s, _| {
-            s.strip_drag = Some((start, at));
-            s.strip_dragged = false;
-        });
-    });
-
-    let shell = cx.entity().clone();
-    let handle = scroll.clone();
-    let moved = Rc::new(move |e: &MouseMoveEvent, _: &mut Window, cx: &mut App| {
-        if e.pressed_button != Some(MouseButton::Left) {
-            return;
-        }
-        let x = f32::from(e.position.x);
-        let max = f32::from(handle.max_offset().x).max(0.);
-        let Some((start, at)) = shell.update(cx, |s, _| s.strip_drag) else {
-            return;
-        };
-        // The same 10 px horizontal claim the day swipe uses.
-        let dragged = (x - start).abs() > crate::components::swipe::CLAIM_PX;
-        let next = (at + start - x).clamp(0., max);
-        handle.set_offset(point(px(next), px(0.)));
-        shell.update(cx, |s, cx| {
-            s.strip_dragged |= dragged;
-            cx.notify();
-        });
-    });
-
-    let shell = cx.entity().clone();
-    let up = Rc::new(move |_: &MouseUpEvent, _: &mut Window, cx: &mut App| {
-        shell.update(cx, |s, _| s.strip_drag = None);
-    });
-
-    (down, moved, up)
 }
 
 /// The dock's content for the current state, under exactly the incumbent

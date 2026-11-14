@@ -705,12 +705,10 @@ pub struct AppShell {
     pub(crate) mutation_gate: MutationGate,
     /// Transient swipe-between-days gesture state (§3.1): pointer origin and
     /// the current (damped) horizontal offset.
-    /// While the day strip is dragged sideways: the pointer's start x and the
-    /// scroll offset it started from.
-    pub(crate) strip_drag: Option<(f32, f32)>,
-    /// Set once a drag has moved far enough to be a scroll, so the release is
-    /// not also read as a tap on a day.
-    pub(crate) strip_dragged: bool,
+    /// The day the strip was last scrolled to. The strip aligns itself only
+    /// when this differs from the selection: aligning on every frame pulled
+    /// the row back under the finger that was swiping it.
+    pub(crate) strip_aligned: Option<String>,
     pub(crate) swipe_start: Option<f32>,
     pub(crate) swipe_start_y: Option<f32>,
     pub(crate) swipe_claimed: bool,
@@ -789,6 +787,27 @@ pub struct AppShell {
 }
 
 impl AppShell {
+    /// Bring the day strip to the selected day when the selection moved, and
+    /// only then. Aligning on every frame made the strip unswipeable: the row
+    /// snapped back to the selected day under the finger.
+    fn align_day_strip(&mut self, state: &State) {
+        if self.strip_aligned == state.selected_day {
+            return;
+        }
+        self.strip_aligned = state.selected_day.clone();
+        let Some(day) = state.selected_day.as_deref() else {
+            return;
+        };
+        let Some(index) = state
+            .menu_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.available_dates.iter().position(|d| d == day))
+        else {
+            return;
+        };
+        self.menus_days_scroll.scroll_to_item(index);
+    }
+
     /// Wrap the model (or nothing, when a host installed none) and subscribe
     /// to state changes: each notification wakes the 50 ms poll loop, which
     /// repaints the shell.
@@ -852,8 +871,7 @@ impl AppShell {
             toast: None,
             model,
             mutation_gate: MutationGate::default(),
-            strip_drag: None,
-            strip_dragged: false,
+            strip_aligned: None,
             swipe_start: None,
             swipe_start_y: None,
             swipe_claimed: false,
@@ -1468,7 +1486,7 @@ impl AppShell {
     /// Menus tab and the §3.5 back affordance on pushed screens.
     #[allow(clippy::too_many_arguments)]
     fn screen(
-        &self,
+        &mut self,
         nav: &Navigation,
         state: &State,
         theme: &AppTheme,
@@ -1584,17 +1602,19 @@ impl AppShell {
                         theme,
                         cx,
                     ),
-                    MenuRowAction::Toggle => menus_tab(
-                        state,
-                        self.model.as_ref(),
-                        theme,
-                        self.swipe_dx,
-                        &self.menus_scroll,
-                        &self.menus_days_scroll,
-                        self.strip_drag.is_some(),
-                        self.pull_dy,
-                        cx,
-                    ),
+                    MenuRowAction::Toggle => {
+                        self.align_day_strip(state);
+                        menus_tab(
+                            state,
+                            self.model.as_ref(),
+                            theme,
+                            self.swipe_dx,
+                            &self.menus_scroll,
+                            &self.menus_days_scroll,
+                            self.pull_dy,
+                            cx,
+                        )
+                    }
                 },
                 Screen::Orders => {
                     if layout == LayoutMode::Phone {
