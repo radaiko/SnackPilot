@@ -20,6 +20,7 @@ use crate::components::menu_card::{
     desktop_menu_action, desktop_menu_status, menu_card, mobile_menu_tappable, DesktopMenuRowState,
     MenuCardState,
 };
+use crate::components::pull_refresh::pull_refresh;
 use crate::components::record_table::{
     detail_entry, record_cell_right, record_row_focusable, record_status_cell, RecordListFocus,
 };
@@ -44,11 +45,14 @@ use snackpilot_model::{category_heading, format_day_short, menu_key, AppModel, S
 /// dish list. The pending dock is placed by the shell, which owns its measured
 /// height above platform navigation; nothing here adds a second inset.
 /// @req REQ-SCR-01 @req REQ-UI-15
+#[allow(clippy::too_many_arguments)]
 pub fn menus_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     theme: &AppTheme,
     offset: f32,
+    scroll: &ScrollHandle,
+    pull: f32,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     if !state.gourmet_authenticated {
@@ -57,19 +61,14 @@ pub fn menus_tab(
 
     let mut column = div().size_full().flex().flex_col();
 
-    // The screen's first row: the day navigator takes the width, the tab's one
-    // refresh action sits at its trailing edge. There is no page title above
-    // it — the tab bar already names the destination.
-    let mut day_row = div()
-        .w_full()
-        .flex()
-        .items_center()
-        .gap(px(theme.scale.space_2));
+    // The screen's first row is the day navigator: no page title above it —
+    // the tab bar already names the destination.
+    let mut day_row = div().w_full().flex().items_center();
     if let Some(snapshot) = &state.menu_snapshot {
         if !snapshot.available_dates.is_empty() {
             let dates = snapshot.available_dates.clone();
             let selected = state.selected_day.clone();
-            day_row = day_row.child(div().flex_1().min_w(px(0.)).child(mobile_day_navigator(
+            day_row = day_row.child(div().w_full().child(mobile_day_navigator(
                 &dates,
                 selected.as_deref(),
                 theme,
@@ -79,10 +78,18 @@ pub fn menus_tab(
             )));
         }
     }
-    if let Some(action) = crate::app::refresh_action(Tab::Menus, state, model, theme) {
-        day_row = day_row.child(action);
-    }
     column = column.child(day_row);
+
+    // A pull releases into the model's own refresh: the quiet line is the only
+    // progress a cached Menüs shows while its cards stay in place.
+    if state.order_progress.is_none()
+        && state
+            .menu_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.refreshing)
+    {
+        column = column.child(refresh_line(theme));
+    }
     let host = state.host_kind;
     if let Some(error) = &state.error_text {
         column = column.child(mobile_error_banner(
@@ -93,7 +100,7 @@ pub fn menus_tab(
     }
 
     let busy = state.busy;
-    let content = menu_list(state, model, busy, theme, cx);
+    let content = menu_list(state, model, busy, theme, scroll, cx);
 
     let (can_back, can_forward, offset) = match &state.menu_snapshot {
         Some(snapshot) if !snapshot.available_dates.is_empty() => {
@@ -106,15 +113,27 @@ pub fn menus_tab(
     };
     let reduce_motion = cx.reduce_motion();
 
-    // The swipe surface takes only the height left under the day navigator and
-    // refresh line; a size_full child there pushed the list under the shell's
-    // bottom edge and clipped the last row.
-    column = column.child(div().flex_1().min_h_0().child(swipe_days(
-        "menus-swipe",
-        content,
-        swipe_offset(offset, can_back, can_forward, reduce_motion),
-        swipe_handlers(can_back, can_forward, reduce_motion, cx),
-    )));
+    // The swipe surface takes only the height left under the day navigator;
+    // a size_full child there pushed the list under the shell's bottom edge and
+    // clipped the last row. A drag from the top of the list reloads the menus.
+    let on_refresh = crate::app::refresh_handler(Tab::Menus, model, state.host_kind);
+    let gesture = crate::app::pull_handlers(scroll.clone(), on_refresh, cx);
+    column = column.child(pull_refresh(
+        "menus-pull",
+        div()
+            .flex_1()
+            .min_h_0()
+            .child(swipe_days(
+                "menus-swipe",
+                content,
+                swipe_offset(offset, can_back, can_forward, reduce_motion),
+                swipe_handlers(can_back, can_forward, reduce_motion, cx),
+            ))
+            .into_any_element(),
+        pull,
+        gesture,
+        theme,
+    ));
 
     column.into_any_element()
 }
@@ -218,6 +237,7 @@ fn menu_list(
     model: Option<&Arc<AppModel>>,
     busy: bool,
     theme: &AppTheme,
+    scroll: &ScrollHandle,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     let Some(model) = model else {
@@ -253,7 +273,8 @@ fn menu_list(
         .flex()
         .flex_col()
         .pt(px(theme.scale.space_4))
-        .overflow_y_scroll();
+        .overflow_y_scroll()
+        .track_scroll(scroll);
 
     for (category, items) in groups {
         list = list.child(group(
@@ -341,6 +362,26 @@ fn loading_state(theme: &AppTheme) -> AnyElement {
         .justify_center()
         .p(px(theme.scale.space_4))
         .child(spinner(theme.text_secondary, theme.scale.icon))
+        .into_any_element()
+}
+
+/// The cached refresh keeps the day and rows: one quiet 20 px spinner with the
+/// existing `Aktualisiere...` metadata line, never a decorative card.
+fn refresh_line(theme: &AppTheme) -> AnyElement {
+    div()
+        .py(px(theme.scale.space_2))
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(theme.scale.space_2))
+        .child(spinner(theme.text_secondary, theme.scale.icon))
+        .child(
+            div()
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
+                .child("Aktualisiere..."),
+        )
         .into_any_element()
 }
 

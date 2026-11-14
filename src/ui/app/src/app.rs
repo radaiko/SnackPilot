@@ -31,6 +31,7 @@ use crate::components::dialog::{
     dialog_key, dialog_move, dialog_overlay, Dialog, DialogKey, DialogResolution,
 };
 use crate::components::loading_overlay::{desktop_loading_overlay, loading_overlay};
+use crate::components::pull_refresh::PullGesture;
 use crate::components::record_table::RecordListFocus;
 use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect, BAR_HEIGHT};
 use crate::components::toast::{
@@ -339,7 +340,12 @@ impl Drop for MutationTicket {
 /// while the existing flow runs. Nothing extra is requested — the same model
 /// methods run, and their state notifications repaint the shell. A phone or
 /// tablet host keeps the incumbent synchronous path.
-fn dispatch_refresh(model: &Arc<AppModel>, intent: RefreshIntent, host: HostKind, cx: &mut App) {
+pub(crate) fn dispatch_refresh(
+    model: &Arc<AppModel>,
+    intent: RefreshIntent,
+    host: HostKind,
+    cx: &mut App,
+) {
     let model = Arc::clone(model);
     run_blocking(host, cx, move || run_refresh(&model, intent));
 }
@@ -557,70 +563,98 @@ fn launch_screen(stage: LaunchStage, theme: &AppTheme) -> Div {
         )
 }
 
-/// The one refresh control: a 44 px ghost button that runs the tab's refresh,
-/// or a 20 px spinner while that tab is loading. Pulling a list is not the only
-/// way to reload it — a visible control is what a device user reaches for, and
-/// the cached tabs keep their content while it runs. Each screen places it at
-/// the trailing edge of its own first row, where the title row used to sit.
-pub(crate) fn refresh_action(
-    tab: Tab,
-    state: &State,
-    model: Option<&Arc<AppModel>>,
-    theme: &AppTheme,
-) -> Option<AnyElement> {
-    let intent = refresh_intent(tab)?;
-    let model = Arc::clone(model?);
-    let busy = match intent {
-        RefreshIntent::Menus => state
-            .menu_snapshot
-            .as_ref()
-            .is_some_and(|snapshot| snapshot.refreshing),
-        RefreshIntent::Orders => state.busy,
-        RefreshIntent::Billing => state.billing_loading,
-    };
-    if busy {
-        return Some(
-            div()
-                .w(px(snackpilot_model::tokens::TARGET))
-                .h(px(snackpilot_model::tokens::TARGET))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(crate::components::spinner::spinner(
-                    theme.text_tertiary,
-                    20.,
-                ))
-                .into_any_element(),
-        );
+/// Whether a list scrolled to `offset` is at its top: gpui reports 0 there and
+/// a negative value once it is scrolled down.
+fn pull_is_at_top(offset: f32) -> bool {
+    offset >= -0.5
+}
+
+/// The revealed distance for a drag of `dy`: only downward, only from the top,
+/// never past what the indicator can show.
+fn pull_offset(dy: f32, at_top: bool) -> f32 {
+    if !at_top {
+        return 0.;
     }
-    let host = state.host_kind;
-    Some(
-        div()
-            .id("compact-refresh")
-            .w(px(snackpilot_model::tokens::TARGET))
-            .h(px(snackpilot_model::tokens::TARGET))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(snackpilot_model::tokens::RADIUS_CHIP))
-            // The page's own background: a horizontally scrolled neighbour
-            // (the Abrechnung month chips) slides behind this control instead
-            // of being cut off right beside it.
-            .bg(theme.background)
-            .cursor_pointer()
-            .tab_index(0)
-            .hover(move |s| s.bg(theme.hover(theme.surface)))
-            .focus(crate::theme::desktop_focus(theme.accent))
-            .aria_label("Aktualisieren")
-            .accessibility_id("compact-refresh")
-            .on_click(move |_, _window, cx| dispatch_refresh(&model, intent, host, cx))
-            .child(
-                Icon::new(IconName::RefreshCw)
-                    .with_size(px(theme.scale.icon))
-                    .text_color(theme.text_secondary),
-            )
-            .into_any_element(),
-    )
+    dy.max(0.).min(crate::components::pull_refresh::PULL_MAX)
+}
+
+/// A click handler that runs one tab's refresh through the shared intent
+/// boundary — the pull-to-refresh trigger, and the banners' own retry.
+pub(crate) fn refresh_handler(
+    tab: Tab,
+    model: Option<&Arc<AppModel>>,
+    host: HostKind,
+) -> ClickHandler {
+    let model = model.cloned();
+    let intent = refresh_intent(tab);
+    Rc::new(move |_window: &mut Window, cx: &mut App| {
+        if let (Some(model), Some(intent)) = (&model, intent) {
+            dispatch_refresh(model, intent, host, cx);
+        }
+    })
+}
+
+/// The pull-to-refresh gesture for one list: it follows the finger only when
+/// the list is at its top, shows the revealed distance through the shell's
+/// `pull_dy`, and dispatches the tab's refresh on release past [`PULL_PX`].
+/// Starting anywhere but the top leaves the gesture to the list, so scrolling
+/// can never reload by accident.
+pub(crate) fn pull_handlers(
+    scroll: ScrollHandle,
+    on_refresh: ClickHandler,
+    cx: &mut Context<AppShell>,
+) -> PullGesture {
+    let shell = cx.entity().clone();
+    let scrolled = scroll.clone();
+    let down = Rc::new(move |e: &MouseDownEvent, _: &mut Window, cx: &mut App| {
+        let y = f32::from(e.position.y);
+        let at_top = pull_is_at_top(f32::from(scrolled.offset().y));
+        shell.update(cx, |s, _| {
+            s.pull_start = Some(y);
+            s.pull_at_top = at_top;
+            s.pull_dy = 0.;
+        });
+    });
+
+    let shell = cx.entity().clone();
+    let moved = Rc::new(move |e: &MouseMoveEvent, _: &mut Window, cx: &mut App| {
+        if e.pressed_button != Some(MouseButton::Left) {
+            return;
+        }
+        let y = f32::from(e.position.y);
+        shell.update(cx, |s, cx| {
+            let Some(start) = s.pull_start else {
+                return;
+            };
+            let dy = if s.pull_at_top {
+                (y - start).max(0.)
+            } else {
+                0.
+            };
+            let pull = dy.min(crate::components::pull_refresh::PULL_MAX);
+            if (pull - s.pull_dy).abs() > f32::EPSILON {
+                s.pull_dy = pull;
+                cx.notify();
+            }
+        });
+    });
+
+    let shell = cx.entity().clone();
+    let up = Rc::new(move |_: &MouseUpEvent, window: &mut Window, cx: &mut App| {
+        let fired = shell.update(cx, |s, cx| {
+            let fired = s.pull_dy >= crate::components::pull_refresh::PULL_PX;
+            s.pull_start = None;
+            s.pull_at_top = false;
+            s.pull_dy = 0.;
+            cx.notify();
+            fired
+        });
+        if fired {
+            on_refresh(window, cx);
+        }
+    });
+
+    PullGesture { down, moved, up }
 }
 
 /// The single root view: four tabs, one push/pop stack, dialogs, loading
@@ -644,6 +678,16 @@ pub struct AppShell {
     pub(crate) swipe_start_y: Option<f32>,
     pub(crate) swipe_claimed: bool,
     pub(crate) swipe_dx: f32,
+    /// Pull-to-refresh drag: the start position, the live distance and whether
+    /// the list was at its top when the drag began.
+    pub(crate) pull_start: Option<f32>,
+    pub(crate) pull_dy: f32,
+    pub(crate) pull_at_top: bool,
+    /// One handle per scrollable tab list, kept here so the pull gesture can
+    /// ask the list whether it is at its top.
+    pub(crate) menus_scroll: ScrollHandle,
+    pub(crate) orders_scroll: ScrollHandle,
+    pub(crate) billing_scroll: ScrollHandle,
     /// Which pushed settings screen is shown.
     pub(crate) detail: Detail,
     /// Login form fields, created on push so typing survives re-renders.
@@ -772,6 +816,12 @@ impl AppShell {
             swipe_start_y: None,
             swipe_claimed: false,
             swipe_dx: 0.,
+            pull_start: None,
+            pull_dy: 0.,
+            pull_at_top: false,
+            menus_scroll: ScrollHandle::new(),
+            orders_scroll: ScrollHandle::new(),
+            billing_scroll: ScrollHandle::new(),
             detail: Detail::Settings,
             login_user: None,
             login_pass: None,
@@ -1492,13 +1542,27 @@ impl AppShell {
                         theme,
                         cx,
                     ),
-                    MenuRowAction::Toggle => {
-                        menus_tab(state, self.model.as_ref(), theme, self.swipe_dx, cx)
-                    }
+                    MenuRowAction::Toggle => menus_tab(
+                        state,
+                        self.model.as_ref(),
+                        theme,
+                        self.swipe_dx,
+                        &self.menus_scroll,
+                        self.pull_dy,
+                        cx,
+                    ),
                 },
                 Screen::Orders => {
                     if layout == LayoutMode::Phone {
-                        orders_tab(state, self.model.as_ref(), state.orders_past, theme, cx)
+                        orders_tab(
+                            state,
+                            self.model.as_ref(),
+                            state.orders_past,
+                            theme,
+                            &self.orders_scroll,
+                            self.pull_dy,
+                            cx,
+                        )
                     } else {
                         desktop_orders_tab(
                             state,
@@ -1514,7 +1578,14 @@ impl AppShell {
                 }
                 Screen::Billing => {
                     if layout == LayoutMode::Phone {
-                        billing_tab(state, self.model.as_ref(), theme, cx)
+                        billing_tab(
+                            state,
+                            self.model.as_ref(),
+                            theme,
+                            &self.billing_scroll,
+                            self.pull_dy,
+                            cx,
+                        )
                     } else {
                         desktop_billing_tab(
                             state,
@@ -1963,12 +2034,12 @@ mod tests {
         desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
         focus_restore, keyboard_action, launch_visible, menu_row_action, model_settings_detail,
         navigation_top, nearest_restore_cursor, obstruction_reservation, order_cancel_state,
-        order_row_effect, refresh_intent, safe_area, should_create_inputs, Detail, FocusRestore,
-        MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, CONTENT_TOP,
-        LAUNCH_MAX, LAUNCH_MIN, SCROLL_END_GAP,
+        order_row_effect, pull_is_at_top, pull_offset, refresh_intent, safe_area,
+        should_create_inputs, Detail, FocusRestore, MenuRowAction, MutationGate, OrderCancelState,
+        OrderRowEffect, RefreshIntent, CONTENT_TOP, LAUNCH_MAX, LAUNCH_MIN, SCROLL_END_GAP,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
-    use crate::components::tab_bar::reserved_height;
+    use crate::components::pull_refresh::PULL_MAX;
     use snackpilot_model::desktop::HostKind;
     use snackpilot_model::desktop::LayoutMode;
     use snackpilot_model::navigation::{ListKind, Screen, SettingsDetail, Tab};
@@ -3079,6 +3150,19 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Pull-to-refresh only follows a downward drag that starts at the top of
+    /// the list, so scrolling can never reload by accident.
+    #[test]
+    fn pull_only_measures_from_the_top() {
+        assert!(pull_is_at_top(0.));
+        assert!(!pull_is_at_top(-1.));
+        assert_eq!(pull_offset(80., true), PULL_MAX);
+        assert_eq!(pull_offset(30., true), 30.);
+        assert_eq!(pull_offset(-40., true), 0., "an upward drag is a scroll");
+        assert_eq!(pull_offset(80., false), 0., "a scrolled list is not pulled");
+        assert!(PULL_MAX > crate::components::pull_refresh::PULL_PX);
     }
 
     /// The launch mark covers the empty states on the way to data, and still

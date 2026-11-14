@@ -53,6 +53,8 @@ pub fn billing_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     theme: &AppTheme,
+    scroll: &ScrollHandle,
+    pull: f32,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     if !state.gourmet_authenticated && !state.ventopay_authenticated {
@@ -88,20 +90,11 @@ pub fn billing_tab(
         month_select(model, off_thread, cx),
         theme,
     ));
-    let mut source_band = div()
-        .w_full()
-        .flex()
-        .items_center()
-        .gap(px(theme.scale.space_2))
-        .child(div().flex_1().min_w(px(0.)).child(mobile_source_row(
-            state.billing_source,
-            source_select(model, off_thread, cx),
-            theme,
-        )));
-    if let Some(action) = crate::app::refresh_action(Tab::Billing, state, Some(model), theme) {
-        source_band = source_band.child(action);
-    }
-    column = column.child(month_band).child(source_band);
+    column = column.child(month_band).child(mobile_source_row(
+        state.billing_source,
+        source_select(model, off_thread, cx),
+        theme,
+    ));
 
     let mut content = div().w_full().flex_1().min_h(px(0.)).flex().flex_col();
 
@@ -142,7 +135,8 @@ pub fn billing_tab(
             .min_h(px(0.))
             .flex()
             .flex_col()
-            .overflow_y_scroll();
+            .overflow_y_scroll()
+            .track_scroll(scroll);
         if has_entries {
             list = list.child(bill_list(&entries, theme));
         } else {
@@ -152,10 +146,15 @@ pub fn billing_tab(
         content = content.child(list);
     }
 
+    // A drag from the top of the receipts reloads the month.
+    let on_refresh = crate::app::refresh_handler(Tab::Billing, Some(model), state.host_kind);
+    let gesture = crate::app::pull_handlers(scroll.clone(), on_refresh, cx);
     column = column.child(pull_refresh(
         "billing-pull",
         content.into_any_element(),
-        reload_handler(off_thread, cx),
+        pull,
+        gesture,
+        theme,
     ));
     column.into_any_element()
 }
@@ -666,19 +665,6 @@ fn error_banner(message: &str, theme: &AppTheme) -> AnyElement {
         &r,
     )
     .into_any_element()
-}
-
-fn reload_handler(off_thread: bool, cx: &mut Context<AppShell>) -> ClickHandler {
-    let shell = cx.entity().clone();
-    Rc::new(move |_: &mut Window, cx: &mut App| {
-        shell.update(cx, |s, cx| {
-            let Some(model) = s.model.clone() else {
-                return;
-            };
-            dispatch_billing_action(off_thread, cx, move || model.reload_billing());
-            cx.notify();
-        });
-    })
 }
 
 /// The wide-desktop Abrechnung workspace (task 1.4): month toolbar, source

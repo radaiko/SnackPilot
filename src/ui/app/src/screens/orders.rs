@@ -23,6 +23,7 @@ use crate::components::order_item::{
     desktop_order_detail, desktop_order_header, desktop_order_row, order_description, order_item,
     DesktopOrderRowState,
 };
+use crate::components::pull_refresh::pull_refresh;
 use crate::components::record_table::{detail_entry, RecordListFocus};
 use crate::components::segment_tabs::{desktop_segment_toolbar, segment_tabs, Segment};
 use crate::components::spinner::spinner;
@@ -42,11 +43,14 @@ use snackpilot_model::{AppModel, State};
 /// comes from `AppModel`; the legacy 16/100 px screen padding is gone, so the
 /// shell's measured reservation owns the scroll-end clearance.
 /// @req REQ-SCR-02 @req REQ-UI-15 @req REQ-UI-16
+#[allow(clippy::too_many_arguments)]
 pub fn orders_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     past: bool,
     theme: &AppTheme,
+    scroll: &ScrollHandle,
+    pull: f32,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     if !state.gourmet_authenticated {
@@ -89,9 +93,8 @@ pub fn orders_tab(
     // under the shell heading, so the batch strip stays above navigation
     // instead of overflowing the heading's height.
     let mut column = div().flex_1().min_h(px(0.)).flex().flex_col();
-    // The screen's first row: the segment takes the width, the tab's refresh
-    // action sits at its trailing edge instead of in a title row.
-    let mut head = div()
+    // The screen's first row is the segment: no page title above it.
+    let head = div()
         .w_full()
         .flex()
         .items_center()
@@ -103,9 +106,6 @@ pub fn orders_tab(
             select_segment,
             theme,
         )));
-    if let Some(action) = crate::app::refresh_action(Tab::Orders, state, Some(model), theme) {
-        head = head.child(action);
-    }
     column = column.child(head);
 
     if state.order_progress.is_none() {
@@ -162,7 +162,16 @@ pub fn orders_tab(
         }
     }
 
-    column = column.child(list);
+    // A drag from the top of the list reloads the orders.
+    let on_refresh = crate::app::refresh_handler(Tab::Orders, Some(model), state.host_kind);
+    let gesture = crate::app::pull_handlers(scroll.clone(), on_refresh, cx);
+    column = column.child(pull_refresh(
+        "orders-pull",
+        list.track_scroll(scroll).into_any_element(),
+        pull,
+        gesture,
+        theme,
+    ));
 
     // Batch-cancel bar while multi-select mode is active.
     if state.order_selection_mode {
