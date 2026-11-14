@@ -7,9 +7,9 @@
 //! arrows and the day alone in the headline role, no ordinal.
 //! One contained surface with a hairline boundary on every platform.
 
+use std::rc::Rc;
+
 use gpui::*;
-use gpui_kit::assets::IconName;
-use gpui_kit::component::{Icon, Sizable};
 use snackpilot_model::format_day_short;
 
 use crate::navigation::ClickHandler;
@@ -98,218 +98,264 @@ pub fn day_navigator(
         .into_any_element()
 }
 
-/// The compact day row's one geometry, as data the builder paints: a 44 px
-/// chevron target, the 20 px Lucide glyph, an 8 px row gap, a 64 px row and a
-/// min-44 centre target holding the day alone in the headline role.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MobileDayNavigator {
-    /// Bare arrow target, both axes (44 px touch floor).
-    pub arrow: f32,
-    /// Arrow glyph (Lucide 20).
-    pub glyph: f32,
-    /// The row gap between arrow, centre and arrow.
-    pub gap: f32,
-    /// The row's total height: 10 px above and below the 44 px target.
-    pub row: f32,
-    /// The centre target's minimum height.
-    pub centre_min: f32,
+/// What one day of the strip says about itself beyond its date: an order
+/// stands for it, dishes are marked for it, and whether it was ever opened.
+/// A day with none of them is quiet.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DayFacts {
+    pub ordered: bool,
+    pub marked: bool,
+    pub visited: bool,
 }
 
-pub fn mobile_day_navigator_recipe(theme: &AppTheme) -> MobileDayNavigator {
-    MobileDayNavigator {
-        arrow: theme.scale.target,
-        glyph: theme.scale.icon,
-        gap: theme.scale.space_2,
-        row: 64.,
-        centre_min: theme.scale.target,
+/// What the dot under a day says: an order stands, dishes are marked, or the
+/// day is one the app has never shown. `None` is a day with nothing to report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DayDot {
+    None,
+    Ordered,
+    Marked,
+    New,
+}
+
+/// The one dot a day gets: an order outranks a mark, a mark outranks being new,
+/// and only a day from today on can be new — a past day is not news.
+pub fn day_dot(facts: DayFacts, day: &str, today: &str) -> DayDot {
+    if facts.ordered {
+        DayDot::Ordered
+    } else if facts.marked {
+        DayDot::Marked
+    } else if !facts.visited && day >= today {
+        DayDot::New
+    } else {
+        DayDot::None
     }
 }
 
-/// Which ends of the day list are closed for the selected index: the model's
-/// list is the one source, the first day closes back, the last closes forward,
-/// and a selection that is not in the list falls back to the first day.
-pub fn day_edge(dates_len: usize, index: usize) -> (bool, bool) {
-    (index == 0, index + 1 >= dates_len)
-}
+/// The strip's tap: the day key the person picked.
+pub type DaySelectHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
-/// The compact Day Tray day row: one 64 px surface with a 1 px hairline, 12
-/// radius and 16 px side padding, bare 44 px arrows carrying the 20 px Lucide
-/// `ChevronLeft`/`ChevronRight`, and a min-44 centre target holding the day
-/// alone in the headline role. There is no ordinal: the disabled ends already
-/// carry the position in the list. Selection, the today intent, the formatter
-/// and the disabled ends are unchanged; the wide Ledger keeps
-/// [`day_navigator`] above exactly as before.
+/// How wide one day chip is drawn. Seven of them plus the gaps fit a phone's
+/// 358 px content width, so a fortnight wraps onto two rows instead of hiding
+/// behind a scroll.
+pub const DAY_CHIP_W: f32 = 46.;
+
+/// The compact day strip: every available day at once, weekday over date, the
+/// selected one on an accent tint. A dot says what the day carries — filled
+/// accent for a placed order, hollow accent for marked dishes, a quiet grey
+/// dot for a day that was never opened. Today's date wears the accent. Tapping
+/// a chip selects that day; the swipe between days stays.
 /// @req REQ-SCR-01 @req REQ-UI-15 @req REQ-UI-16
-pub fn mobile_day_navigator(
+pub fn mobile_day_strip(
     dates: &[String],
+    facts: &[DayFacts],
     selected: Option<&str>,
+    today: &str,
     theme: &AppTheme,
-    on_prev: ClickHandler,
-    on_next: ClickHandler,
-    on_today: ClickHandler,
+    on_select: DaySelectHandler,
 ) -> AnyElement {
-    let index = selected
-        .and_then(|s| dates.iter().position(|d| d == s))
-        .unwrap_or(0);
-    let (at_start, at_end) = day_edge(dates.len(), index);
-    let recipe = mobile_day_navigator_recipe(theme);
-
-    let arrow = |id: &'static str, icon: IconName, disabled: bool, on: ClickHandler| {
-        let ink = if disabled {
-            theme.text_tertiary
-        } else {
-            theme.text_primary
-        };
-        let button = div()
-            .w(px(recipe.arrow))
-            .h(px(recipe.arrow))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(theme.scale.radius_chip))
-            .child(Icon::new(icon).with_size(px(recipe.glyph)).text_color(ink))
-            .id(SharedString::from(id))
-            .tab_index(0)
-            .focus(crate::theme::desktop_focus(theme.accent));
-        let button = if disabled {
-            button
-        } else {
-            button
-                .cursor_pointer()
-                .hover(move |s| s.bg(theme.surface_alt))
-                .on_click(move |_, window, cx| on(window, cx))
-        };
-        button.into_any_element()
-    };
-
-    // The row sits on the page, closed by one hairline: the shell supplies the
-    // outer 16 px gutter.
-    let container = div()
+    let m = &theme.scale;
+    let mut strip = div()
+        .id("day-strip")
         .w_full()
-        .h(px(recipe.row))
         .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(recipe.gap))
-        .px(px(theme.scale.space_4))
+        .flex_wrap()
+        .gap(px(m.space_1))
+        .px(px(m.space_4))
+        .py(px(m.space_2))
         .border_b_1()
         .border_color(theme.border);
 
-    let center = div()
-        .id("day-today")
-        .flex_1()
-        .min_w(px(0.))
-        .min_h(px(recipe.centre_min))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(theme.scale.radius_chip))
-        .tab_index(0)
-        .cursor_pointer()
-        .hover(move |s| s.bg(theme.surface_alt))
-        .focus(crate::theme::desktop_focus(theme.accent))
-        .on_click(move |_, window, cx| on_today(window, cx))
-        .child(
-            div()
-                .text_size(px(theme.scale.headline))
-                .line_height(px(theme.scale.headline_line))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_primary)
-                .text_center()
-                .child(
-                    dates
-                        .get(index)
-                        .map(|d| SharedString::from(format_day_short(d)))
-                        .unwrap_or_default(),
-                ),
-        );
+    for (index, day) in dates.iter().enumerate() {
+        let is_selected = Some(day.as_str()) == selected;
+        let day_facts = facts.get(index).copied().unwrap_or_default();
+        let is_today = day == today;
 
-    container
-        .child(arrow("day-prev", IconName::ChevronLeft, at_start, on_prev))
-        .child(center)
-        .child(arrow("day-next", IconName::ChevronRight, at_end, on_next))
-        .into_any_element()
+        // The selected chip paints a tint; today's date keeps the accent only
+        // where the tint does not lift it away from the readable role.
+        let weekday_ink = if is_selected {
+            theme.text_primary
+        } else {
+            theme.text_tertiary
+        };
+        let number_ink = if is_selected || !is_today {
+            theme.text_primary
+        } else {
+            theme.accent
+        };
+
+        let mut dot = div().w(px(6.)).h(px(6.)).rounded(px(3.));
+        match day_dot(day_facts, day, today) {
+            DayDot::Ordered => dot = dot.bg(theme.accent),
+            DayDot::Marked => dot = dot.border(px(1.5)).border_color(theme.accent),
+            DayDot::New => dot = dot.bg(theme.text_tertiary),
+            DayDot::None => {}
+        }
+
+        let key = day.clone();
+        let on_tap = on_select.clone();
+        let mut chip = div()
+            .id(SharedString::from(format!("day-chip-{day}")))
+            .w(px(DAY_CHIP_W))
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(2.))
+            .py(px(m.space_1))
+            .rounded(px(m.radius_chip))
+            .tab_index(0)
+            .cursor_pointer()
+            .focus(crate::theme::desktop_focus(theme.accent))
+            .hover(move |s| s.bg(theme.pressed(theme.background)))
+            .on_click(move |_, window, cx| on_tap(&key, window, cx))
+            .child(
+                div()
+                    .text_size(px(m.meta))
+                    .line_height(px(m.meta_line))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(weekday_ink)
+                    .child(SharedString::from(snackpilot_model::format_weekday(day))),
+            )
+            .child(
+                div()
+                    .text_size(px(m.headline))
+                    .line_height(px(m.headline_line))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(number_ink)
+                    .child(SharedString::from(snackpilot_model::format_day_number(day))),
+            )
+            .child(dot);
+        if is_selected {
+            chip = chip.bg(theme.accent_surface);
+        }
+        strip = strip.child(chip);
+    }
+
+    strip.into_any_element()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{day_edge, mobile_day_navigator, mobile_day_navigator_recipe};
-    use crate::theme::{to_rgb, AppTheme};
-    use snackpilot_model::desktop::contrast_ratio;
+    use super::{day_dot, mobile_day_strip, DayDot, DayFacts, DAY_CHIP_W};
+    use crate::theme::AppTheme;
     use snackpilot_model::tokens;
     use std::cell::Cell;
     use std::rc::Rc;
 
-    /// The compact day row (REQ-SCR-01/REQ-UI-16): one 64 px surface row with
-    /// the 1 px hairline, 12 radius and 16 px side padding, bare 44 px chevron
-    /// targets carrying the 20 px Lucide glyph, and a min-44 centre target
-    /// showing the day alone in the headline role. The ordinal is gone: the
-    /// disabled ends already carry the position. The edge state stays the
-    /// model's one list, and building the navigator activates nothing.
-    /// @req REQ-SCR-01 @req REQ-UI-16
-    #[test]
-    fn mobile_day_navigator_is_one_row_with_44_targets() {
-        for dark in [false, true] {
-            let theme = AppTheme::build(dark);
-            let recipe = mobile_day_navigator_recipe(&theme);
-
-            assert_eq!(recipe.arrow, tokens::TARGET);
-            assert_eq!(recipe.arrow, 44.);
-            assert_eq!(recipe.centre_min, 44.);
-            assert_eq!(recipe.glyph, 20.);
-            assert_eq!(recipe.glyph, tokens::ICON);
-            assert_eq!(recipe.gap, 8.);
-            assert_eq!(recipe.gap, tokens::SPACE_2);
-            // One compact row, not the old date-over-ordinal stack.
-            assert_eq!(recipe.row, 64.);
-            assert_eq!(recipe.row - recipe.arrow, 20., "10 px above and below");
-            assert!(
-                theme.scale.headline_line < recipe.row,
-                "the headline is one line inside the row"
-            );
-
-            // The row is the shared flat surface, not a full-bleed band.
-            let row = theme.card_surface();
-            assert_eq!(row.radius, gpui_kit::px(tokens::RADIUS_CARD));
-            assert_eq!(row.border, None, "flat: the surface carries no frame");
-            assert_eq!(theme.scale.space_4, 16.);
-            // The hairline stays quieter than the text it separates.
-            let fill = to_rgb(row.bg, row.bg);
-            assert!(
-                contrast_ratio(to_rgb(theme.border, row.bg), fill) < 3.,
-                "the hairline is a quiet border, not a control boundary"
-            );
-        }
-
-        assert_eq!(day_edge(1, 0), (true, true));
-        assert_eq!(day_edge(3, 0), (true, false));
-        assert_eq!(day_edge(3, 1), (false, false));
-        assert_eq!(day_edge(3, 2), (false, true));
-
-        let dates: Vec<String> = ["2026-11-16", "2026-11-17", "2026-11-18"]
+    fn dates() -> Vec<String> {
+        ["2026-11-16", "2026-11-17", "2026-11-18", "2026-11-19"]
             .into_iter()
             .map(str::to_string)
-            .collect();
+            .collect()
+    }
+
+    /// The compact day strip (REQ-SCR-01/REQ-UI-16): every available day at
+    /// once, so no day hides behind a gesture; six chips and their gaps fit
+    /// the phone's content width, so a fortnight wraps onto a second row
+    /// instead of overflowing. Building the strip activates nothing.
+    /// @req REQ-SCR-01 @req REQ-UI-16
+    #[test]
+    fn mobile_day_strip_shows_every_day_and_activates_nothing() {
+        assert_eq!(DAY_CHIP_W, 46.);
+        assert_eq!(tokens::SPACE_1, 4.);
+        assert!(
+            DAY_CHIP_W * 6. + tokens::SPACE_1 * 5. <= 358. - 32.,
+            "six chips and their gaps fit the phone's content width"
+        );
+
         let theme = AppTheme::build(false);
         let activations = Rc::new(Cell::new(0));
         let handler = {
             let activations = activations.clone();
-            Rc::new(move |_: &mut gpui::Window, _: &mut gpui::App| {
+            Rc::new(move |_: &str, _: &mut gpui::Window, _: &mut gpui::App| {
                 activations.set(activations.get() + 1);
-            }) as crate::navigation::ClickHandler
+            }) as super::DaySelectHandler
         };
-        let _ = mobile_day_navigator(
-            &dates,
-            Some("2026-11-17"),
+        let facts = [
+            DayFacts {
+                ordered: true,
+                ..DayFacts::default()
+            },
+            DayFacts {
+                marked: true,
+                visited: true,
+                ..DayFacts::default()
+            },
+            DayFacts {
+                visited: true,
+                ..DayFacts::default()
+            },
+            DayFacts {
+                ordered: true,
+                marked: true,
+                ..DayFacts::default()
+            },
+        ];
+        let _ = mobile_day_strip(
+            &dates(),
+            &facts,
+            Some("2026-11-18"),
+            "2026-11-16",
             &theme,
-            handler.clone(),
-            handler.clone(),
             handler,
         );
         assert_eq!(
             activations.get(),
             0,
-            "building the navigator never activates a day"
+            "building the strip never activates a day"
+        );
+
+        // The one dot: an order outranks a mark, a mark outranks being new,
+        // and a day that is already past is never news.
+        let today = "2026-11-16";
+        assert_eq!(
+            day_dot(
+                DayFacts {
+                    ordered: true,
+                    marked: true,
+                    ..DayFacts::default()
+                },
+                "2026-11-18",
+                today
+            ),
+            DayDot::Ordered
+        );
+        assert_eq!(
+            day_dot(
+                DayFacts {
+                    marked: true,
+                    ..DayFacts::default()
+                },
+                "2026-11-18",
+                today
+            ),
+            DayDot::Marked
+        );
+        assert_eq!(
+            day_dot(DayFacts::default(), "2026-11-18", today),
+            DayDot::New
+        );
+        assert_eq!(
+            day_dot(DayFacts::default(), today, today),
+            DayDot::New,
+            "the day itself can still be new"
+        );
+        assert_eq!(
+            day_dot(DayFacts::default(), "2026-11-09", today),
+            DayDot::None,
+            "a past day the app never showed is not news"
+        );
+        assert_eq!(
+            day_dot(
+                DayFacts {
+                    visited: true,
+                    ..DayFacts::default()
+                },
+                "2026-11-18",
+                today
+            ),
+            DayDot::None
         );
     }
 }

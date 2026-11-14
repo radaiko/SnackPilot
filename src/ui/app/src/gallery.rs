@@ -16,7 +16,7 @@ use snackpilot_model::navigation::Tab;
 use snackpilot_model::{BillingEntry, BillingLine, BillingSource, BillingTotals, EntrySource};
 
 use crate::components::bill_card::bill_list;
-use crate::components::day_navigator::mobile_day_navigator;
+use crate::components::day_navigator::{mobile_day_strip, DayFacts};
 use crate::components::fab::{dock_height_for_lines, mobile_dock, DockState};
 use crate::components::menu_card::{menu_card, DesktopMenuRowState, MenuCardState};
 use crate::components::order_item::order_item;
@@ -837,13 +837,25 @@ fn mobile_menus_case(width: f32, theme: &AppTheme) -> AnyElement {
         .flex()
         .flex_col()
         .bg(theme.background)
-        .child(mobile_day_navigator(
+        .child(mobile_day_strip(
             &dates,
+            &[
+                DayFacts {
+                    ordered: true,
+                    visited: true,
+                    ..DayFacts::default()
+                },
+                DayFacts {
+                    marked: true,
+                    visited: true,
+                    ..DayFacts::default()
+                },
+                DayFacts::default(),
+            ],
             Some("2026-11-17"),
+            "2026-11-16",
             theme,
-            noop.clone(),
-            noop.clone(),
-            noop.clone(),
+            Rc::new(|_: &str, _: &mut Window, _: &mut App| {}),
         ))
         .child(list)
         .child(div().p(px(theme.scale.space_2)).child(mobile_dock(

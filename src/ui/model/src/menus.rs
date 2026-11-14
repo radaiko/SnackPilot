@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use snackpilot_core::domain::{MenuCategory, MenuItem, MenuSnapshot, OrderProgress, OrderedMenu};
 use snackpilot_core::features::ProgressListener;
+use snackpilot_core::storage::Kv;
 
 use crate::errors::human_error;
 use crate::format::day_key_from_epoch_ms;
@@ -87,7 +88,59 @@ impl ProgressListener for HubProgress {
     }
 }
 
+/// KV key for the menu days the Menüs screen has already shown.
+pub(crate) const VISITED_DAYS_KEY: &str = "visited_menu_days";
+
+/// How many day keys the store keeps: enough to outlive any day the Gourmet
+/// still offers, short enough to stay one line.
+const VISITED_DAYS_MAX: usize = 180;
+
+/// Parses the stored comma-separated day keys, dropping anything that is not a
+/// `YYYY-MM-DD` day: garbage in the store is not a reason to lose the list.
+pub fn visited_days_from_store(raw: &str) -> Vec<String> {
+    let mut days: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|day| chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").is_ok())
+        .map(str::to_string)
+        .collect();
+    days.sort();
+    days.dedup();
+    days
+}
+
 impl AppModel {
+    /// Reads the days already shown at startup; an empty list means every day
+    /// the store offers is new.
+    pub(crate) fn load_visited_days(&self) {
+        let days = self
+            .kv
+            .get(VISITED_DAYS_KEY)
+            .ok()
+            .flatten()
+            .map(|raw| visited_days_from_store(&raw))
+            .unwrap_or_default();
+        self.hub.update("visited_days", |s| s.visited_days = days);
+    }
+
+    /// Records that the Menüs screen is showing `day`. Only the first sight
+    /// writes, so rendering the same day again never touches the store.
+    pub(crate) fn mark_day_visited(&self, day: &str) {
+        let mut days = self.state().visited_days;
+        if days.iter().any(|seen| seen == day) {
+            return;
+        }
+        days.push(day.to_string());
+        days.sort();
+        days.dedup();
+        if days.len() > VISITED_DAYS_MAX {
+            days.drain(..days.len() - VISITED_DAYS_MAX);
+        }
+        if self.kv.set(VISITED_DAYS_KEY, &days.join(",")).is_ok() {
+            self.hub.update("visited_days", |s| s.visited_days = days);
+        }
+    }
+
     /// Swift `syncSelectedDay` (:370): after every fetch that can change
     /// `availableDates`, prefer the core's tracked day when valid; otherwise
     /// fall back to the NEAREST day — and do NOT write the fallback back, so a
@@ -106,9 +159,12 @@ impl AppModel {
                 .filter(|sel| dates.contains(sel))
                 .or_else(|| Some(nearest_day(&dates)))
         };
+        // Showing a day is what makes it old news for the strip.
+        if let Some(day) = &day {
+            self.mark_day_visited(day);
+        }
         self.hub().update("selected_day", |s| s.selected_day = day);
     }
-
     /// Swift `refreshMenus` (:336): force a fresh fetch and republish
     /// ("Erneut versuchen"); failures surface via `error_text`.
     pub fn refresh_menus(&self) {
@@ -165,6 +221,7 @@ impl AppModel {
     /// survives refreshes.
     pub fn select_day(&self, date_key: &str) {
         self.core().set_selected_date(date_key.to_string());
+        self.mark_day_visited(date_key);
         let day = date_key.to_string();
         self.hub().update("selected_day", move |s| {
             s.selected_day = Some(day);

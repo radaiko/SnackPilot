@@ -14,7 +14,7 @@ use gpui::*;
 
 use crate::app::{desktop_mutation_blocked, run_blocking, AppShell};
 use crate::components::button::desktop_action_state;
-use crate::components::day_navigator::mobile_day_navigator;
+use crate::components::day_navigator::{mobile_day_strip, DayFacts, DaySelectHandler};
 use crate::components::fab::{dock_bottom, dock_height, dock_state, mobile_dock, DockState};
 use crate::components::menu_card::{
     desktop_menu_action, desktop_menu_status, menu_card, mobile_menu_tappable, DesktopMenuRowState,
@@ -38,7 +38,9 @@ use snackpilot_core::domain::{MenuCategory, MenuItem};
 use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
 use snackpilot_model::navigation::{ListKind, Tab};
 use snackpilot_model::tokens;
-use snackpilot_model::{category_heading, format_day_short, menu_key, AppModel, State};
+use snackpilot_model::{
+    category_heading, day_key_from_epoch_ms, format_day_short, menu_key, today_key, AppModel, State,
+};
 
 /// The compact Menüs screen below the shell heading (task 1.3): the Day Tray
 /// day navigator, the neutral refresh row, the inline error, and the swipeable
@@ -66,15 +68,15 @@ pub fn menus_tab(
     let mut day_row = div().w_full().flex().items_center();
     if let Some(snapshot) = &state.menu_snapshot {
         if !snapshot.available_dates.is_empty() {
-            let dates = snapshot.available_dates.clone();
+            let dates = &snapshot.available_dates;
             let selected = state.selected_day.clone();
-            day_row = day_row.child(div().w_full().child(mobile_day_navigator(
-                &dates,
+            day_row = day_row.child(div().w_full().child(mobile_day_strip(
+                dates,
+                &day_facts(state, dates),
                 selected.as_deref(),
+                &today_key(),
                 theme,
-                day_handler(cx, DayStep::Prev),
-                day_handler(cx, DayStep::Next),
-                day_handler(cx, DayStep::Today),
+                day_select_handler(cx),
             )));
         }
     }
@@ -138,24 +140,54 @@ pub fn menus_tab(
     column.into_any_element()
 }
 
-/// One day-navigation intent wired to the model, exactly as the incumbent
-/// shell wired it. Nothing is refetched and no request is added.
-enum DayStep {
-    Prev,
-    Next,
-    Today,
+/// What each available day carries, in the strip's order: whether an order
+/// stands for it, whether dishes are marked for it, and whether the app has
+/// ever shown it. A day nobody opened is how a newly published week announces
+/// itself.
+fn day_facts(state: &State, dates: &[String]) -> Vec<DayFacts> {
+    let ordered: Vec<String> = state
+        .orders_split
+        .as_ref()
+        .map(|split| {
+            split
+                .upcoming
+                .iter()
+                .chain(split.past.iter())
+                .map(|order| day_key_from_epoch_ms(order.date_epoch_ms))
+                .collect()
+        })
+        .unwrap_or_default();
+    // Pending keys are `id|day`; the day part says which chip carries a mark.
+    let marked: Vec<&str> = state
+        .menu_snapshot
+        .as_ref()
+        .map(|snapshot| {
+            snapshot
+                .pending_orders
+                .iter()
+                .filter_map(|key| key.split_once('|').map(|(_, day)| day))
+                .collect()
+        })
+        .unwrap_or_default();
+    dates
+        .iter()
+        .map(|day| DayFacts {
+            ordered: ordered.iter().any(|o| o == day),
+            marked: marked.iter().any(|m| m == day),
+            visited: state.visited_days.iter().any(|seen| seen == day),
+        })
+        .collect()
 }
 
-fn day_handler(cx: &mut Context<AppShell>, step: DayStep) -> ClickHandler {
+/// Tapping a chip selects that day; nothing is refetched and no request is
+/// added, exactly as the incumbent shape did.
+fn day_select_handler(cx: &mut Context<AppShell>) -> DaySelectHandler {
     let shell = cx.entity().clone();
-    Rc::new(move |_: &mut Window, cx: &mut App| {
+    Rc::new(move |day: &str, _: &mut Window, cx: &mut App| {
+        let day = day.to_string();
         shell.update(cx, |s, cx| {
             if let Some(model) = &s.model {
-                match step {
-                    DayStep::Prev => model.prev_day(),
-                    DayStep::Next => model.next_day(),
-                    DayStep::Today => model.go_to_today(),
-                }
+                model.select_day(&day);
             }
             cx.notify();
         });

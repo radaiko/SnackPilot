@@ -58,6 +58,7 @@ impl AppModel {
         // company location and the log view state at startup. None of these
         // touch the platform, so startup never switches the app icon.
         model.load_preferences();
+        model.load_visited_days();
         model.load_reminder_state();
         model.load_location_state();
         model.refresh_diagnostic_log();

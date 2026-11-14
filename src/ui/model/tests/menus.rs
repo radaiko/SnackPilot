@@ -10,7 +10,8 @@ use snackpilot_core::domain::{MenuCategory, MenuItem, MenuSnapshot, OrderProgres
 use snackpilot_model::desktop::{HostKind, LayoutMode};
 use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{
-    category_heading, category_rank, menu_key, nearest_day, progress_label, AppModel, FakePlatform,
+    category_heading, category_rank, menu_key, nearest_day, progress_label,
+    visited_days_from_store, AppModel, FakePlatform,
 };
 
 const DEMO_USER: &str = "demo";
@@ -95,6 +96,38 @@ fn menus_are_cached_to_disk_and_served_without_a_session() {
     assert!(
         model.state().menu_snapshot.is_none(),
         "hub untouched by the cache load"
+    );
+}
+
+#[test]
+/// @req REQ-SCR-01
+fn a_shown_day_is_remembered_once_and_survives_a_restart() {
+    let dir = temp_dir("visited");
+    let dates = {
+        let (model, _fake) = demo_model_in(dir.clone());
+        let dates = snapshot(&model).available_dates;
+        model.select_day(&dates[1]);
+        let seen = model.state().visited_days.clone();
+        assert!(seen.contains(&dates[1]), "showing a day records it");
+        model.select_day(&dates[1]);
+        assert_eq!(
+            model.state().visited_days,
+            seen,
+            "a second look is not a second entry"
+        );
+        dates
+    };
+
+    let (again, _fake) = demo_model_in(dir);
+    assert!(
+        again.state().visited_days.contains(&dates[1]),
+        "the day is still known after a restart"
+    );
+
+    assert_eq!(
+        visited_days_from_store("2026-11-16, nope, 2026-13-01,2026-11-16"),
+        vec!["2026-11-16".to_string()],
+        "garbage in the store is dropped, repeats collapse"
     );
 }
 

@@ -146,6 +146,10 @@ pub struct State {
 
     /// Selected menu day (YYYY-MM-DD); None until synced to an available day.
     pub selected_day: Option<String>,
+    /// Menu days this device has already shown, oldest first (YYYY-MM-DD). A
+    /// date missing here appeared since the app was last opened on it, so the
+    /// day strip can point it out.
+    pub visited_days: Vec<String>,
     /// Progress label of an in-flight order submit/cancel, None when idle.
     pub order_progress: Option<String>,
     /// Id of the order whose cancel is in flight (single-flight guard).

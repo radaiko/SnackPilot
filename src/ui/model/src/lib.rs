@@ -24,9 +24,12 @@ pub use billing::{BillingEntry, BillingLine, BillingTotals, EntrySource};
 pub use errors::{human_error, is_demo_user};
 pub use fake::FakePlatform;
 pub use format::{
-    day_key_from_epoch_ms, format_date_long, format_day_short, format_eur, format_time, today_key,
+    day_key_from_epoch_ms, format_date_long, format_day_number, format_day_short, format_eur,
+    format_time, format_weekday, today_key,
 };
-pub use menus::{category_heading, category_rank, menu_key, nearest_day, progress_label};
+pub use menus::{
+    category_heading, category_rank, menu_key, nearest_day, progress_label, visited_days_from_store,
+};
 pub use orders::unconfirmed_banner_text;
 pub use platform::{
     Capabilities, LocationFix, Platform, PlatformAnalytics, PlatformError, SupportEmail,

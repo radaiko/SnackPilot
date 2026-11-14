@@ -53,6 +53,25 @@ pub fn format_day_short(day_key: &str) -> String {
     }
 }
 
+/// The day strip's weekday column: `Mo`, `Di`, … — the prose form's full stop
+/// would be a period in a one-word label.
+pub fn format_weekday(day_key: &str) -> String {
+    parse_day(day_key)
+        .map(|d| {
+            WEEKDAYS_SHORT[d.weekday().num_days_from_monday() as usize]
+                .trim_end_matches('.')
+                .to_string()
+        })
+        .unwrap_or_default()
+}
+
+/// The day strip's number alone: `16` from `2026-11-16`.
+pub fn format_day_number(day_key: &str) -> String {
+    parse_day(day_key)
+        .map(|d| d.day().to_string())
+        .unwrap_or_default()
+}
+
 fn to_vienna(epoch_ms: i64) -> Option<chrono::DateTime<chrono_tz::Tz>> {
     Vienna.timestamp_millis_opt(epoch_ms).single()
 }
