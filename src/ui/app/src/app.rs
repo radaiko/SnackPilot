@@ -590,9 +590,26 @@ pub(crate) fn refresh_handler(
     let model = model.cloned();
     let intent = refresh_intent(tab);
     Rc::new(move |_window: &mut Window, cx: &mut App| {
-        if let (Some(model), Some(intent)) = (&model, intent) {
-            dispatch_refresh(model, intent, host, cx);
+        let (Some(model), Some(intent)) = (&model, intent) else {
+            return;
+        };
+        // One refresh per tab at a time: a second pull while the first is in
+        // flight would stack requests against the store for no new data.
+        let state = model.state();
+        let busy = match intent {
+            RefreshIntent::Menus => state
+                .menu_snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.refreshing),
+            RefreshIntent::Orders => state.busy,
+            RefreshIntent::Billing => state.billing_loading,
+        };
+        if busy {
+            log::info!("refresh: {intent:?} already running, pull ignored");
+            return;
         }
+        log::info!("refresh: {intent:?} dispatched by pull");
+        dispatch_refresh(model, intent, host, cx);
     })
 }
 
