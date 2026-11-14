@@ -304,9 +304,28 @@ fn group(
     group
 }
 
-/// One centred metadata line, no card.
+const EMPTY_COPY: (&str, &str) = (
+    "Keine Menüs für diesen Tag",
+    "Wähle mit den Pfeilen einen anderen Tag",
+);
+
+const AUTH_COPY: (&str, &str) = (
+    "Nicht angemeldet",
+    "Gehe zu Einstellungen, um Zugangsdaten einzugeben",
+);
+
+fn empty_copy() -> (&'static str, &'static str) {
+    EMPTY_COPY
+}
+
+fn auth_copy() -> (&'static str, &'static str) {
+    AUTH_COPY
+}
+
+/// One centred two-line empty state, no card.
 fn empty_state(theme: &AppTheme) -> AnyElement {
-    state_line("Keine Menüs verfügbar", theme)
+    let (fact, hint) = empty_copy();
+    state_message(fact, hint, theme)
 }
 
 /// The initial load: one quiet centred 20 px spinner and nothing else.
@@ -341,51 +360,9 @@ fn refresh_line(theme: &AppTheme) -> AnyElement {
         .into_any_element()
 }
 
-fn state_line(text: &str, theme: &AppTheme) -> AnyElement {
-    div()
-        .size_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .p(px(theme.scale.space_4))
-        .child(
-            div()
-                .text_size(px(theme.scale.meta))
-                .line_height(px(theme.scale.meta_line))
-                .text_color(theme.text_secondary)
-                .text_center()
-                .child(text.to_string()),
-        )
-        .into_any_element()
-}
-
 fn auth_gate(theme: &AppTheme) -> AnyElement {
-    div()
-        .size_full()
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .gap(px(theme.scale.space_2))
-        .p(px(theme.scale.space_4))
-        .child(
-            div()
-                .text_size(px(theme.scale.body))
-                .line_height(px(theme.scale.body_line))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_primary)
-                .text_center()
-                .child("Nicht angemeldet"),
-        )
-        .child(
-            div()
-                .text_size(px(theme.scale.meta))
-                .line_height(px(theme.scale.meta_line))
-                .text_color(theme.text_secondary)
-                .text_center()
-                .child("Gehe zu Einstellungen, um Zugangsdaten einzugeben"),
-        )
-        .into_any_element()
+    let (fact, hint) = auth_copy();
+    state_message(fact, hint, theme)
 }
 
 /// The compact inline error: one centred metadata line with the exact store
@@ -827,7 +804,8 @@ fn desktop_menu_master(
 }
 
 fn desktop_empty_master(theme: &AppTheme) -> AnyElement {
-    state_message("Keine Menüs verfügbar", theme)
+    let (fact, hint) = empty_copy();
+    state_message(fact, hint, theme)
 }
 
 /// The menu row's primary cell: the dish title in `BODY`, struck while its
@@ -1148,4 +1126,29 @@ fn desktop_submit_handler(cx: &mut Context<AppShell>) -> ClickHandler {
             cx.notify();
         });
     })
+}
+
+#[cfg(test)]
+mod mobile_tests {
+    use super::{auth_copy, empty_copy};
+
+    /// The empty and auth states are two-line copy: the fact first, then the
+    /// next step. @req REQ-SCR-01 @req REQ-UI-15
+    #[test]
+    fn empty_and_auth_states_state_fact_then_next_step() {
+        assert_eq!(
+            empty_copy(),
+            (
+                "Keine Menüs für diesen Tag",
+                "Wähle mit den Pfeilen einen anderen Tag"
+            )
+        );
+        assert_eq!(
+            auth_copy(),
+            (
+                "Nicht angemeldet",
+                "Gehe zu Einstellungen, um Zugangsdaten einzugeben"
+            )
+        );
+    }
 }

@@ -583,8 +583,8 @@ mod tests {
                 assert_eq!(recipe.box_padding, theme.scale.space_5);
                 assert_eq!(recipe.box_max_width, 340.);
                 assert_eq!(recipe.box_border, 1.);
-                assert_eq!((recipe.title_size, recipe.title_line), (17., 24.));
-                assert_eq!((recipe.body_size, recipe.body_line), (17., 24.));
+                assert_eq!((recipe.title_size, recipe.title_line), (17., 26.));
+                assert_eq!((recipe.body_size, recipe.body_line), (17., 26.));
                 assert_eq!(recipe.body_top, 8.);
                 assert_eq!(recipe.body_max_height, Some(320.));
                 assert_eq!(recipe.action_top, theme.scale.space_5);

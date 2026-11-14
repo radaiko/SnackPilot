@@ -29,6 +29,15 @@ use snackpilot_model::desktop::{ControlState, LayoutMode};
 use snackpilot_model::navigation::{ListKind, Screen};
 use snackpilot_model::{format_eur, AppModel, BillingEntry, BillingSource, BillingTotals, State};
 
+const EMPTY_COPY: (&str, &str) = (
+    "Keine Belege in diesem Zeitraum",
+    "Wähle einen anderen Monat oder eine andere Quelle",
+);
+
+fn empty_copy() -> (&'static str, &'static str) {
+    EMPTY_COPY
+}
+
 /// The compact Billing tab content (task 1.5): shell-owned heading and gutters,
 /// the three month choices, the wrapping source options, the inline error, the
 /// neutral cached-refresh row, one summary surface and the scrolling receipts.
@@ -124,22 +133,8 @@ pub fn billing_tab(
                 list = list.child(bill_card(entry, theme));
             }
         } else {
-            list = list.child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .p(px(theme.scale.space_4))
-                    .child(
-                        div()
-                            .text_size(px(theme.scale.meta))
-                            .line_height(px(theme.scale.meta_line))
-                            .text_center()
-                            .text_color(theme.text_secondary)
-                            .child("Keine Abrechnungsdaten für diesen Monat"),
-                    ),
-            );
+            let (fact, hint) = empty_copy();
+            list = list.child(div().flex_1().child(state_message(fact, hint, theme)));
         }
         content = content.child(list);
     }
@@ -842,15 +837,8 @@ fn desktop_receipt_master(
         .on_key_down(on_key)
         .child(desktop_bill_header(compact, theme));
     if entries.is_empty() {
-        list = list.child(
-            div()
-                .w_full()
-                .p(px(theme.scale.space_4))
-                .child(state_message(
-                    "Keine Abrechnungsdaten für diesen Monat",
-                    theme,
-                )),
-        );
+        let (fact, hint) = empty_copy();
+        list = list.child(div().w_full().child(state_message(fact, hint, theme)));
         return list.into_any_element();
     }
     for entry in entries {
@@ -900,7 +888,7 @@ fn desktop_receipt_preview_handler(cx: &mut Context<AppShell>, id: String) -> Cl
 mod mobile_tests {
     use super::{
         billing_context_cached, billing_context_matches, billing_owns_progress, billing_view,
-        mobile_summary, BillingView,
+        empty_copy, mobile_summary, BillingView,
     };
     use crate::theme::AppTheme;
     use gpui_kit::px;
@@ -1068,6 +1056,20 @@ mod mobile_tests {
                 ("Belege", "3".to_string()),
                 ("Zuschuss", format_eur(totals.zuschuss))
             ]
+        );
+    }
+
+    /// The empty month states the fact and then the next step, so the tab is
+    /// informative instead of one grey sentence.
+    /// @req REQ-SCR-03
+    #[test]
+    fn empty_billing_states_fact_then_next_step() {
+        assert_eq!(
+            empty_copy(),
+            (
+                "Keine Belege in diesem Zeitraum",
+                "Wähle einen anderen Monat oder eine andere Quelle"
+            )
         );
     }
 }
