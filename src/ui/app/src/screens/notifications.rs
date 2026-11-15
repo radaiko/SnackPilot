@@ -41,17 +41,16 @@ impl LogDuration {
 /// defaults to 24 hours (v1 `activateLog(hours = 24)`).
 const LOG_DURATION_DEFAULT: LogDuration = LogDuration::Hours24;
 
-/// One section card: surface, 12 px radius, 1 px hairline, 16 px padding,
-/// `BODY_STRONG` title, `META` hint and the group's controls.
+/// One section of the page: `BODY_STRONG` title, `META` hint and the group's
+/// controls, on the page itself. Like every other list here, a hairline
+/// between neighbours separates, never a box.
 fn section(title: &'static str, hint: &'static str, theme: &AppTheme, body: Div) -> Div {
     div()
         .w_full()
         .flex()
         .flex_col()
         .gap(px(theme.scale.space_2))
-        .p(px(theme.scale.space_4))
-        .rounded(px(theme.scale.radius_card))
-        .bg(theme.surface)
+        .py(px(theme.scale.space_4))
         .child(
             div()
                 .text_size(px(tokens::BODY_STRONG.size))
@@ -441,19 +440,20 @@ pub fn notifications_screen(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(theme.scale.space_3))
                 .child(section(
                     "Bestell-Erinnerung",
                     "Tägliche Erinnerung an deine Bestellung",
                     theme,
                     reminder_body,
                 ))
+                .child(div().h(px(1.)).bg(theme.border))
                 .child(section(
                     "Standort-Benachrichtigungen",
                     "Erinnerung um 8:45 basierend auf deinem Standort",
                     theme,
                     location_body,
                 ))
+                .child(div().h(px(1.)).bg(theme.border))
                 .child(section(
                     "Benachrichtigungs-Log",
                     "Zeichnet Diagnose-Daten auf, um Probleme mit Benachrichtigungen zu analysieren",
