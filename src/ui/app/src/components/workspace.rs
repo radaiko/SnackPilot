@@ -35,7 +35,7 @@ pub fn workspace_header(
         .items_center()
         .justify_between()
         .px(px(theme.scale.space_4))
-        .bg(theme.surface)
+        .bg(theme.background)
         .border_b_1()
         .border_color(theme.border)
         .child(

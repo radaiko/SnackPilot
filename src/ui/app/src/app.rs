@@ -1998,7 +1998,11 @@ impl Render for AppShell {
                 .flex()
                 .relative()
                 .justify_center()
-                .bg(theme.surface)
+                // The page is the page: the rail, the header and the rows all
+                // sit on `background`, as on iOS. Painting the main region
+                // `surface` made the desktop look like a white sheet beside a
+                // grey rail.
+                .bg(theme.background)
                 .child(content);
             if let Some(toast) = &self.toast {
                 main_region = main_region.child(desktop_toast(toast, safe_top + 8., &theme));

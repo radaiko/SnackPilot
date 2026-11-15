@@ -1,6 +1,6 @@
 //! Desktop record table: the read-only list rows of the workspace master
 //! pane. Header 36 px on `BG` with `META` semibold `TEXT_SECONDARY`; rows are
-//! `ROW_HEIGHT` (40 px) on `SURFACE` with a hairline `BORDER` bottom; hover is
+//! `ROW_HEIGHT` (40 px) on `BACKGROUND` with a hairline `BORDER` bottom; hover is
 //! a 4 % `TEXT` mix; the selected row is `ACCENT_SURFACE` with accent ink and
 //! a reserved 3 px accent rule that never changes the row width. Cells are
 //! read-only: no pointer cursor, and the row is the single interaction target.
@@ -311,10 +311,11 @@ fn record_row_body(
         .flex()
         .border_b_1()
         .border_color(theme.border)
+        // Flat: a row is text on the page with a hairline, not a filled band.
         .bg(if selected {
             theme.accent_surface
         } else {
-            theme.surface
+            theme.background
         })
         .text_color(if selected {
             theme.accent
@@ -325,7 +326,7 @@ fn record_row_body(
             s.bg(if selected {
                 theme.accent_surface
             } else {
-                theme.hover(theme.surface)
+                theme.hover(theme.background)
             })
         })
         .child(
@@ -539,7 +540,7 @@ pub fn record_check_cell(
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .hover(move |s| s.bg(theme.hover(theme.surface)))
+        .hover(move |s| s.bg(theme.hover(theme.background)))
         .on_click(move |_, window, cx| {
             on_toggle(window, cx);
             cx.stop_propagation();
@@ -551,7 +552,11 @@ pub fn record_check_cell(
                 .rounded(px(tokens::RADIUS_CHIP))
                 .border_1()
                 .border_color(if checked { theme.accent } else { theme.border })
-                .bg(if checked { theme.accent } else { theme.surface })
+                .bg(if checked {
+                    theme.accent
+                } else {
+                    theme.background
+                })
                 .flex()
                 .items_center()
                 .justify_center()
