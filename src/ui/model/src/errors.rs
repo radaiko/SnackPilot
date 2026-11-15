@@ -24,6 +24,8 @@ pub fn human_error(error: &CoreError) -> String {
         }
         CoreError::EditModeFailed => "Bestellung konnte nicht bearbeitet werden.".to_string(),
         CoreError::Storage { .. } => "Speicherfehler.".to_string(),
+        // The core carries the constraint text itself ("… zwischen 06:00 und 08:45 …").
+        CoreError::InvalidSetting { detail } => detail.clone(),
     }
 }
 

@@ -53,6 +53,11 @@ pub fn format_day_short(day_key: &str) -> String {
     }
 }
 
+/// Clock label without a leading zero (`8:45`, `7:00`), as the reminder rows say it.
+pub fn format_clock(hour: u8, minute: u8) -> String {
+    format!("{hour}:{minute:02}")
+}
+
 /// The day strip's weekday column: `Mo`, `Di`, … — the prose form's full stop
 /// would be a period in a one-word label.
 pub fn format_weekday(day_key: &str) -> String {

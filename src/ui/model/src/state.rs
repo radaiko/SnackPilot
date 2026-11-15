@@ -39,13 +39,15 @@ impl Alert {
         }
     }
 
-    /// Exact v1 strings (AppModel.swift:751-754).
-    pub(crate) fn saved() -> Self {
+    /// The v1 wording (AppModel.swift:751-754), naming the configured reminder
+    /// time: the target is a setting now, so the confirmation cannot promise 8:45.
+    pub(crate) fn saved(time: String) -> Self {
         Self {
             title: "Gespeichert".into(),
-            message: "Firmenstandort gesetzt. Du wirst um 8:45 benachrichtigt, wenn du im Büro \
-                      bist und nicht bestellt hast."
-                .into(),
+            message: format!(
+                "Firmenstandort gesetzt. Du wirst um {time} benachrichtigt, wenn du im Büro \
+                 bist und nicht bestellt hast."
+            ),
         }
     }
 
@@ -173,6 +175,9 @@ pub struct State {
     pub company_location: Option<CompanyLocation>,
     /// Last geofence state mirrored from core (§4).
     pub is_at_company: bool,
+    /// Target time of the geofence "no order" reminder: 06:00-08:45, the core's
+    /// window. Defaults to v1's fixed 08:45.
+    pub location_reminder_time: snackpilot_core::domain::LocationReminderTime,
     /// The location/reminder alert to present (Swift `locationAlert`).
     pub location_alert: Option<Alert>,
     /// Diagnostic log currently recording (notification-log §2).

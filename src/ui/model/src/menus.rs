@@ -355,11 +355,14 @@ impl AppModel {
         let Some(split) = self.state().orders_split else {
             return false;
         };
-        split
-            .upcoming
-            .iter()
-            .chain(split.past.iter())
-            .any(|o| o.title == item.title && day_key_from_epoch_ms(o.date_epoch_ms) == item.day)
+        // §5: the card shows as ordered when its category is ordered that day,
+        // not only when its own dish title matches — otherwise the row reads
+        // "Geöffnet" while a tap on it cancels the order it already has.
+        let category = item.category.display();
+        split.upcoming.iter().chain(split.past.iter()).any(|o| {
+            day_key_from_epoch_ms(o.date_epoch_ms) == item.day
+                && (o.title == item.title || o.title == category)
+        })
     }
 
     /// Items of a day grouped into sections in `category_rank` order,

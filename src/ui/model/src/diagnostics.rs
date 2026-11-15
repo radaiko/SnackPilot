@@ -64,10 +64,23 @@ impl AppModel {
     pub(crate) fn load_location_state(&self) {
         let location = self.core.company_location();
         let at = self.core.is_at_company();
+        let reminder_time = self.core.location_reminder_time();
         self.hub.update("location_state", |s| {
             s.company_location = location;
             s.is_at_company = at;
+            s.location_reminder_time = reminder_time;
         });
+    }
+
+    /// Moves the geofence reminder target. The core owns the 06:00-08:45 window:
+    /// a value outside it is refused and the stored target stays as it was.
+    pub fn set_location_reminder_time(&self, hour: u8, minute: u8) {
+        if self.core.set_location_reminder_time(hour, minute).is_ok() {
+            let time = self.core.location_reminder_time();
+            self.hub.update("location_reminder_time", |s| {
+                s.location_reminder_time = time
+            });
+        }
     }
 }
 

@@ -3,12 +3,13 @@
 //! the full `submit_orders` pipeline (§6.5: resolve cancellations, cutoff-filter, optimistic
 //! update, cancel→addToCart→confirm→refresh, analytics, revert on failure).
 use crate::datetime::{is_ordering_cutoff, local_date_key, Clock};
-use crate::domain::{MenuItem, MenuSnapshot, OrderProgress, OrderedMenu};
+use crate::domain::{MenuCategory, MenuItem, MenuSnapshot, OrderProgress, OrderedMenu};
 use crate::error::CoreResult;
 use crate::features::{AnalyticsSink, ProgressListener};
+use crate::gourmet::parser::detect_category;
 use crate::gourmet::provider::GourmetProvider;
 use crate::storage::{cache, Kv};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -20,6 +21,10 @@ const DEFAULT_MIN_REFRESH_MS: u64 = 800;
 const ORDERING_CUTOFF_MESSAGE: &str = "Bestellung für heute geschlossen (Bestellschluss 9:00)";
 /// Submit-failure fallback (menus.md §6.5 step 11).
 const SUBMIT_FAILED_MESSAGE: &str = "Bestellung konnte nicht aufgegeben werden";
+/// A cancellation that resolved to no live order (§6.5 step 2). Advisory: the
+/// rest of the submit still went through, so it must not read as a failure.
+const CANCELLATION_UNRESOLVED_MESSAGE: &str =
+    "Eine Stornierung konnte nicht zugeordnet werden - bitte Bestellungen prüfen";
 
 pub struct MenuStore {
     gourmet: Arc<GourmetProvider>,
@@ -220,14 +225,23 @@ impl MenuStore {
 
     /// §6.3 — toggle a menu's pending order/cancellation by (menu_id, date_key).
     /// If the item is currently ordered → toggles a cancellation; else toggles a new order.
-    pub fn toggle_pending(&self, menu_id: String, date_key: String) -> MenuSnapshot {
+    pub fn toggle_pending(
+        &self,
+        menu_id: String,
+        date_key: String,
+        orders: &[OrderedMenu],
+    ) -> MenuSnapshot {
         let key = format!("{menu_id}|{date_key}");
         {
             let mut s = self.inner.lock().unwrap();
-            let is_ordered = s
-                .items
-                .iter()
-                .any(|it| it.id == menu_id && it.day == date_key && it.ordered);
+            // §5: a card displays as ordered when its whole category is ordered
+            // that day, not only when its own flag is set. Branching on the raw
+            // flag sent a tap on such a card into pending_orders and re-ordered
+            // an order that already stood, so the order silently survived.
+            let ordered_cats = ordered_categories(&s.items, orders, &date_key);
+            let is_ordered = s.items.iter().any(|it| {
+                it.id == menu_id && it.day == date_key && is_effectively_ordered(it, &ordered_cats)
+            });
             let set = if is_ordered {
                 &mut s.pending_cancellations
             } else {
@@ -277,24 +291,9 @@ impl MenuStore {
             return Ok(self.snapshot());
         }
 
-        // 2. resolve cancellations → position IDs (unresolvable are skipped).
-        let mut cancel_ids = Vec::new();
-        for key in &pending_cancellations {
-            let (menu_id, date_str) = split_key(key);
-            let Some(item) = items
-                .iter()
-                .find(|it| it.id == menu_id && it.day == date_str)
-            else {
-                continue;
-            };
-            let category = item.category.display();
-            if let Some(order) = current_orders
-                .iter()
-                .find(|o| o.title == category && local_date_key(o.date_epoch_ms) == date_str)
-            {
-                cancel_ids.push(order.position_id.clone());
-            }
-        }
+        // 2. resolve cancellations → position IDs.
+        let (cancel_ids, unresolved_cancellations) =
+            resolve_cancellations(&items, current_orders, &pending_cancellations);
 
         // 3. resolve new orders + 4. cutoff filter.
         let mut allowed: Vec<(String, String)> = Vec::new();
@@ -327,7 +326,8 @@ impl MenuStore {
             }
             s.pending_orders.clear();
             s.pending_cancellations.clear();
-            s.error = has_cutoff_blocked.then(|| ORDERING_CUTOFF_MESSAGE.to_string());
+            s.error =
+                submit_error(has_cutoff_blocked, unresolved_cancellations).map(str::to_string);
         }
 
         // 6-8. cancel → add+confirm → refresh. Only failures in 6-7 propagate (fetch_menus
@@ -364,9 +364,11 @@ impl MenuStore {
         }
 
         // 10. finish: clear progress; error = cutoff msg if anything was blocked, else None.
+        // 10. finish: cutoff message wins over the advisory cancellation line —
+        // it describes the blocking outcome, the other only asks to check orders.
         self.set_progress(None, &progress);
         self.inner.lock().unwrap().error =
-            has_cutoff_blocked.then(|| ORDERING_CUTOFF_MESSAGE.to_string());
+            submit_error(has_cutoff_blocked, unresolved_cancellations).map(str::to_string);
         Ok(self.snapshot())
     }
 
@@ -400,6 +402,103 @@ impl MenuStore {
         if let Some(p) = progress {
             p.on_progress(phase);
         }
+    }
+}
+
+/// §5 — the ordered-categories set for one day: the category of every item of
+/// that day that is already ordered, plus the category each of that day's order
+/// titles casts to. `Unknown` is left out on purpose: one unclassifiable title
+/// would otherwise mark every `UNKNOWN` card of the day as ordered, which both
+/// shows a wrong chip and routes taps on unrelated cards into cancellation.
+fn ordered_categories(
+    items: &[MenuItem],
+    orders: &[OrderedMenu],
+    date_key: &str,
+) -> HashSet<MenuCategory> {
+    let mut set = HashSet::new();
+    for item in items.iter().filter(|it| it.day == date_key && it.ordered) {
+        if item.category != MenuCategory::Unknown {
+            set.insert(item.category);
+        }
+    }
+    for order in orders
+        .iter()
+        .filter(|o| local_date_key(o.date_epoch_ms) == date_key)
+    {
+        let category = detect_category(&order.title);
+        if category != MenuCategory::Unknown {
+            set.insert(category);
+        }
+    }
+    set
+}
+
+/// §5 — "displays as ordered": the raw flag OR the category is ordered that day.
+fn is_effectively_ordered(item: &MenuItem, ordered_categories: &HashSet<MenuCategory>) -> bool {
+    item.ordered || ordered_categories.contains(&item.category)
+}
+
+/// Whether a stored order is the one a card stands for: same day, and either the
+/// same dish title, the category's label, or the category detected in the title.
+/// The order title is not always the bare category — a dish order carries the
+/// dish name — so matching on the label alone missed real cancellations.
+fn order_matches_item(order: &OrderedMenu, item: &MenuItem, date_key: &str) -> bool {
+    if local_date_key(order.date_epoch_ms) != date_key {
+        return false;
+    }
+    let title = order.title.trim();
+    if title.eq_ignore_ascii_case(item.title.trim())
+        || title.eq_ignore_ascii_case(item.category.display())
+    {
+        return true;
+    }
+    let category = detect_category(title);
+    category != MenuCategory::Unknown && category == item.category
+}
+
+/// §6.5 step 2 — pending cancellations → live position IDs. An unresolvable one
+/// is still skipped (the rest of the submit must go through), but it is counted
+/// so step 10 can say so instead of dropping it without a word. Duplicates
+/// collapse: two cards of one category on one day are one order, and sending
+/// the same position twice made the second POST hit a gone position and abort
+/// the whole batch.
+fn resolve_cancellations(
+    items: &[MenuItem],
+    orders: &[OrderedMenu],
+    pending_cancellations: &[String],
+) -> (Vec<String>, usize) {
+    let mut ids = Vec::new();
+    let mut unresolved = 0usize;
+    for key in pending_cancellations {
+        let (menu_id, date_str) = split_key(key);
+        let resolved = items
+            .iter()
+            .find(|it| it.id == menu_id && it.day == date_str)
+            .and_then(|item| {
+                orders
+                    .iter()
+                    .find(|o| order_matches_item(o, item, &date_str))
+            })
+            .map(|o| o.position_id.clone());
+        match resolved {
+            Some(id) if !ids.contains(&id) => ids.push(id),
+            Some(_) => {}
+            None => unresolved += 1,
+        }
+    }
+    (ids, unresolved)
+}
+
+/// The one error line a finished submit puts on the snapshot: the cutoff message
+/// first (v1 parity, and it is the blocking outcome), then the advisory line for
+/// cancellations that resolved to nothing, else none.
+fn submit_error(cutoff_blocked: bool, unresolved_cancellations: usize) -> Option<&'static str> {
+    if cutoff_blocked {
+        Some(ORDERING_CUTOFF_MESSAGE)
+    } else if unresolved_cancellations > 0 {
+        Some(CANCELLATION_UNRESOLVED_MESSAGE)
+    } else {
+        None
     }
 }
 
@@ -505,6 +604,116 @@ mod tests {
         gp(api)
     }
 
+    fn order(position_id: &str, epoch_ms: i64, title: &str) -> OrderedMenu {
+        OrderedMenu {
+            position_id: position_id.into(),
+            eating_cycle_id: "ec".into(),
+            date_epoch_ms: epoch_ms,
+            title: title.into(),
+            subtitle: String::new(),
+            approved: true,
+        }
+    }
+
+    fn item_in(id: &str, day: &str, category: MenuCategory) -> MenuItem {
+        MenuItem {
+            category,
+            ..item(id, day, true, false)
+        }
+    }
+
+    /// §5: a card displays as ordered when its category is ordered that day, so a
+    /// tap on the sibling card must queue a cancellation — not a second order.
+    /// @req REQ-SCR-01
+    #[test]
+    fn toggle_pending_cancels_when_the_category_stands_ordered() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = gp(Arc::new(GourmetApi::new(t.clone())));
+        let store = MenuStore::new(g, Arc::new(MemoryKv::new()), Arc::new(SystemClock));
+        store.inner.lock().unwrap().items = vec![
+            item_in("menu-001", "2026-02-10", MenuCategory::Menu1),
+            item_in("menu-002", "2026-02-10", MenuCategory::Menu1),
+        ];
+        // Neither card carries its own flag; the live order list says MENÜ I stands.
+        let orders = vec![order("P1", vienna_ms(2026, 2, 10, 8, 0), "MENÜ I")];
+
+        let snap = store.toggle_pending("menu-002".into(), "2026-02-10".into(), &orders);
+        assert_eq!(snap.pending_cancellations, ["menu-002|2026-02-10"]);
+        assert!(
+            snap.pending_orders.is_empty(),
+            "tapping an ordered category must never queue another order"
+        );
+
+        // Without that order the same card is a plain new order again.
+        let snap = store.toggle_pending("menu-001".into(), "2026-02-10".into(), &[]);
+        assert_eq!(snap.pending_orders, ["menu-001|2026-02-10"]);
+    }
+
+    /// One order, one cancellation: two cards of a category resolve to the same
+    /// position, and a repeat would hit a position that is already gone.
+    /// @req REQ-SCR-01
+    #[test]
+    fn two_cards_of_one_category_send_one_cancel_and_unresolved_ones_are_counted() {
+        let items = vec![
+            item_in("menu-001", "2026-02-10", MenuCategory::Menu1),
+            item_in("menu-002", "2026-02-10", MenuCategory::Menu1),
+        ];
+        let orders = vec![order("P1", vienna_ms(2026, 2, 10, 8, 0), "MENÜ I")];
+        let pending = vec![
+            "menu-001|2026-02-10".to_string(),
+            "menu-002|2026-02-10".to_string(),
+        ];
+        let (ids, unresolved) = resolve_cancellations(&items, &orders, &pending);
+        assert_eq!(ids, ["P1"]);
+        assert_eq!(unresolved, 0);
+
+        // A key whose card is gone, and one whose day has no order, cannot cancel.
+        let pending = vec![
+            "menu-404|2026-02-10".to_string(),
+            "menu-001|2026-02-11".to_string(),
+        ];
+        let (ids, unresolved) = resolve_cancellations(&items, &orders, &pending);
+        assert!(ids.is_empty());
+        assert_eq!(
+            unresolved, 2,
+            "a cancellation that resolves to nothing is counted, not dropped"
+        );
+    }
+
+    /// An order named after the dish still belongs to that card: matching only the
+    /// category label missed the cancellation entirely.
+    /// @req REQ-SCR-01
+    #[test]
+    fn an_order_named_after_its_dish_resolves_to_its_card() {
+        let mut dish = item_in("menu-001", "2026-02-10", MenuCategory::Menu1);
+        dish.title = "Faschierter Braten mit Erdäpfelpüree".into();
+        let orders = vec![order(
+            "P1",
+            vienna_ms(2026, 2, 10, 8, 0),
+            "Faschierter Braten mit Erdäpfelpüree",
+        )];
+        let (ids, unresolved) = resolve_cancellations(
+            &[dish.clone()],
+            &orders,
+            &["menu-001|2026-02-10".to_string()],
+        );
+        assert_eq!(ids, ["P1"]);
+        assert_eq!(unresolved, 0);
+    }
+
+    /// The advisory line for a dropped cancellation never displaces the v1 cutoff
+    /// message, and a clean submit says nothing.
+    #[test]
+    fn submit_error_prefers_the_cutoff_message() {
+        assert_eq!(submit_error(false, 0), None);
+        assert_eq!(
+            submit_error(false, 2),
+            Some(CANCELLATION_UNRESOLVED_MESSAGE)
+        );
+        assert_eq!(submit_error(true, 0), Some(ORDERING_CUTOFF_MESSAGE));
+        assert_eq!(submit_error(true, 2), Some(ORDERING_CUTOFF_MESSAGE));
+    }
+
     #[tokio::test]
     async fn fetch_menus_populates_and_caches_and_sets_last_fetched() {
         let t = Arc::new(CapturingTransport::new());
@@ -529,15 +738,20 @@ mod tests {
         let g = gp(Arc::new(GourmetApi::new(t.clone())));
         let store = MenuStore::new(g, Arc::new(MemoryKv::new()), Arc::new(SystemClock));
         store.inner.lock().unwrap().items = vec![
+            // Distinct categories: §5 marks a whole category ordered for the day,
+            // so two Menu1 cards would not isolate the two branches this covers.
             item("menu-001", "2026-02-10", true, false), // not ordered → toggling adds a new order
-            item("menu-002", "2026-02-10", true, true),  // ordered → toggling adds a cancellation
+            MenuItem {
+                category: MenuCategory::Menu2,
+                ..item("menu-002", "2026-02-10", true, true) // ordered → a cancellation
+            },
         ];
-        let snap = store.toggle_pending("menu-001".into(), "2026-02-10".into());
+        let snap = store.toggle_pending("menu-001".into(), "2026-02-10".into(), &[]);
         assert_eq!(snap.pending_orders, ["menu-001|2026-02-10"]);
-        let snap = store.toggle_pending("menu-002".into(), "2026-02-10".into());
+        let snap = store.toggle_pending("menu-002".into(), "2026-02-10".into(), &[]);
         assert_eq!(snap.pending_cancellations, ["menu-002|2026-02-10"]);
         // toggling menu-001 again removes it.
-        let snap = store.toggle_pending("menu-001".into(), "2026-02-10".into());
+        let snap = store.toggle_pending("menu-001".into(), "2026-02-10".into(), &[]);
         assert!(snap.pending_orders.is_empty());
     }
 

@@ -679,3 +679,34 @@ fn mobile_mixed_pending_submit_includes_other_days() {
         "the whole pending set was consumed once"
     );
 }
+
+#[test]
+/// @req REQ-PLT-03
+fn the_location_reminder_target_persists_and_refuses_values_outside_the_window() {
+    let dir = temp_dir("location-time");
+    {
+        let (model, _fake) = demo_model_in(dir.clone());
+        let time = model.state().location_reminder_time;
+        assert_eq!(
+            (time.hour, time.minute),
+            (8, 45),
+            "v1's 08:45 is the default"
+        );
+
+        model.set_location_reminder_time(7, 30);
+        assert_eq!(model.state().location_reminder_time.hour, 7);
+
+        // Outside 06:00-08:45 the core refuses and the stored target stays.
+        model.set_location_reminder_time(9, 0);
+        let time = model.state().location_reminder_time;
+        assert_eq!((time.hour, time.minute), (7, 30));
+    }
+
+    let (again, _fake) = demo_model_in(dir);
+    let time = again.state().location_reminder_time;
+    assert_eq!(
+        (time.hour, time.minute),
+        (7, 30),
+        "the target survives a restart"
+    );
+}

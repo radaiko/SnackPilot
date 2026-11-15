@@ -51,7 +51,11 @@ impl AppModel {
             s.company_location = Some(saved);
         });
         let _ = self.platform.start_geofence();
-        self.show_location_alert(Alert::saved());
+        let time = self.state().location_reminder_time;
+        self.show_location_alert(Alert::saved(crate::format::format_clock(
+            time.hour,
+            time.minute,
+        )));
     }
 
     /// "Standort entfernen" (§8, AppModel.swift:768-773): stop the geofence and

@@ -44,7 +44,7 @@ const LOG_DURATION_DEFAULT: LogDuration = LogDuration::Hours24;
 /// One section of the page: `BODY_STRONG` title, `META` hint and the group's
 /// controls, on the page itself. Like every other list here, a hairline
 /// between neighbours separates, never a box.
-fn section(title: &'static str, hint: &'static str, theme: &AppTheme, body: Div) -> Div {
+fn section(title: &'static str, hint: impl Into<SharedString>, theme: &AppTheme, body: Div) -> Div {
     div()
         .w_full()
         .flex()
@@ -64,9 +64,120 @@ fn section(title: &'static str, hint: &'static str, theme: &AppTheme, body: Div)
                 .text_size(px(theme.scale.meta))
                 .line_height(px(theme.scale.meta_line))
                 .text_color(theme.text_secondary)
-                .child(hint),
+                .child(hint.into()),
         )
         .child(body)
+}
+
+/// The core's window for the geofence reminder, in minutes since midnight.
+const LOCATION_REMINDER_MIN: u16 = 6 * 60;
+const LOCATION_REMINDER_MAX: u16 = 8 * 60 + 45;
+/// One step of the target stepper.
+const LOCATION_REMINDER_STEP: u16 = 15;
+
+fn split_minutes(minutes: u16) -> (u8, u8) {
+    ((minutes / 60) as u8, (minutes % 60) as u8)
+}
+
+/// The geofence reminder target: `Erinnert um ‹ 8:45 ›`, stepping a quarter of an
+/// hour across the 06:00-08:45 window the core enforces. The arrows are the
+/// affordance; the core refuses anything outside the window, so the STEP is the
+/// only way to reach a value.
+fn reminder_time_row(
+    state: &State,
+    model: Option<&Arc<AppModel>>,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) -> Div {
+    let current = u16::from(state.location_reminder_time.hour) * 60
+        + u16::from(state.location_reminder_time.minute);
+    let earlier = current
+        .saturating_sub(LOCATION_REMINDER_STEP)
+        .max(LOCATION_REMINDER_MIN);
+    let later = (current + LOCATION_REMINDER_STEP).min(LOCATION_REMINDER_MAX);
+
+    let arrow = |id: &'static str, icon: IconName, target: u16, enabled: bool, theme: &AppTheme| {
+        let shell = cx.entity().clone();
+        let model = model.cloned();
+        let button = div()
+            .id(id)
+            .w(px(theme.scale.target))
+            .h(px(theme.scale.target))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(theme.scale.radius_chip))
+            .child(
+                Icon::new(icon)
+                    .with_size(px(theme.scale.icon))
+                    .text_color(if enabled {
+                        theme.text_primary
+                    } else {
+                        theme.text_tertiary
+                    }),
+            );
+        if !enabled {
+            return button;
+        }
+        button
+            .tab_index(0)
+            .cursor_pointer()
+            .focus(crate::theme::desktop_focus(theme.accent))
+            .hover(move |s| s.bg(theme.pressed(theme.background)))
+            .on_click(move |_, _window, cx| {
+                if let Some(model) = &model {
+                    let (hour, minute) = split_minutes(target);
+                    model.set_location_reminder_time(hour, minute);
+                }
+                let _ = shell.update(cx, |_, cx| cx.notify());
+            })
+    };
+
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(theme.scale.space_2))
+        .child(
+            div()
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
+                .child("Erinnert um"),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(theme.scale.space_2))
+                .child(arrow(
+                    "location-time-earlier",
+                    IconName::ChevronLeft,
+                    earlier,
+                    earlier < current,
+                    theme,
+                ))
+                .child(
+                    div()
+                        .min_w(px(56.))
+                        .text_center()
+                        .text_size(px(theme.scale.headline))
+                        .line_height(px(theme.scale.headline_line))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme.text_primary)
+                        .child(snackpilot_model::format_clock(
+                            state.location_reminder_time.hour,
+                            state.location_reminder_time.minute,
+                        )),
+                )
+                .child(arrow(
+                    "location-time-later",
+                    IconName::ChevronRight,
+                    later,
+                    later > current,
+                    theme,
+                )),
+        )
 }
 
 /// Plain action rows keep the 48 px primary-action floor.
@@ -253,6 +364,7 @@ pub fn notifications_screen(
 
     // Section 2: location notifications.
     let location_body = if let Some(_location) = &state.company_location {
+        let reminder_model = model.clone();
         let shell = cx.entity().clone();
         let model = model.clone();
         let remove = Rc::new(move |_: &mut Window, cx: &mut App| {
@@ -266,6 +378,7 @@ pub fn notifications_screen(
             .flex()
             .flex_col()
             .gap(px(12.))
+            .child(reminder_time_row(state, reminder_model.as_ref(), theme, cx))
             .child(
                 div()
                     .text_size(px(theme.scale.meta))
@@ -286,6 +399,7 @@ pub fn notifications_screen(
                 .justify_center(),
             )
     } else {
+        let reminder_model = model.clone();
         let shell = cx.entity().clone();
         let model = model.clone();
         let set = Rc::new(move |_: &mut Window, cx: &mut App| {
@@ -314,7 +428,12 @@ pub fn notifications_screen(
         };
         // The hint above already says what the button does; a second caption
         // under it only repeated the label in different words.
-        div().child(button.w_full().justify_center())
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(reminder_time_row(state, reminder_model.as_ref(), theme, cx))
+            .child(button.w_full().justify_center())
     };
 
     // Section 3: notification log.
@@ -449,7 +568,13 @@ pub fn notifications_screen(
                 .child(div().h(px(1.)).bg(theme.border))
                 .child(section(
                     "Standort-Benachrichtigungen",
-                    "Erinnerung um 8:45 basierend auf deinem Standort",
+                    format!(
+                        "Erinnerung um {} Uhr basierend auf deinem Standort",
+                        snackpilot_model::format_clock(
+                            state.location_reminder_time.hour,
+                            state.location_reminder_time.minute
+                        )
+                    ),
                     theme,
                     location_body,
                 ))

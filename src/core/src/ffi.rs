@@ -5,7 +5,8 @@
 use crate::datetime::{Clock, SystemClock};
 use crate::domain::{
     CompanyLocation, Credentials, GeofenceEvent, GourmetMonthlyBilling, GourmetUserInfo,
-    MenuSnapshot, MonthOption, OrderProgress, OrderedMenu, OrdersSplit, VentopayMonthlyBilling,
+    LocationReminderTime, MenuSnapshot, MonthOption, OrderProgress, OrderedMenu, OrdersSplit,
+    VentopayMonthlyBilling,
 };
 use crate::error::CoreError;
 use crate::features::billing::BillingStore;
@@ -181,8 +182,11 @@ impl SnackPilotCore {
             error: None,
         }
     }
+    /// §5 marks a whole category ordered for a day, so the toggle branches on the
+    /// live orders, not on the item's own flag alone.
     pub fn toggle_pending(&self, menu_id: String, date_key: String) -> MenuSnapshot {
-        self.menus.toggle_pending(menu_id, date_key)
+        self.menus
+            .toggle_pending(menu_id, date_key, &self.orders.orders())
     }
     pub fn clear_pending_changes(&self) -> MenuSnapshot {
         self.menus.clear_pending_changes()
@@ -275,7 +279,25 @@ impl SnackPilotCore {
         check_cancel_reminder(self.clock.as_ref(), is_at_company, &self.orders.orders())
     }
     pub fn geofence_commands(&self, event: GeofenceEvent) -> Vec<NotificationCommand> {
-        handle_geofence_event(event, self.clock.as_ref(), &self.orders.orders())
+        handle_geofence_event(
+            event,
+            self.clock.as_ref(),
+            &self.orders.orders(),
+            cache::load_location_reminder_time(self.kv.as_ref()),
+        )
+    }
+
+    /// The configured target of the geofence "no order" reminder. Defaults to
+    /// v1's fixed 08:45 until the user changes it.
+    pub fn location_reminder_time(&self) -> LocationReminderTime {
+        cache::load_location_reminder_time(self.kv.as_ref())
+    }
+
+    /// Persist the geofence reminder target. Anything outside 06:00-08:45 is
+    /// rejected with the range message, never clamped.
+    pub fn set_location_reminder_time(&self, hour: u8, minute: u8) -> Result<(), CoreError> {
+        let time = LocationReminderTime::new(hour, minute)?;
+        cache::save_location_reminder_time(self.kv.as_ref(), &time)
     }
 
     // ---- Daily-reminder settings (notifications-daily-reminder §9; persisted in core KV so

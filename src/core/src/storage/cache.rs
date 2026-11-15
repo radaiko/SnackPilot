@@ -8,7 +8,9 @@
 //! OR the value is corrupt — the caller must then leave existing in-memory state untouched
 //! (never clear it). Menus/orders additionally REMOVE a corrupt key; billing does not.
 use crate::datetime::Clock;
-use crate::domain::{Bill, CompanyLocation, MenuItem, OrderedMenu, VentopayTransaction};
+use crate::domain::{
+    Bill, CompanyLocation, LocationReminderTime, MenuItem, OrderedMenu, VentopayTransaction,
+};
 use crate::error::CoreResult;
 use crate::storage::Kv;
 use chrono::{Datelike, TimeZone};
@@ -19,6 +21,7 @@ pub const GOURMET_BILLING_PREFIX: &str = "billing_";
 pub const VENTOPAY_BILLING_PREFIX: &str = "ventopay_billing_";
 pub const COMPANY_LOCATION_KEY: &str = "company_location";
 pub const IS_AT_COMPANY_KEY: &str = "is_at_company";
+pub const LOCATION_REMINDER_TIME_KEY: &str = "location_reminder_time";
 
 /// Saved office coordinates; `None` if absent or corrupt (notifications-location §1).
 pub fn load_company_location(kv: &dyn Kv) -> Option<CompanyLocation> {
@@ -51,6 +54,22 @@ pub fn load_is_at_company(kv: &dyn Kv) -> bool {
 }
 pub fn save_is_at_company(kv: &dyn Kv, value: bool) {
     let _ = kv.set(IS_AT_COMPANY_KEY, if value { "true" } else { "false" });
+}
+
+/// Configured geofence-reminder target. Absent, corrupt or out of range → the
+/// 08:45 default, so a bad stored value can never schedule the reminder outside
+/// the 06:00-08:45 window.
+pub fn load_location_reminder_time(kv: &dyn Kv) -> LocationReminderTime {
+    kv.get(LOCATION_REMINDER_TIME_KEY)
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<LocationReminderTime>(&raw).ok())
+        .filter(LocationReminderTime::is_valid)
+        .unwrap_or_default()
+}
+
+pub fn save_location_reminder_time(kv: &dyn Kv, time: &LocationReminderTime) -> CoreResult<()> {
+    save(kv, LOCATION_REMINDER_TIME_KEY, time)
 }
 
 // ---- Daily-reminder settings (notifications-daily-reminder §9) ----
@@ -315,6 +334,34 @@ mod tests {
         assert_eq!(month_key_from_offset(&clock, 0), "2026-02");
         assert_eq!(month_key_from_offset(&clock, 1), "2026-01");
         assert_eq!(month_key_from_offset(&clock, 2), "2025-12"); // year wrap
+    }
+
+    /// The target defaults to v1's 08:45 and round-trips once set; a stored value
+    /// outside 06:00-08:45 is treated as corrupt rather than obeyed.
+    #[test]
+    fn location_reminder_time_defaults_round_trips_and_rejects_junk() {
+        let kv = MemoryKv::new();
+        assert_eq!(
+            load_location_reminder_time(&kv),
+            LocationReminderTime::default()
+        );
+
+        let time = LocationReminderTime::new(7, 15).unwrap();
+        save_location_reminder_time(&kv, &time).unwrap();
+        assert_eq!(load_location_reminder_time(&kv), time);
+
+        for junk in [
+            "not json",
+            r#"{"hour":5,"minute":59}"#,
+            r#"{"hour":9,"minute":0}"#,
+        ] {
+            kv.set(LOCATION_REMINDER_TIME_KEY, junk).unwrap();
+            assert_eq!(
+                load_location_reminder_time(&kv),
+                LocationReminderTime::default(),
+                "{junk} falls back to the default"
+            );
+        }
     }
 
     #[test]

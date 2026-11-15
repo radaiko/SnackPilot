@@ -24,6 +24,10 @@ pub enum CoreError {
     Http { detail: String, status: Option<u16> },
     #[error("{detail}")]
     Storage { detail: String },
+    /// A setting was given a value outside its allowed range; carries the
+    /// user-facing constraint text instead of clamping silently.
+    #[error("{detail}")]
+    InvalidSetting { detail: String },
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
