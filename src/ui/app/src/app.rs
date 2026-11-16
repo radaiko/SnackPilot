@@ -33,7 +33,7 @@ use crate::components::dialog::{
 use crate::components::loading_overlay::desktop_loading_overlay;
 use crate::components::record_table::RecordListFocus;
 use crate::components::refresh_bar::refresh_bar;
-use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect, BAR_HEIGHT};
+use crate::components::tab_bar::{tab_bar, TabSelect, BAR_HEIGHT};
 use crate::components::toast::{
     desktop_toast, toast_overlay_for, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION,
 };
@@ -409,13 +409,8 @@ pub(crate) const SCROLL_END_GAP: f32 = 8.;
 /// the receipts clipped one row short with dead space under the card). Only the
 /// dock is an overlay, and it sits [`crate::components::fab::DOCK_GAP`] above
 /// the bar, so its band is what has to be reserved.
-pub(crate) fn obstruction_reservation(safe_bottom: f32, dock_height: f32) -> f32 {
-    let dock = if dock_height > 0. {
-        reserved_height(safe_bottom) + dock_height
-    } else {
-        0.
-    };
-    dock + SCROLL_END_GAP
+pub(crate) fn obstruction_reservation(_safe_bottom: f32, dock_height: f32) -> f32 {
+    dock_height + SCROLL_END_GAP
 }
 
 /// The top edge of the platform navigation above the window bottom: the
@@ -612,6 +607,9 @@ pub struct AppShell {
     /// The drag's accumulated horizontal travel, read from the host's scroll
     /// deltas. The painted offset damps it at the first and last day.
     pub(crate) swipe_dx: f32,
+    /// Applied once, on the first frame that has a menu snapshot, so a capture
+    /// can show the order dock (taps cannot be injected).
+    pub(crate) pending_knob: bool,
     /// The carousel's remaining travel after a release: the page finish, eased
     /// to zero over a few frames so the day that was arriving settles instead
     /// of snapping.
@@ -833,6 +831,7 @@ impl AppShell {
             swipe_live: false,
             swipe_dx: 0.,
             swipe_settle: 0.,
+            pending_knob: false,
             last_refresh: None,
             menus_scroll: ScrollHandle::new(),
             menus_days_scroll: ScrollHandle::new(),
@@ -1737,6 +1736,37 @@ impl Render for AppShell {
         if self.kit_dark.is_none() && std::env::args().any(|a| a == "--perf") {
             log::info!("shell: safe_area top={safe_top} bottom={safe_bottom}");
         }
+        // `--pending=<n>` marks the first n orderable dishes of the first open
+        // day, once the menus are in: a capture needs the dock, a finger cannot
+        // be injected into the simulator.
+        if !self.pending_knob {
+            let requested = std::env::args()
+                .find_map(|a| a.strip_prefix("--pending=").map(str::to_owned))
+                .and_then(|v| v.parse::<usize>().ok());
+            if let (Some(count), Some(model)) = (requested, self.model.clone()) {
+                let open_day = model.state().menu_snapshot.as_ref().and_then(|snapshot| {
+                    snapshot
+                        .available_dates
+                        .iter()
+                        .find(|day| !model.is_cutoff(day))
+                        .cloned()
+                });
+                if let Some(day) = open_day {
+                    self.pending_knob = true;
+                    model.select_day(&day);
+                    let items: Vec<_> = model
+                        .categories_for_day(&day)
+                        .into_iter()
+                        .flat_map(|(_, items)| items)
+                        .filter(|item| item.available)
+                        .take(count)
+                        .collect();
+                    for item in &items {
+                        model.toggle(item);
+                    }
+                }
+            }
+        }
         // Host-gated layout (task 1.2, REQ-UI-07): only a Desktop host past
         // the 720 px breakpoint leaves the phone shell, so iOS and Android
         // keep their exact appearance at every width.
@@ -2201,7 +2231,6 @@ mod tests {
     /// @req REQ-UI-03 @req REQ-UI-04
     #[test]
     fn mobile_shell_preserves_navigation_and_single_root() {
-        use crate::components::tab_bar::reserved_height;
         use snackpilot_model::desktop::HostKind;
         use snackpilot_model::navigation::Tab;
 
@@ -2276,8 +2305,8 @@ mod tests {
         );
         assert_eq!(
             obstruction_reservation(34., 56.),
-            reserved_height(34.) + 56. + SCROLL_END_GAP,
-            "the dock adds its measured height above the bar's own band"
+            56. + SCROLL_END_GAP,
+            "the dock reserves its own band and the gap above the bar, nothing more"
         );
     }
 
