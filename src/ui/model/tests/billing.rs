@@ -580,3 +580,25 @@ fn a_month_page_shows_the_months_own_rows() {
     assert!(options.len() > 1);
     assert_eq!(model.billing_totals_for(selected), model.billing_totals());
 }
+
+/// Leaving a month and coming back paints it again: the month's rows come from
+/// the store's own cache, so a request that answers slowly — or empty — cannot
+/// leave the month blank.
+/// @req REQ-SCR-03
+#[test]
+fn going_back_to_a_month_paints_its_rows_again() {
+    let model = demo_model("round-trip");
+    let rows = model.merged_entries().len();
+    assert!(rows > 0, "the demo month has receipts");
+    model.select_month(1);
+    model.select_month(0);
+    assert_eq!(
+        model.merged_entries().len(),
+        rows,
+        "the month we came back to still has its receipts"
+    );
+    assert!(
+        model.billing_totals().belege == rows,
+        "and its total counts them"
+    );
+}

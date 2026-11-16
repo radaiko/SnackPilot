@@ -278,22 +278,26 @@ fn month_release(
         return;
     };
     let mut settle = dx;
+    let mut switch = None;
     if let Some(model) = &s.model {
         match swipe_day(dx, newer.is_some(), older.is_some()) {
             Some(-1) => {
                 settle = settle_after(dx, -1, page_width);
-                if let Some(offset) = newer {
-                    model.select_month(offset);
-                }
+                switch = newer.map(|offset| (Arc::clone(model), offset));
             }
             Some(1) => {
                 settle = settle_after(dx, 1, page_width);
-                if let Some(offset) = older {
-                    model.select_month(offset);
-                }
+                switch = older.map(|offset| (Arc::clone(model), offset));
             }
             _ => {}
         }
+    }
+    if let Some((model, offset)) = switch {
+        // Off the render thread: the month paints from its cache at once and
+        // the request behind it fills in while the page finishes.
+        cx.background_executor()
+            .spawn(async move { model.select_month(offset) })
+            .detach();
     }
     s.months_page.finish(settle, cx.reduce_motion());
     if s.months_page.settle != 0. {

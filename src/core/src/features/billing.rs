@@ -198,9 +198,12 @@ impl BillingStore {
         let Some(key) = self.month_key(offset) else {
             return Ok(()); // no such month → silent
         };
+        // Whatever is on disk is the month until the store says otherwise: a
+        // cache read is instant, the request is not, and the screen must not be
+        // empty while it waits.
+        self.publish_cached(&key);
         if offset > 2 {
             if self.cached_has(&key) {
-                self.publish_cached(&key);
                 return Ok(());
             }
             // A month the app has never seen: the store's documented window ends
@@ -226,13 +229,25 @@ impl BillingStore {
         let result = self.gourmet.get_billings(&offset.to_string()).await;
         match result {
             Ok(bills) => {
-                let _ = cache::save_gourmet_billing(self.kv.as_ref(), &key, &bills);
-                let label = cache::month_label(&key);
-                let now = self.clock.now_epoch_ms();
-                self.gourmet_months
+                // The store answering empty for a month that already has bills
+                // is not news: a second request in quick succession (a swipe
+                // one way and back) can come back empty, and writing that over
+                // the cache would empty the month for good.
+                let known = self
+                    .gourmet_months
                     .lock()
                     .unwrap()
-                    .insert(key.clone(), build_gourmet_month(&key, &label, bills, now));
+                    .get(&key)
+                    .is_some_and(|month| !month.bills.is_empty());
+                if !(bills.is_empty() && known && !force) {
+                    let _ = cache::save_gourmet_billing(self.kv.as_ref(), &key, &bills);
+                    let label = cache::month_label(&key);
+                    let now = self.clock.now_epoch_ms();
+                    self.gourmet_months
+                        .lock()
+                        .unwrap()
+                        .insert(key.clone(), build_gourmet_month(&key, &label, bills, now));
+                }
                 *self.loading.lock().unwrap() = false;
                 Ok(())
             }
@@ -253,8 +268,8 @@ impl BillingStore {
         let Some(key) = self.month_key(offset) else {
             return Ok(());
         };
+        self.publish_cached(&key);
         if offset > 2 && self.cached_has(&key) {
-            self.publish_cached(&key);
             return Ok(());
         }
         if offset != 0 && !force {
@@ -270,13 +285,21 @@ impl BillingStore {
         let (from, to) = month_range(&key);
         match self.ventopay.get_transactions(&from, &to).await {
             Ok(txs) => {
-                let _ = cache::save_ventopay_billing(self.kv.as_ref(), &key, &txs);
-                let label = cache::month_label(&key);
-                let now = self.clock.now_epoch_ms();
-                self.ventopay_months
+                let known = self
+                    .ventopay_months
                     .lock()
                     .unwrap()
-                    .insert(key.clone(), build_ventopay_month(&key, &label, txs, now));
+                    .get(&key)
+                    .is_some_and(|month| !month.transactions.is_empty());
+                if !(txs.is_empty() && known && !force) {
+                    let _ = cache::save_ventopay_billing(self.kv.as_ref(), &key, &txs);
+                    let label = cache::month_label(&key);
+                    let now = self.clock.now_epoch_ms();
+                    self.ventopay_months
+                        .lock()
+                        .unwrap()
+                        .insert(key.clone(), build_ventopay_month(&key, &label, txs, now));
+                }
             }
             Err(_) => { /* non-blocking: swallow (billing §4.2 step 8) */ }
         }
@@ -554,6 +577,42 @@ mod tests {
         assert!((m.total_billing - 4.5).abs() < 1e-9);
         assert!(store.error().is_none());
         // cached
+        assert!(cache::load_gourmet_billing(kv.as_ref(), "2026-02").is_some());
+    }
+
+    /// A month with bills on disk paints before the request, and a store that
+    /// answers empty for it never deletes what it has: swiping one month away
+    /// and back used to leave the month blank.
+    #[tokio::test]
+    async fn a_cached_month_survives_an_empty_answer() {
+        let t = Arc::new(CapturingTransport::new());
+        let gourmet = logged_in_gourmet(&t).await;
+        let kv = Arc::new(MemoryKv::new());
+        let store = BillingStore::new(
+            gourmet,
+            vp(Arc::new(VentopayApi::new(t.clone()))),
+            kv.clone(),
+            feb_2026_clock(),
+        );
+        // A month already on disk, from a previous run.
+        let cached = vec![Bill {
+            bill_nr: 7,
+            bill_date_epoch_ms: 1_770_000_000_000,
+            location: "Wien".into(),
+            items: Vec::new(),
+            billing: 4.5,
+        }];
+        cache::save_gourmet_billing(kv.as_ref(), "2026-02", &cached).unwrap();
+
+        // The store answers with no bills this time.
+        t.queue_response(ok(G_LOGIN_OK)); // probe
+        t.queue_response(ok(r#"{"Billings":[]}"#));
+        store.fetch_billing(0, false).await.unwrap();
+
+        let month = store
+            .gourmet_month("2026-02")
+            .expect("the cached month is still there");
+        assert_eq!(month.bills.len(), 1, "an empty answer is not a deletion");
         assert!(cache::load_gourmet_billing(kv.as_ref(), "2026-02").is_some());
     }
 

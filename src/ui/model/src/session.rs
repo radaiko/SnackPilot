@@ -462,6 +462,10 @@ impl AppModel {
         self.hub
             .update("billing_loading", |s| s.billing_loading = true);
         let offset = self.hub.get().selected_offset;
+        // The month first paints what the store already has: switching back to a
+        // month must never show an empty screen while the request runs, and the
+        // shell's slim bar is the progress for the update behind it.
+        self.publish_billing_month(offset);
         let _ = self.core.fetch_billing(offset, force).await;
         let _ = self.core.fetch_ventopay_billing(offset, force).await;
         let key = self
@@ -481,6 +485,29 @@ impl AppModel {
                 s.gourmet_month = self.core.gourmet_billing_month(key.clone());
                 s.ventopay_month = self.core.ventopay_billing_month(key);
             }
+        });
+    }
+
+    /// Put a month's already-known rows on screen, before any request.
+    fn publish_billing_month(&self, offset: u8) {
+        let Some(key) = self
+            .hub
+            .get()
+            .month_options
+            .iter()
+            .find(|option| option.offset == offset)
+            .map(|option| option.key.clone())
+        else {
+            return;
+        };
+        let gourmet = self.core().gourmet_billing_month(key.clone());
+        let ventopay = self.core().ventopay_billing_month(key);
+        if gourmet.is_none() && ventopay.is_none() {
+            return;
+        }
+        self.hub.update("billing_cached", |s| {
+            s.gourmet_month = gourmet;
+            s.ventopay_month = ventopay;
         });
     }
 

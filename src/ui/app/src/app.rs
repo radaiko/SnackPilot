@@ -121,7 +121,6 @@ pub(crate) fn kb_log(line: &str) {
 pub(crate) enum RefreshIntent {
     Menus,
     Orders,
-    Billing,
 }
 
 /// Which refresh the active tab dispatches; `None` means no header action.
@@ -143,7 +142,6 @@ fn run_refresh(model: &AppModel, intent: RefreshIntent) {
     match intent {
         RefreshIntent::Menus => model.refresh_menus(),
         RefreshIntent::Orders => model.refresh_orders(),
-        RefreshIntent::Billing => model.reload_billing(),
     }
 }
 
