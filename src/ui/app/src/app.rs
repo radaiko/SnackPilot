@@ -30,8 +30,9 @@ use crate::components::desktop_navigation::desktop_rail;
 use crate::components::dialog::{
     dialog_key, dialog_move, dialog_overlay, Dialog, DialogKey, DialogResolution,
 };
-use crate::components::loading_overlay::{desktop_loading_overlay, loading_overlay};
+use crate::components::loading_overlay::desktop_loading_overlay;
 use crate::components::record_table::RecordListFocus;
+use crate::components::refresh_bar::refresh_bar;
 use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect, BAR_HEIGHT};
 use crate::components::toast::{
     desktop_toast, toast_overlay_for, Toast, ToastPhase, HOLD_DURATION, SLIDE_DURATION,
@@ -39,7 +40,7 @@ use crate::components::toast::{
 use crate::components::workspace::workspace_header;
 use crate::navigation::ClickHandler;
 use crate::screens::appearance::appearance_screen;
-use crate::screens::billing::{billing_owns_progress, billing_tab, desktop_billing_tab};
+use crate::screens::billing::{billing_tab, desktop_billing_tab};
 use crate::screens::login::{login_screen, LoginKind};
 use crate::screens::menus::{desktop_menus_tab, menus_dock, menus_dock_height, menus_tab};
 use crate::screens::notifications::notifications_screen;
@@ -423,18 +424,6 @@ pub(crate) fn obstruction_reservation(safe_bottom: f32, dock_height: f32) -> f32
 /// [`crate::components::fab::DOCK_GAP`] above this line.
 pub(crate) fn navigation_top(safe_bottom: f32) -> f32 {
     BAR_HEIGHT + safe_bottom
-}
-
-/// A compact Menüs cached refresh keeps its cards, checks and day
-/// (REQ-SCR-01): the neutral `Aktualisiere...` row is the only progress
-/// feedback, so the blocking loading overlay is not painted over nonempty
-/// cached content. An initial load without data still shows it.
-pub(crate) fn cached_menu_refresh(
-    top: Screen,
-    snapshot: Option<&snackpilot_core::domain::MenuSnapshot>,
-) -> bool {
-    top == Screen::Menus
-        && snapshot.is_some_and(|snapshot| snapshot.refreshing && !snapshot.items.is_empty())
 }
 
 /// The compact column's one bottom inset: the navigation height plus the 8 px
@@ -1735,6 +1724,10 @@ impl Render for AppShell {
             state.busy
                 || state.ventopay_busy
                 || state.billing_loading
+                || state
+                    .menu_snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.refreshing)
                 || self.dialog.is_some()
                 || self.toast.is_some(),
         );
@@ -1824,6 +1817,16 @@ impl Render for AppShell {
         } else {
             0.
         };
+        // Every compact background task — a sign-in, a refresh, a billing load —
+        // is the same thin bar and never a layer over the data.
+        let background_work = state.launch_settled
+            && (state.busy
+                || state.ventopay_busy
+                || state.billing_loading
+                || state
+                    .menu_snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.refreshing));
         let plan = compact_shell_plan(
             state.host_kind,
             state.content_width,
@@ -2009,6 +2012,28 @@ impl Render for AppShell {
                 .pt(px(frame.top))
                 .pb(px(bottom))
                 .child(column.child(screen_content));
+            // Background work never takes the screen: the cached values stay
+            // readable and one 2 px accent segment sweeps the column width
+            // while something runs. This is the phone shell's only progress
+            // for a sign-in, a refresh or a billing load.
+            let content = if background_work {
+                content.relative().child(
+                    div()
+                        .absolute()
+                        .top(px(frame.top))
+                        .left_0()
+                        .right_0()
+                        .flex()
+                        .justify_center()
+                        .child(
+                            div()
+                                .w(px(plan.content_width))
+                                .child(refresh_bar(&theme, "shell-busy-bar")),
+                        ),
+                )
+            } else {
+                content
+            };
             // The measured Menüs dock occupies the band the reservation above
             // includes, so the last card is scrollable fully above it.
             // No submit while the launch sign-in is still running: the cached
@@ -2045,27 +2070,15 @@ impl Render for AppShell {
         // progress feedback on nonempty content, so the blocking overlay only
         // covers an initial load (compact Day Tray; the wide Ledger keeps its
         // incumbent overlay).
-        let keep_cached_menus =
-            !desktop && cached_menu_refresh(nav.top(), state.menu_snapshot.as_ref());
-        // The compact Abrechnung surface paints its own progress (A17): the quiet
-        // initial spinner36 inside the still-present filters, or the neutral
-        // 16 px row over a cached context. The blocking overlay must not cover
-        // it; every other surface keeps the incumbent overlay.
-        let keep_cached_billing =
-            !desktop && billing_owns_progress(nav.top(), state.billing_loading);
-        // A launch sign-in is background work: nothing on screen waits for it,
-        // so the blocking layer must not cover the gate — or the cached week —
-        // while the launch order runs.
-        if (state.busy || state.ventopay_busy || state.billing_loading)
+        // The blocking layer is the wide Ledger's: on a phone the cached
+        // values stay on screen and the slim bar above is the progress. A
+        // sign-in, a refresh or a billing load is background work — a card over
+        // the list only hid the data the user opened the app for.
+        if desktop
+            && (state.busy || state.ventopay_busy || state.billing_loading)
             && state.launch_settled
-            && !keep_cached_menus
-            && !keep_cached_billing
         {
-            root = root.child(if desktop {
-                desktop_loading_overlay(&theme)
-            } else {
-                loading_overlay(&theme)
-            });
+            root = root.child(desktop_loading_overlay(&theme));
         }
         // The dock paints above the busy scrim: its own exact phase stays
         // readable in the dock region while an order operation runs.
@@ -2104,18 +2117,18 @@ impl Render for AppShell {
 #[cfg(test)]
 mod tests {
     use super::{
-        alignment_target, cached_menu_refresh, compact_content_bottom, compact_frame,
-        compact_shell_plan, desktop_check_effect, desktop_mutation_blocked, detail_from_model,
-        dispatch_off_thread, focus_restore, keyboard_action, launch_visible, menu_row_action,
-        model_settings_detail, navigation_top, nearest_restore_cursor, obstruction_reservation,
-        order_cancel_state, order_row_effect, refresh_due, refresh_intent, safe_area,
-        should_create_inputs, Detail, FocusRestore, MenuRowAction, MutationGate, OrderCancelState,
-        OrderRowEffect, RefreshIntent, AUTO_REFRESH, CONTENT_TOP, LAUNCH_MIN, SCROLL_END_GAP,
+        alignment_target, compact_content_bottom, compact_frame, compact_shell_plan,
+        desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
+        focus_restore, keyboard_action, launch_visible, menu_row_action, model_settings_detail,
+        navigation_top, nearest_restore_cursor, obstruction_reservation, order_cancel_state,
+        order_row_effect, refresh_due, refresh_intent, safe_area, should_create_inputs, Detail,
+        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
+        AUTO_REFRESH, CONTENT_TOP, LAUNCH_MIN, SCROLL_END_GAP,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
     use snackpilot_model::desktop::HostKind;
     use snackpilot_model::desktop::LayoutMode;
-    use snackpilot_model::navigation::{ListKind, Screen, SettingsDetail, Tab};
+    use snackpilot_model::navigation::{ListKind, SettingsDetail, Tab};
     use snackpilot_model::{AppModel, FakePlatform};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -2371,37 +2384,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// The cached Menüs refresh keeps its content (REQ-SCR-01): the neutral
-    /// `Aktualisiere...` row is the only progress feedback, so the blocking
-    /// overlay is not painted over nonempty cached menus; an initial load
-    /// without data still shows it.
-    /// @req REQ-SCR-01
-    #[test]
-    fn mobile_cached_refresh_keeps_the_menu_content() {
-        let (model, _fake) = claim_demo_model("cached-refresh");
-        let full = model.state().menu_snapshot.expect("demo menus");
-        assert!(!full.items.is_empty());
-        let mut refreshing = full.clone();
-        refreshing.refreshing = true;
-        refreshing.loading = false;
-        assert!(
-            cached_menu_refresh(Screen::Menus, Some(&refreshing)),
-            "a cached refresh keeps the cards and the day"
-        );
-        assert!(
-            !cached_menu_refresh(Screen::Menus, Some(&full)),
-            "a resting screen has no refresh phase"
-        );
-        let mut empty = refreshing.clone();
-        empty.items.clear();
-        assert!(
-            !cached_menu_refresh(Screen::Menus, Some(&empty)),
-            "an initial load without data still shows the blocking overlay"
-        );
-        assert!(!cached_menu_refresh(Screen::Orders, Some(&refreshing)));
-        assert!(!cached_menu_refresh(Screen::Menus, None));
     }
 
     /// The compact pending dock (REQ-SCR-01/REQ-UI-15): it carries exactly the

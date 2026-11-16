@@ -29,7 +29,7 @@ use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::MonthOption;
 use snackpilot_model::desktop::{ControlState, LayoutMode};
-use snackpilot_model::navigation::{ListKind, Screen};
+use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{format_eur, AppModel, BillingEntry, BillingSource, BillingTotals, State};
 
 const EMPTY_COPY: (&str, &str) = (
@@ -211,10 +211,6 @@ pub(crate) fn billing_context_cached(state: &State) -> bool {
 /// covers this surface with the blocking loading overlay; every other surface
 /// keeps the incumbent overlay.
 /// @req REQ-SCR-03 @req REQ-UI-15
-pub(crate) fn billing_owns_progress(top: Screen, loading: bool) -> bool {
-    top == Screen::Billing && loading
-}
-
 fn gate(theme: &AppTheme) -> AnyElement {
     div()
         .size_full()
@@ -887,13 +883,12 @@ fn desktop_receipt_preview_handler(cx: &mut Context<AppShell>, id: String) -> Cl
 #[cfg(test)]
 mod mobile_tests {
     use super::{
-        billing_context_cached, billing_context_matches, billing_owns_progress, billing_view,
-        empty_copy, mobile_filter_band_height, mobile_summary, month_chip_label, BillingView,
+        billing_context_cached, billing_context_matches, billing_view, empty_copy,
+        mobile_filter_band_height, mobile_summary, month_chip_label, BillingView,
         MOBILE_MONTH_TARGET_HEIGHT,
     };
     use crate::theme::AppTheme;
     use gpui_kit::px;
-    use snackpilot_model::navigation::Screen;
     use snackpilot_model::tokens;
     use snackpilot_model::{format_eur, AppModel, BillingSource, BillingTotals, FakePlatform};
     use std::sync::Arc;
@@ -930,21 +925,9 @@ mod mobile_tests {
             "the settled month is the selected-context cache"
         );
 
-        // A cached refresh keeps its context: the neutral row is the only
-        // progress feedback and the shell leaves the records on screen. The
-        // initial load with no cache is the screen's own quiet spinner, never
-        // the shell's blocking card over the still-present filters.
+        // A cached refresh keeps its context: the shell's slim bar is the
+        // progress and the records stay on screen.
         assert_eq!(billing_view(true, true), BillingView::Refresh);
-        assert!(
-            billing_owns_progress(Screen::Billing, true),
-            "the Abrechnung surface paints its own progress, not the blocking card"
-        );
-        assert!(!billing_owns_progress(Screen::Billing, false));
-        assert!(
-            !billing_owns_progress(Screen::Orders, true),
-            "only the Abrechnung surface owns its progress"
-        );
-        assert!(!billing_owns_progress(Screen::Menus, true));
 
         // A month switch still in flight publishes the previous month's rows.
         // They are identifiable by the existing month identity, so the screen

@@ -89,16 +89,6 @@ pub fn menus_tab(
     }
     column = column.child(day_row);
 
-    // The quiet line is the only progress a cached Menüs shows while a
-    // background refresh keeps its cards in place.
-    if state.order_progress.is_none()
-        && state
-            .menu_snapshot
-            .as_ref()
-            .is_some_and(|snapshot| snapshot.refreshing)
-    {
-        column = column.child(refresh_line(theme));
-    }
     let host = state.host_kind;
     if let Some(error) = &state.error_text {
         column = column.child(mobile_error_banner(
@@ -491,27 +481,6 @@ fn loading_state(theme: &AppTheme) -> AnyElement {
         .justify_center()
         .p(px(theme.scale.space_4))
         .child(spinner(theme.text_secondary, theme.scale.icon))
-        .into_any_element()
-}
-
-/// The cached refresh keeps the day and rows: a 2 px progress bar over the
-/// existing `Aktualisiere...` metadata line, never a decorative card.
-fn refresh_line(theme: &AppTheme) -> AnyElement {
-    div()
-        .w_full()
-        .px(px(theme.scale.space_4))
-        .py(px(theme.scale.space_2))
-        .flex()
-        .flex_col()
-        .gap(px(theme.scale.space_1))
-        .child(refresh_bar(theme, "menus-refresh-bar"))
-        .child(
-            div()
-                .text_size(px(theme.scale.meta))
-                .line_height(px(theme.scale.meta_line))
-                .text_color(theme.text_secondary)
-                .child("Aktualisiere..."),
-        )
         .into_any_element()
 }
 
