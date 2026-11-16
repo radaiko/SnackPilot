@@ -164,6 +164,11 @@ pub struct State {
     // ---- task 3.3: appearance, reminders, location, diagnostics ----
     /// Light/dark/system choice (themes §1.2); default System.
     pub theme: ThemePreference,
+    /// Preset id the dark appearance uses (`tokens::PRESETS`); empty means the
+    /// default, which starts that way too.
+    pub dark_theme: &'static str,
+    /// Preset id the light appearance uses; empty means the default.
+    pub light_theme: &'static str,
     /// Daily reminder on/off (notifications-daily-reminder §9); default off.
     pub daily_reminder_enabled: bool,
     /// Daily reminder time of day; `None` until the feature is first enabled

@@ -190,30 +190,66 @@ pub struct AppTheme {
 
 impl AppTheme {
     /// Resolve a preference against the OS appearance: `System` follows
-    /// `os_dark`, `Hell`/`Dunkel` force their scheme.
+    /// `os_dark`, `Hell`/`Dunkel` force their scheme. Both use the default
+    /// presets; the shell passes the chosen ones through [`Self::resolve_presets`].
     pub fn resolve(preference: ThemePreference, os_dark: bool) -> Self {
-        Self::build(prefers_dark(preference, os_dark))
+        Self::resolve_presets(
+            preference,
+            os_dark,
+            tokens::DEFAULT_DARK,
+            tokens::DEFAULT_LIGHT,
+        )
     }
 
-    /// Build one appearance directly (the gallery shows both side by side).
+    /// Resolve the preference against the OS appearance and the two chosen
+    /// presets (Darstellung).
+    pub fn resolve_presets(
+        preference: ThemePreference,
+        os_dark: bool,
+        dark_theme: &str,
+        light_theme: &str,
+    ) -> Self {
+        let dark = prefers_dark(preference, os_dark);
+        Self::from_preset(tokens::preset(
+            if dark { dark_theme } else { light_theme },
+            dark,
+        ))
+    }
+
+    /// Build one appearance directly from the default preset (the gallery
+    /// shows both side by side).
     pub fn build(dark: bool) -> Self {
+        Self::from_preset(tokens::preset(
+            if dark {
+                tokens::DEFAULT_DARK
+            } else {
+                tokens::DEFAULT_LIGHT
+            },
+            dark,
+        ))
+    }
+
+    /// Every colour of one preset. Status colours keep their meaning and come
+    /// from the shared tokens for that appearance; the palette owns surfaces,
+    /// ink and the accent.
+    pub fn from_preset(preset: &tokens::Preset) -> Self {
+        let dark = preset.dark;
         let pick = |t: tokens::ColorToken| color(if dark { t.dark } else { t.light });
-        let accent = pick(tokens::ACCENT);
+        let accent = color(preset.accent);
         let error = pick(tokens::ERROR);
-        let text = pick(tokens::TEXT);
         Self {
             dark,
-            background: pick(tokens::BG),
-            surface: pick(tokens::SURFACE),
-            surface_alt: pick(tokens::SURFACE_ALT),
-            border: pick(tokens::BORDER),
-            border_strong: pick(tokens::BORDER_STRONG),
-            text_primary: text,
-            text_secondary: pick(tokens::TEXT_SECONDARY),
-            text_tertiary: pick(tokens::TEXT_TERTIARY),
+            background: color(preset.background),
+            surface: color(preset.surface),
+            surface_alt: color(preset.surface_alt),
+            border: color(preset.border),
+            border_strong: color(preset.border_strong),
+            text_primary: color(preset.text),
+            text_secondary: color(preset.text_secondary),
+            text_tertiary: color(preset.text_tertiary),
             accent,
-            accent_surface: pick(tokens::ACCENT_SURFACE),
-            on_accent: pick(tokens::ON_ACCENT),
+            accent_surface: color(preset.accent_surface),
+            on_accent: color(preset.on_accent),
             accent_hover: darken(accent, 0.06),
             accent_pressed: darken(accent, 0.12),
             success: pick(tokens::SUCCESS),
@@ -467,6 +503,40 @@ mod tests {
         assert_eq!(
             AppTheme::resolve(ThemePreference::Light, true).text_primary,
             light_text
+        );
+    }
+
+    /// A preset is the whole palette: the chosen dark and light presets apply
+    /// to their own appearance only, and System picks the one the OS asks for.
+    #[test]
+    fn resolve_presets_uses_the_chosen_theme_per_appearance() {
+        let nord = AppTheme::from_preset(snackpilot_model::tokens::preset("nord", true));
+        let github_light =
+            AppTheme::from_preset(snackpilot_model::tokens::preset("github-light", false));
+        assert_eq!(
+            AppTheme::resolve_presets(ThemePreference::Dark, false, "nord", "github-light")
+                .background,
+            nord.background
+        );
+        assert_eq!(
+            AppTheme::resolve_presets(ThemePreference::Light, true, "nord", "github-light")
+                .background,
+            github_light.background
+        );
+        assert_eq!(
+            AppTheme::resolve_presets(ThemePreference::System, true, "nord", "github-light")
+                .background,
+            nord.background
+        );
+        assert_eq!(
+            AppTheme::resolve_presets(ThemePreference::System, false, "nord", "github-light")
+                .background,
+            github_light.background
+        );
+        // An unknown id is the default, not a panic or a black screen.
+        assert_eq!(
+            AppTheme::resolve_presets(ThemePreference::Dark, false, "", "").background,
+            AppTheme::build(true).background
         );
     }
 

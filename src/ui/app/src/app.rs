@@ -952,6 +952,26 @@ impl AppShell {
             {
                 shell.months_page.settle = px;
             }
+            // `--theme=<id>` selects a dark preset and `--light-theme=<id>` a
+            // light one, each switching the preference to that appearance:
+            // a capture cannot open Darstellung and tap the row.
+            if let Some(model) = &shell.model {
+                let arg = |flag: &str| {
+                    std::env::args().find_map(|a| a.strip_prefix(flag).map(str::to_owned))
+                };
+                if let Some(preset) = arg("--theme=")
+                    .and_then(|id| snackpilot_model::tokens::presets(true).find(|p| p.id == id))
+                {
+                    model.set_dark_theme(preset.id);
+                    model.set_theme_preference(snackpilot_model::ThemePreference::Dark);
+                }
+                if let Some(preset) = arg("--light-theme=")
+                    .and_then(|id| snackpilot_model::tokens::presets(false).find(|p| p.id == id))
+                {
+                    model.set_light_theme(preset.id);
+                    model.set_theme_preference(snackpilot_model::ThemePreference::Light);
+                }
+            }
             // `--detail=login|automaten` opens a credential screen directly.
             shell.pending_detail = std::env::args().find_map(|a| {
                 let rest = a.strip_prefix("--detail=")?;
@@ -1749,7 +1769,8 @@ impl Render for AppShell {
             );
             self.kit_dark = Some(dark);
         }
-        let theme = AppTheme::resolve(state.theme, os_dark);
+        let theme =
+            AppTheme::resolve_presets(state.theme, os_dark, state.dark_theme, state.light_theme);
         // Touch hosts draw no keyboard focus ring: after a tap it stayed on the
         // row and read as a selection border.
         crate::theme::set_focus_ring(state.host_kind != HostKind::Phone);

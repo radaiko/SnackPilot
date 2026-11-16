@@ -1,4 +1,5 @@
-//! Appearance screen: the System / Hell / Dunkel choice.
+//! Appearance screen: the System / Hell / Dunkel choice and the two preset
+//! lists it points at.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -9,8 +10,8 @@ use gpui_kit::component::{Icon, Sizable};
 
 use crate::app::AppShell;
 use crate::navigation::ClickHandler;
-use crate::theme::{self, AppTheme};
-use snackpilot_model::{AppModel, ThemePreference};
+use crate::theme::{self, color, AppTheme};
+use snackpilot_model::{tokens, AppModel, ThemePreference};
 
 /// The three appearance choices, in the persisted order.
 pub const APPEARANCE_OPTIONS: [(ThemePreference, &str); 3] = [
@@ -92,6 +93,67 @@ fn appearance_row(
     row.into_any_element()
 }
 
+/// One selectable preset row, painted in its own palette so the list is the
+/// preview: its field, ink and accent dot. The selected row takes the preset's
+/// accent tint and a check in its accent, so a scheme that is not active still
+/// looks like itself.
+fn preset_row(
+    id: SharedString,
+    preset: &'static tokens::Preset,
+    selected: bool,
+    on_click: ClickHandler,
+    theme: &AppTheme,
+) -> AnyElement {
+    let accent = color(preset.accent);
+    let mut row = div()
+        .id(id)
+        .w_full()
+        .min_h(px(56.))
+        .flex()
+        .items_center()
+        .gap(px(theme.scale.space_3))
+        .px(px(theme.scale.space_4))
+        .rounded(px(theme.scale.radius_card))
+        .bg(if selected {
+            color(preset.accent_surface)
+        } else {
+            color(preset.surface)
+        })
+        .border_1()
+        .border_color(color(preset.border))
+        .cursor_pointer()
+        .focus(theme::desktop_focus(accent))
+        .on_click(move |_, window, cx| on_click(window, cx))
+        .child(
+            div()
+                .size(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .bg(color(preset.background))
+                .border_1()
+                .border_color(color(preset.border_strong))
+                .child(div().size(px(10.)).rounded_full().bg(accent)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
+                .text_color(color(preset.text))
+                .child(preset.label),
+        );
+    if selected {
+        row = row.child(
+            Icon::new(IconName::Check)
+                .with_size(px(theme.scale.icon))
+                .text_color(accent),
+        );
+    }
+    row.into_any_element()
+}
+
 /// The pushed Darstellung screen.
 pub fn appearance_screen(
     state: &snackpilot_model::State,
@@ -149,6 +211,66 @@ pub fn appearance_screen(
         ));
     }
 
+    // Each appearance has its own palette list; System follows both. The
+    // active appearance's list comes first, so a light theme does not sit
+    // behind seven dark rows.
+    let order = if theme.dark {
+        [true, false]
+    } else {
+        [false, true]
+    };
+    for (dark, caption) in order.into_iter().map(|dark| {
+        (
+            dark,
+            if dark {
+                "Dunkles Farbschema"
+            } else {
+                "Helles Farbschema"
+            },
+        )
+    }) {
+        design = design.child(
+            div()
+                .pt(px(theme.scale.space_2))
+                .text_size(px(theme.scale.meta))
+                .line_height(px(theme.scale.meta_line))
+                .text_color(theme.text_secondary)
+                .child(caption),
+        );
+        let id = if dark {
+            state.dark_theme
+        } else {
+            state.light_theme
+        };
+        let selected = tokens::preset(id, dark).id;
+        for preset in tokens::presets(dark) {
+            let shell = cx.entity().clone();
+            let model = model.cloned();
+            let preset_id = preset.id;
+            let handler = Rc::new(move |_: &mut Window, cx: &mut App| {
+                if let Some(model) = &model {
+                    if dark {
+                        model.set_dark_theme(preset_id);
+                    } else {
+                        model.set_light_theme(preset_id);
+                    }
+                }
+                let _ = shell.update(cx, |_, cx| cx.notify());
+            });
+            design = design.child(preset_row(
+                SharedString::from(format!(
+                    "preset-{}-{}",
+                    if dark { "dark" } else { "light" },
+                    preset.id
+                )),
+                preset,
+                selected == preset.id,
+                handler,
+                theme,
+            ));
+        }
+    }
+
     let mut page = div()
         .id("appearance")
         .size_full()
@@ -179,7 +301,9 @@ pub fn appearance_screen(
             .text_size(px(theme.scale.meta))
             .line_height(px(theme.scale.meta_line))
             .text_color(theme.text_secondary)
-            .child("Die App folgt dem System oder bleibt immer hell beziehungsweise dunkel."),
+            .child(
+                "Die App folgt dem System oder bleibt immer hell beziehungsweise dunkel. Jede Helligkeit hat ihr eigenes Farbschema.",
+            ),
     )
     .child(design)
     .into_any_element()

@@ -11,6 +11,8 @@ use crate::AppModel;
 /// the reminder time/enabled additionally mirror into core's own keys so its
 /// headless background callers read the same settings, §9).
 pub(crate) const THEME_KEY: &str = "theme_preference";
+pub(crate) const DARK_THEME_KEY: &str = "dark_theme";
+pub(crate) const LIGHT_THEME_KEY: &str = "light_theme";
 pub(crate) const REMINDER_ENABLED_KEY: &str = "daily_reminder_enabled";
 pub(crate) const REMINDER_HOUR_KEY: &str = "daily_reminder_hour";
 pub(crate) const REMINDER_MINUTE_KEY: &str = "daily_reminder_minute";
@@ -23,8 +25,9 @@ pub const REMINDER_PICKER_DEFAULT_HOUR: u8 = 11;
 pub const REMINDER_PICKER_DEFAULT_MINUTE: u8 = 0;
 
 impl AppModel {
-    /// Reads the appearance key at startup; the default is System. Never
-    /// calls the platform.
+    /// Reads the appearance keys at startup; the default is System and the
+    /// default preset on each side. An id no preset carries falls back to that
+    /// default. Never calls the platform.
     pub(crate) fn load_preferences(&self) {
         let theme = self
             .kv
@@ -33,13 +36,39 @@ impl AppModel {
             .flatten()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        self.hub.update("preferences", |s| s.theme = theme);
+        let id = |key: &str, dark: bool| -> &'static str {
+            let stored = self.kv.get(key).ok().flatten().unwrap_or_default();
+            crate::tokens::preset(&stored, dark).id
+        };
+        let dark_theme = id(DARK_THEME_KEY, true);
+        let light_theme = id(LIGHT_THEME_KEY, false);
+        self.hub.update("preferences", |s| {
+            s.theme = theme;
+            s.dark_theme = dark_theme;
+            s.light_theme = light_theme;
+        });
     }
 
     /// Persists the theme (AppModel.swift:646-651).
     pub fn set_theme_preference(&self, theme: ThemePreference) {
         let _ = self.kv.set(THEME_KEY, theme.raw_value());
         self.hub.update("theme", |s| s.theme = theme);
+    }
+
+    /// Persists the dark appearance's preset; an id that is not a dark preset
+    /// is stored as the default.
+    pub fn set_dark_theme(&self, id: &str) {
+        let id = crate::tokens::preset(id, true).id;
+        let _ = self.kv.set(DARK_THEME_KEY, id);
+        self.hub.update("theme", |s| s.dark_theme = id);
+    }
+
+    /// Persists the light appearance's preset; an id that is not a light preset
+    /// is stored as the default.
+    pub fn set_light_theme(&self, id: &str) {
+        let id = crate::tokens::preset(id, false).id;
+        let _ = self.kv.set(LIGHT_THEME_KEY, id);
+        self.hub.update("theme", |s| s.light_theme = id);
     }
 
     /// Reads the reminder keys at startup; the reminder is off and there is no
