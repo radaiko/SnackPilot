@@ -50,6 +50,19 @@ impl AppModel {
             s.set_preview(crate::navigation::ListKind::Receipts, None);
         });
         handle().block_on(self.load_billing(false));
+        // Stepping back offers one month past the newest known: if the store
+        // does not have it the option disappears, and the selection would point
+        // at nothing. Hand it back to the month that does exist.
+        let state = self.state();
+        let exists = state
+            .month_options
+            .iter()
+            .any(|option| option.offset == offset);
+        if !exists {
+            if let Some(previous) = offset.checked_sub(1) {
+                self.select_month(previous);
+            }
+        }
     }
 
     /// Swift `reloadBilling` (:553): pull-to-refresh forces the fetch,

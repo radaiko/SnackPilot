@@ -221,6 +221,23 @@ pub fn month_key_from_offset(clock: &dyn Clock, offset: u32) -> String {
     format!("{year:04}-{month:02}")
 }
 
+/// The month before a "YYYY-MM" key, for stepping past the newest month the
+/// app already knows about.
+pub fn previous_month_key(month_key: &str) -> Option<String> {
+    let (year, month) = month_key.split_once('-')?;
+    let year: i32 = year.parse().ok()?;
+    let month: i32 = month.parse().ok()?;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    let total = year * 12 + (month - 1) - 1;
+    Some(format!(
+        "{:04}-{:02}",
+        total.div_euclid(12),
+        total.rem_euclid(12) + 1
+    ))
+}
+
 /// Display label "{Monat} {yyyy}" from a "YYYY-MM" key (caching §2.5).
 pub fn month_label(month_key: &str) -> String {
     let (y, m) = match month_key.split_once('-') {

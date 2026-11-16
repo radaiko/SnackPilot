@@ -39,7 +39,11 @@ fn month_options_are_current_plus_two_past() {
     let model = demo_model("months");
     let options = &model.state().month_options;
     let offsets: Vec<u8> = options.iter().map(|m| m.offset).collect();
-    assert_eq!(offsets, vec![0, 1, 2], "three month tabs, current + 2 past");
+    assert_eq!(
+        offsets,
+        vec![0, 1, 2, 3],
+        "the store's three months, plus the one to ask about"
+    );
     for m in options {
         assert!(
             m.key.len() == 7

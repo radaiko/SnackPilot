@@ -21,6 +21,9 @@ pub struct BillingStore {
     ventopay_months: Mutex<HashMap<String, VentopayMonthlyBilling>>,
     loading: Mutex<bool>,
     error: Mutex<Option<String>>,
+    /// The first offset past the window the store refused. `None` means the
+    /// store has not been asked yet, so one more month is worth offering.
+    history_end: Mutex<Option<u8>>,
 }
 
 impl BillingStore {
@@ -39,6 +42,7 @@ impl BillingStore {
             ventopay_months: Mutex::new(HashMap::new()),
             loading: Mutex::new(false),
             error: Mutex::new(None),
+            history_end: Mutex::new(None),
         }
     }
 
@@ -72,7 +76,28 @@ impl BillingStore {
                 offset,
             });
         }
+        // One month past everything we have, so stepping back asks the store
+        // once more and the history keeps growing for as long as it answers.
+        // Once it refuses, the offer stops until the next launch.
+        if self.history_open() {
+            if let Some(next) = options
+                .last()
+                .and_then(|last| cache::previous_month_key(&last.key))
+            {
+                let offset = options.len() as u8;
+                options.push(MonthOption {
+                    label: cache::month_label(&next),
+                    key: next,
+                    offset,
+                });
+            }
+        }
         options
+    }
+
+    /// Whether the store may still have a month before the oldest one offered.
+    fn history_open(&self) -> bool {
+        self.history_end.lock().unwrap().is_none()
     }
 
     /// The month key an offset stands for. An offset is the option's position
@@ -82,6 +107,36 @@ impl BillingStore {
         self.month_options()
             .get(offset as usize)
             .map(|option| option.key.clone())
+    }
+
+    /// Whether the disk already holds bills for this month key.
+    fn cached_has(&self, key: &str) -> bool {
+        cache::load_gourmet_billing(self.kv.as_ref(), key).is_some()
+            || cache::load_ventopay_billing(self.kv.as_ref(), key).is_some()
+    }
+
+    /// Ask the store for one month past its documented window. Bills cache the
+    /// month like any other; an empty month is still a month (saved empty, so
+    /// it stays offered); a failed request ends the history offer until the next
+    /// launch rather than retrying on every step.
+    async fn probe_history(&self, offset: u8, key: &str) {
+        let result = self.gourmet.get_billings(&offset.to_string()).await;
+        match result {
+            Ok(bills) => {
+                let _ = cache::save_gourmet_billing(self.kv.as_ref(), key, &bills);
+                let label = cache::month_label(key);
+                let now = self.clock.now_epoch_ms();
+                self.gourmet_months.lock().unwrap().insert(
+                    key.to_string(),
+                    build_gourmet_month(key, &label, bills, now),
+                );
+            }
+            Err(_) => {
+                // The store has nothing that far back: stop offering it rather
+                // than asking again on every step.
+                *self.history_end.lock().unwrap() = Some(offset);
+            }
+        }
     }
 
     /// Put a cached month in memory without asking anyone. Used for history the
@@ -144,9 +199,13 @@ impl BillingStore {
             return Ok(()); // no such month → silent
         };
         if offset > 2 {
-            // History older than the store's window: show what the disk has and
-            // ask nobody. `force` cannot change that — there is nothing to ask.
-            self.publish_cached(&key);
+            if self.cached_has(&key) {
+                self.publish_cached(&key);
+                return Ok(());
+            }
+            // A month the app has never seen: the store's documented window ends
+            // at offset 2, so this is a probe. It answers, or the history ends.
+            self.probe_history(offset, &key).await;
             return Ok(());
         }
         if *self.loading.lock().unwrap() {
@@ -194,7 +253,7 @@ impl BillingStore {
         let Some(key) = self.month_key(offset) else {
             return Ok(());
         };
-        if offset > 2 {
+        if offset > 2 && self.cached_has(&key) {
             self.publish_cached(&key);
             return Ok(());
         }
@@ -348,6 +407,51 @@ mod tests {
         gp(api)
     }
 
+    /// One step past the cache asks the store — once. While it answers, the
+    /// offer keeps extending; a refusal ends it for the session.
+    #[tokio::test]
+    async fn a_month_past_the_cache_is_probed_once_and_the_offer_ends_on_refusal() {
+        let t = Arc::new(CapturingTransport::new());
+        let kv = Arc::new(MemoryKv::new());
+        let gourmet = logged_in_gourmet(&t).await;
+        let store = BillingStore::new(
+            gourmet,
+            vp(Arc::new(VentopayApi::new(t.clone()))),
+            kv.clone(),
+            feb_2026_clock(),
+        );
+        let probe_key = store.month_options()[3].key.clone();
+        assert_eq!(probe_key, "2025-11", "one month past the window");
+
+        // getBillings: authenticated probe, then the wrapper payload.
+        t.queue_response(ok(G_LOGIN_OK));
+        t.queue_response(ok(
+            r#"{"Billings":[{"BillNr":1,"BillDate":"2025-11-10T12:00:00","Location":"Wien","Billing":4.5,"BillingItemInfo":[]}]}"#,
+        ));
+        store.fetch_billing(3, false).await.unwrap();
+        let month = store
+            .gourmet_month("2025-11")
+            .expect("the probed month is published and cached");
+        assert_eq!(month.bills.len(), 1);
+        assert_eq!(
+            store.month_options()[3].key,
+            "2025-11",
+            "the month now comes from disk"
+        );
+
+        // The store refuses the next one: the offer stops, and the option the
+        // user was looking at is gone rather than sitting there empty.
+        t.queue_response(HttpResponse {
+            status: 500,
+            headers: vec![],
+            body: String::new(),
+        });
+        store.fetch_billing(4, false).await.unwrap();
+        let keys: Vec<String> = store.month_options().into_iter().map(|o| o.key).collect();
+        assert_eq!(keys.last().map(String::as_str), Some("2025-11"));
+        assert_eq!(store.month_key(4), None, "nothing left to step onto");
+    }
+
     /// Billing months are discovered from disk: the three the store answers
     /// for, then everything older that is still cached. Selecting an older
     /// month reads the disk and never sends a request.
@@ -382,8 +486,8 @@ mod tests {
         let keys: Vec<&str> = opts.iter().map(|o| o.key.as_str()).collect();
         assert_eq!(
             keys,
-            ["2026-02", "2026-01", "2025-12", "2025-11", "2025-10"],
-            "the window first, then the older months, newest first"
+            ["2026-02", "2026-01", "2025-12", "2025-11", "2025-10", "2025-09"],
+            "the window first, then the older months, newest first, then one more to ask about"
         );
         assert_eq!(opts[3].offset, 3, "an offset is the option's position");
 
@@ -401,7 +505,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn month_options_are_three_with_austrian_labels() {
+    async fn month_options_are_the_window_plus_one_provisional_month() {
         let t = Arc::new(CapturingTransport::new());
         let store = BillingStore::new(
             gp(Arc::new(GourmetApi::new(t.clone()))),
@@ -410,11 +514,19 @@ mod tests {
             feb_2026_clock(),
         );
         let opts = store.month_options();
-        assert_eq!(opts.len(), 3);
+        assert_eq!(
+            opts.len(),
+            4,
+            "three the store answers for, one to ask about"
+        );
         assert_eq!(opts[0].key, "2026-02");
         assert_eq!(opts[0].label, "Februar 2026");
         assert_eq!(opts[1].key, "2026-01");
         assert_eq!(opts[2].key, "2025-12");
+        assert_eq!(
+            opts[3].key, "2025-11",
+            "one month further back, offered once"
+        );
     }
 
     #[tokio::test]

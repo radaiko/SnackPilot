@@ -471,8 +471,12 @@ impl AppModel {
             .iter()
             .find(|m| m.offset == offset)
             .map(|m| m.key.clone());
+        // A month the store did not have before may have been added (or the
+        // offer ended), so the row is rebuilt from the store each load.
+        let options = self.core.billing_month_options();
         self.hub.update("billing_loaded", |s| {
             s.billing_loading = false;
+            s.month_options = options;
             if let Some(key) = key {
                 s.gourmet_month = self.core.gourmet_billing_month(key.clone());
                 s.ventopay_month = self.core.ventopay_billing_month(key);
