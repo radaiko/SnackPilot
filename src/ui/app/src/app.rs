@@ -623,6 +623,10 @@ pub struct AppShell {
     /// The drag's accumulated horizontal travel, read from the host's scroll
     /// deltas. The painted offset damps it at the first and last day.
     pub(crate) swipe_dx: f32,
+    /// The carousel's remaining travel after a release: the page finish, eased
+    /// to zero over a few frames so the day that was arriving settles instead
+    /// of snapping.
+    pub(crate) swipe_settle: f32,
     /// When the last refresh was dispatched. A double tap cannot hammer the
     /// store with a request that would only repeat the first, and the 15-minute
     /// tick and a foreground return measure their staleness against it.
@@ -839,6 +843,7 @@ impl AppShell {
             swipe_claimed: false,
             swipe_live: false,
             swipe_dx: 0.,
+            swipe_settle: 0.,
             last_refresh: None,
             menus_scroll: ScrollHandle::new(),
             menus_days_scroll: ScrollHandle::new(),
@@ -909,6 +914,14 @@ impl AppShell {
                 if let Some(model) = &shell.model {
                     model.select_day(&day);
                 }
+            }
+            // `--swipe=<px>` holds the day carousel at a drag offset, for
+            // captures: a finger cannot be injected into the simulator.
+            if let Some(px) = std::env::args()
+                .find_map(|a| a.strip_prefix("--swipe=").map(str::to_owned))
+                .and_then(|v| v.parse::<f32>().ok())
+            {
+                shell.swipe_settle = px;
             }
             // `--detail=login|automaten` opens a credential screen directly.
             shell.pending_detail = std::env::args().find_map(|a| {
@@ -1464,6 +1477,10 @@ impl AppShell {
         state: &State,
         theme: &AppTheme,
         layout: LayoutMode,
+        // The compact column the screens are laid out in. The phone host never
+        // reports a content width, so this is the only measured page width a
+        // screen can page by.
+        page_width: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // Desktop containment (REQ-SCR-04): the model owns the projection, so
@@ -1581,7 +1598,11 @@ impl AppShell {
                             state,
                             self.model.as_ref(),
                             theme,
-                            self.swipe_dx,
+                            self.swipe_dx + self.swipe_settle,
+                            // The phone host reports no content width, so the
+                            // page width comes from the column the shell laid
+                            // out — the same number the screen is drawn at.
+                            page_width,
                             &self.menus_scroll,
                             &self.menus_days_scroll,
                             cx,
@@ -1768,7 +1789,13 @@ impl Render for AppShell {
         // The compact screens measure their own column from the same live
         // viewport the shell centres; the wide Ledger never reads it.
         let viewport_width = f32::from(window.viewport_size().width);
-        let screen_content = self.screen(&nav, &state, &theme, layout, cx);
+        let page_width = {
+            let column = crate::compact_width(state.content_width, viewport_width);
+            crate::compact_column(state.host_kind, column)
+                .map(|geometry| geometry.content)
+                .unwrap_or(column)
+        };
+        let screen_content = self.screen(&nav, &state, &theme, layout, page_width, cx);
         // Compact Day Tray shell plan (REQ-UI-03/04/15/16): one heading, one
         // centred column of min(viewport − 32, 560), the safe-area top applied
         // exactly once outside the column and a measured obstruction below the

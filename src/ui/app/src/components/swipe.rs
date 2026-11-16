@@ -90,14 +90,10 @@ pub fn swipe_day(dx: f32, can_back: bool, can_forward: bool) -> Option<i32> {
     }
 }
 
-/// Wrap `content` in the swipeable area, translating it by the shell's current
-/// (damped) offset while a horizontal gesture is in flight.
-pub fn swipe_days(
-    id: &'static str,
-    content: AnyElement,
-    offset: f32,
-    handlers: SwipeHandlers,
-) -> AnyElement {
+/// Wrap `content` in the swipeable area. The drag is reported to the shell,
+/// which positions the day carousel itself, so the content arrives already
+/// placed and this only owns the gesture and the clip.
+pub fn swipe_days(id: &'static str, content: AnyElement, handlers: SwipeHandlers) -> AnyElement {
     let (scrolled, up) = (handlers.scrolled, handlers.up);
     div()
         .id(id)
@@ -105,7 +101,7 @@ pub fn swipe_days(
         .overflow_hidden()
         .on_scroll_wheel(move |e, w, cx| scrolled(e, w, cx))
         .on_mouse_up(MouseButton::Left, move |e, w, cx| up(e, w, cx))
-        .child(div().size_full().ml(px(offset)).child(content))
+        .child(div().size_full().child(content))
         .into_any_element()
 }
 
