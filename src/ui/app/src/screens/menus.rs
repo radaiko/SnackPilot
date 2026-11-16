@@ -58,7 +58,11 @@ pub fn menus_tab(
     days_scroll: &ScrollHandle,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
-    if !state.gourmet_authenticated {
+    if menus_gate(
+        state.gourmet_authenticated,
+        state.launch_settled,
+        has_cached_menus(state),
+    ) {
         return auth_gate(theme);
     }
 
@@ -376,6 +380,25 @@ fn auth_copy() -> (&'static str, &'static str) {
 fn empty_state(theme: &AppTheme) -> AnyElement {
     let (fact, hint) = empty_copy();
     state_message(fact, hint, theme)
+}
+
+/// Whether the Menüs screen shows the credential gate.
+///
+/// A launch signs in with the credentials saved on the device, and that takes
+/// as long as the store takes to answer. The week is already on disk, so the
+/// screen shows it and lets the sign-in run behind: the gate is for an
+/// unauthenticated app that has nothing to show, or one whose restore has
+/// settled without a session.
+pub fn menus_gate(authenticated: bool, launch_settled: bool, has_cached_items: bool) -> bool {
+    !authenticated && (launch_settled || !has_cached_items)
+}
+
+/// Whether the cached week has anything to paint.
+fn has_cached_menus(state: &State) -> bool {
+    state
+        .menu_snapshot
+        .as_ref()
+        .is_some_and(|snapshot| !snapshot.items.is_empty())
 }
 
 /// The initial load: one quiet centred 20 px spinner and nothing else.
@@ -1193,6 +1216,31 @@ mod mobile_tests {
                 "Nicht angemeldet",
                 "Gehe zu Einstellungen, um Zugangsdaten einzugeben"
             )
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::menus_gate;
+
+    /// The cached week is what a launch shows: the gate waits for the launch
+    /// order to settle, so a slow sign-in never blanks the screen.
+    /// @req REQ-SCR-01
+    #[test]
+    fn a_launch_shows_the_cached_week_while_it_signs_in() {
+        assert!(!menus_gate(true, false, true), "signed in: never a gate");
+        assert!(
+            !menus_gate(false, false, true),
+            "a restore with cache on disk shows the week"
+        );
+        assert!(
+            menus_gate(false, true, true),
+            "the restore settled without a session: the gate asks for one"
+        );
+        assert!(
+            menus_gate(false, false, false),
+            "nothing cached leaves nothing to paint but the gate"
         );
     }
 }

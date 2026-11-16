@@ -523,15 +523,16 @@ pub fn refresh_due(last_refresh: Option<Instant>) -> bool {
     last_refresh.is_none_or(|at| at.elapsed() >= AUTO_REFRESH)
 }
 
-/// Past this the mark gives way even if the launch order is still waiting on
-/// the network, so a dead connection cannot hold the surface hostage.
-const LAUNCH_MAX: Duration = Duration::from_secs(6);
+/// The mark's own bound is [`LAUNCH_MIN`] and nothing else: past it the shell
+/// paints what it has — the cached week, or the credential gate — while the
+/// launch order keeps signing in behind it. Holding the mark until the network
+/// answered meant a slow sign-in showed a start screen and then a spinner.
 
-/// Whether the launch mark still covers the shell: from the first frame for at
-/// least [`LAUNCH_MIN`], and until the launch order settles (cached snapshots,
-/// restored sessions) or [`LAUNCH_MAX`] passes.
-fn launch_visible(elapsed: Duration, settled: bool) -> bool {
-    elapsed < LAUNCH_MIN || (!settled && elapsed < LAUNCH_MAX)
+/// Whether the launch mark still covers the shell: from the first frame for
+/// exactly [`LAUNCH_MIN`]. The launch order is not waited for — its sign-in is
+/// background work and the shell has cached data to paint meanwhile.
+fn launch_visible(elapsed: Duration) -> bool {
+    elapsed < LAUNCH_MIN
 }
 
 /// The status line under the start mark: what the launch order is doing, in
@@ -1694,7 +1695,7 @@ impl Render for AppShell {
         // Startup presentation: the launch mark owns the first frames, so the
         // shell never paints its empty credential gate and empty list on the
         // way to the cached data.
-        if launch_visible(self.launch_started.elapsed(), state.launch_settled) {
+        if launch_visible(self.launch_started.elapsed()) {
             crate::set_animating(true);
             if !self.launch_timer {
                 self.launch_timer = true;
@@ -1983,7 +1984,10 @@ impl Render for AppShell {
                 .child(column.child(screen_content));
             // The measured Menüs dock occupies the band the reservation above
             // includes, so the last card is scrollable fully above it.
-            compact_dock = if nav.top() == Screen::Menus {
+            // No submit while the launch sign-in is still running: the cached
+            // week is on screen for reading, and a batch would only fail with
+            // "Nicht angemeldet".
+            compact_dock = if nav.top() == Screen::Menus && state.gourmet_authenticated {
                 menus_dock(
                     &state,
                     self.model.as_ref(),
@@ -2022,7 +2026,11 @@ impl Render for AppShell {
         // it; every other surface keeps the incumbent overlay.
         let keep_cached_billing =
             !desktop && billing_owns_progress(nav.top(), state.billing_loading);
+        // A launch sign-in is background work: nothing on screen waits for it,
+        // so the blocking layer must not cover the gate — or the cached week —
+        // while the launch order runs.
         if (state.busy || state.ventopay_busy || state.billing_loading)
+            && state.launch_settled
             && !keep_cached_menus
             && !keep_cached_billing
         {
@@ -2075,8 +2083,7 @@ mod tests {
         model_settings_detail, navigation_top, nearest_restore_cursor, obstruction_reservation,
         order_cancel_state, order_row_effect, refresh_due, refresh_intent, safe_area,
         should_create_inputs, Detail, FocusRestore, MenuRowAction, MutationGate, OrderCancelState,
-        OrderRowEffect, RefreshIntent, AUTO_REFRESH, CONTENT_TOP, LAUNCH_MAX, LAUNCH_MIN,
-        SCROLL_END_GAP,
+        OrderRowEffect, RefreshIntent, AUTO_REFRESH, CONTENT_TOP, LAUNCH_MIN, SCROLL_END_GAP,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
     use snackpilot_model::desktop::HostKind;
@@ -3236,21 +3243,20 @@ mod tests {
     #[test]
     fn launch_mark_covers_the_first_frames_only() {
         assert!(
-            launch_visible(Duration::ZERO, false),
+            launch_visible(Duration::ZERO),
             "the first frame is never the empty gate"
         );
         assert!(
-            launch_visible(LAUNCH_MIN / 2, true),
+            launch_visible(LAUNCH_MIN / 2),
             "a fast launch still gets its start mark"
         );
-        assert!(!launch_visible(LAUNCH_MIN, true), "settled ends the mark");
         assert!(
-            launch_visible(LAUNCH_MIN + Duration::from_secs(1), false),
-            "an unsettled launch keeps the mark while it waits"
+            !launch_visible(LAUNCH_MIN),
+            "the mark gives way on its own clock, not on the network's"
         );
         assert!(
-            !launch_visible(LAUNCH_MAX, false),
-            "a dead network must not hold the surface back"
+            !launch_visible(LAUNCH_MIN + Duration::from_secs(6)),
+            "a slow sign-in shows the cached week instead of the mark"
         );
     }
 }
