@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Adaptive-icon background in dark mode (themes §6 extension). The launcher resolves
-         @color/ic_launcher_background with the -night qualifier when the system is dark. -->
-    <color name="ic_launcher_background">#1C1C1E</color>
+    <!-- The fields are already dark; night keeps them so the icon does not change
+         character between light and dark launchers. -->
+    <color name="ic_launcher_background">#2E1A11</color>
+    <color name="ic_launcher_background_emerald">#16301F</color>
+    <color name="ic_launcher_background_berry">#3A1622</color>
+    <color name="ic_launcher_background_golden">#33260E</color>
+    <color name="ic_launcher_background_ocean">#122B44</color>
 </resources>

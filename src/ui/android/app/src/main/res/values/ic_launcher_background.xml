@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#F0F0F2</color>
+    <!-- The launcher field each accent sits on: the glyph's own deep tint, so the
+         adaptive icon reads like the app icon rather than a glyph on grey. -->
+    <color name="ic_launcher_background">#2E1A11</color>
+    <color name="ic_launcher_background_emerald">#16301F</color>
+    <color name="ic_launcher_background_berry">#3A1622</color>
+    <color name="ic_launcher_background_golden">#33260E</color>
+    <color name="ic_launcher_background_ocean">#122B44</color>
 </resources>
