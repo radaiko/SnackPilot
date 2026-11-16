@@ -142,6 +142,20 @@ fn run_refresh(model: &AppModel, intent: RefreshIntent) {
     }
 }
 
+/// Which chip the day strip aligns to when the selection moves from
+/// `previous` to `index`. Stepping forward brings the day after the selection
+/// into view, so the row reads as a series that continues; stepping back (or
+/// landing on the last day) aims at the selection itself, because aiming at
+/// the day after a backward step slid the chosen day off the left edge.
+pub fn alignment_target(index: usize, previous: Option<usize>, len: usize) -> usize {
+    let forward = previous.is_none_or(|previous| index > previous);
+    if forward {
+        (index + 1).min(len.saturating_sub(1))
+    } else {
+        index
+    }
+}
+
 /// Whether entering `requested` must create fresh credential inputs. Re-entering
 /// the same open form, or crossing 719↔720 while it is open, keeps the one
 /// instance and its unsaved text (REQ-UI-10); leaving and returning creates a
@@ -707,12 +721,18 @@ impl AppShell {
         if self.menus_days_scroll.max_offset().x <= px(0.) {
             return;
         }
-        // Align the day *after* the selection when there is one: the chosen
-        // day then sits clear of the edge and the next one is visible, so the
-        // strip reads as a series that continues.
+        // Stepping forward brings the day *after* the selection into view: the
+        // chosen day then sits clear of the edge and the series reads as one
+        // that continues. Stepping back aims at the selection itself — aiming
+        // at the day after slid the chosen day off the left edge, which is
+        // exactly where a backward swipe or tap came to rest.
+        let previous = self
+            .strip_aligned
+            .as_deref()
+            .and_then(|previous| dates.iter().position(|day| day == previous));
         self.strip_aligned = state.selected_day.clone();
         self.menus_days_scroll
-            .scroll_to_item((index + 1).min(dates.len() - 1));
+            .scroll_to_item(alignment_target(index, previous, dates.len()));
     }
 
     /// Refresh menus, orders and billing in the background when the data is
@@ -2049,13 +2069,14 @@ impl Render for AppShell {
 #[cfg(test)]
 mod tests {
     use super::{
-        cached_menu_refresh, compact_content_bottom, compact_frame, compact_shell_plan,
-        desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
-        focus_restore, keyboard_action, launch_visible, menu_row_action, model_settings_detail,
-        navigation_top, nearest_restore_cursor, obstruction_reservation, order_cancel_state,
-        order_row_effect, refresh_due, refresh_intent, safe_area, should_create_inputs, Detail,
-        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
-        AUTO_REFRESH, CONTENT_TOP, LAUNCH_MAX, LAUNCH_MIN, SCROLL_END_GAP,
+        alignment_target, cached_menu_refresh, compact_content_bottom, compact_frame,
+        compact_shell_plan, desktop_check_effect, desktop_mutation_blocked, detail_from_model,
+        dispatch_off_thread, focus_restore, keyboard_action, launch_visible, menu_row_action,
+        model_settings_detail, navigation_top, nearest_restore_cursor, obstruction_reservation,
+        order_cancel_state, order_row_effect, refresh_due, refresh_intent, safe_area,
+        should_create_inputs, Detail, FocusRestore, MenuRowAction, MutationGate, OrderCancelState,
+        OrderRowEffect, RefreshIntent, AUTO_REFRESH, CONTENT_TOP, LAUNCH_MAX, LAUNCH_MIN,
+        SCROLL_END_GAP,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
     use snackpilot_model::desktop::HostKind;
@@ -3168,6 +3189,25 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// The strip always keeps the chosen day on screen: stepping forward also
+    /// shows the next one, stepping back shows the choice itself.
+    #[test]
+    fn the_day_strip_never_aligns_past_the_selection() {
+        // Forward: the day after the selection, capped at the last day.
+        assert_eq!(alignment_target(0, None, 6), 1);
+        assert_eq!(alignment_target(2, Some(1), 6), 3);
+        assert_eq!(
+            alignment_target(5, Some(4), 6),
+            5,
+            "the last day has none after it"
+        );
+        // Backward: the selection itself.
+        assert_eq!(alignment_target(2, Some(3), 6), 2);
+        assert_eq!(alignment_target(0, Some(1), 6), 0);
+        // A one-day week cannot align past itself either.
+        assert_eq!(alignment_target(0, None, 1), 0);
     }
 
     /// The 15-minute rule behind both triggers: nothing refreshed yet is due,
