@@ -89,6 +89,17 @@ pub fn menus_tab(
     }
     column = column.child(day_row);
 
+    // A day the cutoff has closed still shows its dishes — they were eaten, or
+    // they were never ordered — but nothing about them can change, and the rows
+    // no longer offer a tap. Say it once, where the day is chosen.
+    if state
+        .selected_day
+        .as_deref()
+        .is_some_and(|day| model.is_some_and(|model| model.is_cutoff(day)))
+    {
+        column = column.child(cutoff_line(theme));
+    }
+
     let host = state.host_kind;
     if let Some(error) = &state.error_text {
         column = column.child(mobile_error_banner(
@@ -260,7 +271,9 @@ fn day_select_handler(cx: &mut Context<AppShell>) -> DaySelectHandler {
 }
 
 /// The dock's content for the current state, under exactly the incumbent
-/// pending/progress conditions, with the label taken verbatim from the model.
+/// pending/progress conditions, with the label taken verbatim from the model —
+/// except that a queue the cutoff has closed says so instead of offering a
+/// submit the store would refuse.
 fn pending_dock(state: &State, model: Option<&Arc<AppModel>>) -> Option<DockState> {
     if !state.gourmet_authenticated {
         return None;
@@ -271,7 +284,46 @@ fn pending_dock(state: &State, model: Option<&Arc<AppModel>>) -> Option<DockStat
         .as_ref()
         .map(|s| s.pending_orders.len() + s.pending_cancellations.len())
         .unwrap_or(0);
+    if pending > 0 && queue_is_closed(state, model) && state.order_progress.is_none() {
+        return Some(DockState::Action(DISCARD_LABEL.to_string()));
+    }
     dock_state(pending, state.order_progress.as_deref(), model.fab_label())
+}
+
+/// The word the dock carries when nothing queued can still be sent.
+const DISCARD_LABEL: &str = "Änderungen verwerfen";
+
+/// Whether every queued change belongs to a day whose cutoff has passed. Such a
+/// queue cannot be submitted — the store closes the day at 9:00 — so the dock
+/// offers to discard it instead of a button that can only fail.
+pub(crate) fn queue_is_closed(state: &State, model: &AppModel) -> bool {
+    let Some(snapshot) = &state.menu_snapshot else {
+        return false;
+    };
+    queue_closed_by(
+        snapshot
+            .pending_orders
+            .iter()
+            .chain(snapshot.pending_cancellations.iter()),
+        |day| model.is_cutoff(day),
+    )
+}
+
+/// The rule itself: a nonempty queue whose every key names a closed day.
+fn queue_closed_by<'a, I, F>(keys: I, cutoff: F) -> bool
+where
+    I: Iterator<Item = &'a String>,
+    F: Fn(&str) -> bool,
+{
+    let mut any = false;
+    for key in keys {
+        any = true;
+        let day = key.split('|').nth(1).unwrap_or_default();
+        if !cutoff(day) {
+            return false;
+        }
+    }
+    any
 }
 
 /// The height the shell reserves for the dock above navigation: the dock
@@ -304,9 +356,13 @@ pub(crate) fn menus_dock(
     cx: &mut Context<AppShell>,
 ) -> Option<AnyElement> {
     let dock = pending_dock(state, model)?;
-    let handler = dock
-        .is_action()
-        .then(|| submit_handler(state.host_kind, cx));
+    let handler = dock.is_action().then(|| {
+        if dock.text() == DISCARD_LABEL {
+            discard_handler(cx)
+        } else {
+            submit_handler(state.host_kind, cx)
+        }
+    });
     Some(
         div()
             .absolute()
@@ -484,6 +540,20 @@ fn loading_state(theme: &AppTheme) -> AnyElement {
         .into_any_element()
 }
 
+/// The closed-day line: quiet, one row, no box — the same meta role the day
+/// strip uses for its labels.
+fn cutoff_line(theme: &AppTheme) -> AnyElement {
+    div()
+        .w_full()
+        .px(px(theme.scale.space_4))
+        .py(px(theme.scale.space_2))
+        .text_size(px(theme.scale.meta))
+        .line_height(px(theme.scale.meta_line))
+        .text_color(theme.text_secondary)
+        .child("Bestellschluss war 9:00 – nichts mehr änderbar.")
+        .into_any_element()
+}
+
 fn auth_gate(theme: &AppTheme) -> AnyElement {
     let (fact, hint) = auth_copy();
     state_message(fact, hint, theme)
@@ -646,6 +716,19 @@ fn submit_handler(host: HostKind, cx: &mut Context<AppShell>) -> ClickHandler {
                 let _ticket = ticket;
                 model.submit_orders()
             });
+            cx.notify();
+        });
+    })
+}
+
+/// Throw the closed queue away: nothing in it can reach the store any more.
+fn discard_handler(cx: &mut Context<AppShell>) -> ClickHandler {
+    let shell = cx.entity().clone();
+    Rc::new(move |_: &mut Window, cx: &mut App| {
+        shell.update(cx, |s, cx| {
+            if let Some(model) = &s.model {
+                model.clear_pending();
+            }
             cx.notify();
         });
     })
@@ -1347,7 +1430,31 @@ mod mobile_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{carousel_travel, menus_gate, neighbours, page_fade, settle_after};
+    use super::{
+        carousel_travel, menus_gate, neighbours, page_fade, queue_closed_by, settle_after,
+    };
+
+    /// A queue the cutoff has closed is not offered for submit; one that still
+    /// has a sendable day keeps the real action.
+    /// @req REQ-SCR-01
+    #[test]
+    fn a_queue_of_closed_days_can_only_be_discarded() {
+        let closed = |day: &str| day.starts_with("2020");
+        let keys = |list: &[&str]| list.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+
+        assert!(
+            queue_closed_by(keys(&["12|2020-01-01", "13|2020-01-02"]).iter(), closed),
+            "every queued day is closed"
+        );
+        assert!(
+            !queue_closed_by(keys(&["12|2020-01-01", "13|2030-01-02"]).iter(), closed),
+            "one sendable day keeps the queue"
+        );
+        assert!(
+            !queue_closed_by(keys(&[]).iter(), closed),
+            "an empty queue is no closed queue"
+        );
+    }
 
     /// The two pages of a drag always add up to one page of ink, and the switch
     /// moves the middle without a pop: the opacity the arriving page had is the

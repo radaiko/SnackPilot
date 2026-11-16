@@ -1702,6 +1702,9 @@ impl Render for AppShell {
             self.kit_dark = Some(dark);
         }
         let theme = AppTheme::resolve(state.theme, os_dark);
+        // Touch hosts draw no keyboard focus ring: after a tap it stayed on the
+        // row and read as a selection border.
+        crate::theme::set_focus_ring(state.host_kind != HostKind::Phone);
         // Startup presentation: the launch mark owns the first frames, so the
         // shell never paints its empty credential gate and empty list on the
         // way to the cached data.

@@ -155,7 +155,7 @@ pub fn mobile_card_treatment(state: &MenuCardState) -> MobileCardTreatment {
 /// model gate: an ordered item stays tappable so its cancellation can be
 /// queued, an unavailable or cutoff new item cannot be added.
 pub fn mobile_menu_tappable(state: &MenuCardState) -> bool {
-    state.ordered || (state.available && !state.cutoff)
+    !state.cutoff && (state.ordered || state.available)
 }
 
 /// The status chip: a 24 px tag in the metadata role on its toned surface,
@@ -535,11 +535,14 @@ mod tests {
         assert!(!mobile_card_treatment(&state()).struck());
 
         assert!(mobile_menu_tappable(&state()));
-        assert!(mobile_menu_tappable(&MenuCardState {
-            ordered: true,
-            cutoff: true,
-            ..state()
-        }));
+        assert!(
+            !mobile_menu_tappable(&MenuCardState {
+                ordered: true,
+                cutoff: true,
+                ..state()
+            }),
+            "a closed day offers no cancellation either: the store refuses it"
+        );
         assert!(!mobile_menu_tappable(&MenuCardState {
             available: false,
             ..state()

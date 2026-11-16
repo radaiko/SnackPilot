@@ -120,6 +120,6 @@ pub fn field_slot(
         .border(px(tokens::FOCUS_WIDTH))
         .border_color(hsla(0., 0., 0., 0.))
         .track_focus(&focus)
-        .focus(theme::desktop_focus(theme.accent))
+        .focus(theme::text_focus(theme.accent))
         .child(field_row(state, theme.surface, border, trailing))
 }

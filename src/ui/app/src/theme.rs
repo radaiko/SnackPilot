@@ -357,10 +357,40 @@ pub fn darken(c: Hsla, amount: f32) -> Hsla {
     }
 }
 
+/// Whether a focused control paints the accent ring. A touch host has no
+/// keyboard, and the ring left on the last tapped row read as a selection
+/// border: the phone turns it off, the desktop keeps it.
+static FOCUS_RING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Set once per frame from the host the shell is driving.
+pub fn set_focus_ring(on: bool) {
+    FOCUS_RING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn focus_ring() -> bool {
+    FOCUS_RING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Focus recipe: a 2 px ring in the resolved focus ink on the target's own
 /// shape, applied with `.focus(theme::desktop_focus(ink))`.
 pub fn desktop_focus(ink: Hsla) -> impl FnOnce(StyleRefinement) -> StyleRefinement {
-    move |s| s.border(px(tokens::FOCUS_WIDTH)).border_color(ink)
+    move |s: StyleRefinement| {
+        if focus_ring() {
+            ring(s, ink)
+        } else {
+            s
+        }
+    }
+}
+
+/// The ring that a text field always paints: on a phone it is the caret's
+/// companion, not a keyboard hint, so it stays on every host.
+pub fn text_focus(ink: Hsla) -> impl FnOnce(StyleRefinement) -> StyleRefinement {
+    move |s: StyleRefinement| ring(s, ink)
+}
+
+fn ring(s: StyleRefinement, ink: Hsla) -> StyleRefinement {
+    s.border(px(tokens::FOCUS_WIDTH)).border_color(ink)
 }
 
 /// Reserve the 2 + 2 px focus ring around a control; the frame is identical
