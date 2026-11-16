@@ -91,9 +91,10 @@ pub fn swipe_day(dx: f32, can_back: bool, can_forward: bool) -> Option<i32> {
 }
 
 /// Wrap `content` in the swipeable area. The drag is reported to the shell,
-/// which positions the day carousel itself, so the content arrives already
-/// placed and this only owns the gesture and the clip.
-pub fn swipe_days(id: &'static str, content: AnyElement, handlers: SwipeHandlers) -> AnyElement {
+/// which positions the carousel itself, so the content arrives already placed
+/// and this only owns the gesture and the clip. The day strip and the billing
+/// months use the same one.
+pub fn swipe_surface(id: &'static str, content: AnyElement, handlers: SwipeHandlers) -> AnyElement {
     let (scrolled, up) = (handlers.scrolled, handlers.up);
     div()
         .id(id)

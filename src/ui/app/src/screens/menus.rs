@@ -12,8 +12,10 @@ use std::sync::Arc;
 
 use gpui::*;
 
+use crate::app::CarouselPage;
 use crate::app::{desktop_mutation_blocked, run_blocking, AppShell};
 use crate::components::button::desktop_action_state;
+use crate::components::carousel::{neighbours, page_fade, page_travel, settle_after};
 use crate::components::day_navigator::{mobile_day_strip, DayFacts, DaySelectHandler};
 use crate::components::fab::{dock_bottom, dock_height, dock_state, mobile_dock, DockState};
 use crate::components::menu_card::{
@@ -25,10 +27,7 @@ use crate::components::record_table::{
 };
 use crate::components::refresh_bar::refresh_bar;
 use crate::components::spinner::spinner;
-use crate::components::swipe::{
-    add_travel, claims_horizontal, is_swipe_delta, swipe_day, swipe_days, swipe_offset,
-    SwipeHandlers,
-};
+use crate::components::swipe::{swipe_day, swipe_offset, swipe_surface, SwipeHandlers};
 use crate::components::workspace::{
     action_strip, detail_prompt, loading_state as desktop_loading_state, section_label,
     split_workspace_scrolled, state_message,
@@ -114,12 +113,15 @@ pub fn menus_tab(
                 .into_any_element();
         }
     };
-    let (prev, next) = neighbours(dates, &day);
+    let (prev, next) = day_neighbours(dates, &day);
     let can_back = prev.is_some();
     let can_forward = next.is_some();
     let reduce_motion = cx.reduce_motion();
-    let travel = carousel_travel(
+    let travel = page_travel(
         swipe_offset(offset, can_back, can_forward, reduce_motion),
+        can_back,
+        can_forward,
+        reduce_motion,
         page_width,
     );
 
@@ -170,7 +172,7 @@ pub fn menus_tab(
     // a size_full child there pushed the list under the shell's bottom edge and
     // clipped the last row.
     column
-        .child(div().flex_1().min_h_0().child(swipe_days(
+        .child(div().flex_1().min_h_0().child(swipe_surface(
             "menus-swipe",
             content,
             swipe_handlers(can_back, can_forward, page_width, cx),
@@ -178,31 +180,12 @@ pub fn menus_tab(
         .into_any_element()
 }
 
-/// The days either side of `day` in the published week, for the carousel.
-pub fn neighbours(dates: &[String], day: &str) -> (Option<String>, Option<String>) {
+/// The days either side of the selected one, for the carousel.
+fn day_neighbours(dates: &[String], day: &str) -> (Option<String>, Option<String>) {
     match dates.iter().position(|d| d == day) {
-        Some(index) => (
-            index.checked_sub(1).and_then(|i| dates.get(i)).cloned(),
-            dates.get(index + 1).cloned(),
-        ),
+        Some(index) => neighbours(dates, index),
         None => (None, None),
     }
-}
-
-/// One page's opacity as the carousel slides. A page is solid where it belongs
-/// and fades exactly as far as it is out of place, so the two pages of a
-/// transition always add up to one page of ink: the arriving day reads as a
-/// fade-in, and nothing pops when the release makes it the middle pane.
-pub fn page_fade(travel: f32, slot: usize, width: f32) -> f32 {
-    let width = width.max(1.);
-    let offset = travel + (slot as f32 - 1.) * width;
-    (1. - offset.abs() / width).clamp(0., 1.)
-}
-
-/// How far the carousel row may travel: exactly one page either way, so the
-/// neighbour can arrive fully but the row never shows the page beyond it.
-pub fn carousel_travel(offset: f32, width: f32) -> f32 {
-    offset.clamp(-width.max(1.), width.max(1.))
 }
 
 /// What each available day carries, in the strip's order: whether an order
@@ -759,10 +742,7 @@ fn swipe_handlers(
         let phase = e.touch_phase;
         shell.update(cx, |s, cx| match phase {
             TouchPhase::Started => {
-                s.swipe_live = true;
-                s.swipe_claimed = false;
-                s.swipe_dx = 0.;
-                s.swipe_settle = 0.; // a new touch takes the page over
+                s.days_page.begin();
                 swipe_travel(s, dx, dy, cx);
             }
             TouchPhase::Moved => swipe_travel(s, dx, dy, cx),
@@ -782,27 +762,17 @@ fn swipe_handlers(
     SwipeHandlers { scrolled, up }
 }
 
-/// One delta of the live gesture: travel the content and claim it once the
+/// One delta of the live gesture: travel the row and claim it once the
 /// threshold passes.
 fn swipe_travel(s: &mut AppShell, dx: f32, dy: f32, cx: &mut Context<AppShell>) {
-    if !s.swipe_live || !is_swipe_delta(dx, dy) {
-        return;
+    if s.days_page.travel(dx, dy) {
+        cx.notify();
     }
-    s.swipe_dx = add_travel(s.swipe_dx, dx);
-    let claimed = !s.swipe_claimed && claims_horizontal(s.swipe_dx, 0.);
-    s.swipe_claimed = s.swipe_claimed || claimed;
-    cx.notify();
 }
 
 /// The finger lifted: switch the day when the drag was far enough, then finish
-/// the page.
-///
-/// The switch is where a carousel can cheat nicely. The row holds the day
-/// before, the day on screen and the day after; switching mid-drag changes
-/// which pane is the middle one, so the travel that keeps the *incoming* day at
-/// the pixel it already had is a known number (`settle_after`). Leaving that
-/// travel in place and easing it to zero finishes the page: the day that was
-/// sliding in comes to rest centred instead of jumping there.
+/// the page. The switch moves the selection by one and hands the page finish to
+/// the carousel, which owns the travel and the easing.
 fn swipe_release(
     s: &mut AppShell,
     can_back: bool,
@@ -810,83 +780,36 @@ fn swipe_release(
     page_width: f32,
     cx: &mut Context<AppShell>,
 ) {
-    if !std::mem::take(&mut s.swipe_live) {
+    let Some(dx) = s.days_page.release() else {
+        cx.notify();
         return;
-    }
-    let claimed = std::mem::take(&mut s.swipe_claimed);
-    let dx = std::mem::take(&mut s.swipe_dx);
+    };
     let mut settle = dx;
-    if claimed {
-        if let Some(model) = &s.model {
-            let day = swipe_day(dx, can_back, can_forward);
-            log::info!("swipe: {dx} px released, day {day:?}");
-            match day {
-                Some(-1) => {
-                    settle = settle_after(dx, -1, page_width);
-                    model.prev_day();
-                }
-                Some(1) => {
-                    settle = settle_after(dx, 1, page_width);
-                    model.next_day();
-                }
-                _ => {}
+    if let Some(model) = &s.model {
+        let day = swipe_day(dx, can_back, can_forward);
+        log::info!("swipe: {dx} px released, day {day:?}");
+        match day {
+            Some(-1) => {
+                settle = settle_after(dx, -1, page_width);
+                model.prev_day();
             }
+            Some(1) => {
+                settle = settle_after(dx, 1, page_width);
+                model.next_day();
+            }
+            _ => {}
         }
     }
-    if settle.abs() > 0.5 && !cx.reduce_motion() {
-        s.swipe_settle = settle;
-        ease_page(cx);
-    } else {
-        // No page to finish: the row returns at once.
-        s.swipe_settle = 0.;
+    s.days_page.finish(settle, cx.reduce_motion());
+    if s.days_page.settle != 0. {
+        s.ease_page(CarouselPage::Days, cx);
     }
     cx.notify();
 }
 
-/// The row travel that leaves the incoming day exactly where it is on screen
-/// when it becomes the middle pane, so the page finish starts without a jump.
-pub fn settle_after(dx: f32, day: i32, width: f32) -> f32 {
-    let width = width.max(1.);
-    match day {
-        -1 => dx - width,
-        1 => dx + width,
-        _ => dx,
-    }
-}
-
-/// Ease the page finish to rest: the carousel has no physics to model, only a
-/// page that has to arrive.
-fn ease_page(cx: &mut Context<AppShell>) {
-    let shell = cx.entity().clone();
-    cx.spawn(
-        async move |_: WeakEntity<AppShell>, cx: &mut AsyncApp| loop {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(16))
-                .await;
-            let more = shell.update(cx, |s, cx| {
-                s.swipe_settle *= 0.68;
-                if s.swipe_settle.abs() < 0.5 {
-                    s.swipe_settle = 0.;
-                    false
-                } else {
-                    cx.notify();
-                    true
-                }
-            });
-            if !more {
-                break;
-            }
-        },
-    )
-    .detach();
-}
-
 /// The system took the touch: drop the gesture without switching.
 fn swipe_clear(s: &mut AppShell, cx: &mut Context<AppShell>) {
-    s.swipe_live = false;
-    s.swipe_claimed = false;
-    s.swipe_dx = 0.;
-    s.swipe_settle = 0.;
+    s.days_page.clear();
     cx.notify();
 }
 
@@ -1422,9 +1345,7 @@ mod mobile_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        carousel_travel, menus_gate, neighbours, page_fade, queue_closed_by, settle_after,
-    };
+    use super::{day_neighbours, menus_gate, queue_closed_by};
 
     /// A queue the cutoff has closed is not offered for submit; one that still
     /// has a sendable day keeps the real action.
@@ -1448,54 +1369,6 @@ mod tests {
         );
     }
 
-    /// The two pages of a drag always add up to one page of ink, and the switch
-    /// moves the middle without a pop: the opacity the arriving page had is the
-    /// opacity the new middle page has on the same pixel.
-    /// @req REQ-SCR-01
-    #[test]
-    fn the_carousel_cross_fades_without_a_pop() {
-        let width = 360.;
-        assert_eq!(page_fade(0., 1, width), 1., "the day in place is solid");
-        assert_eq!(page_fade(0., 0, width), 0.);
-        assert_eq!(page_fade(0., 2, width), 0.);
-
-        let travel = -90.;
-        assert_eq!(page_fade(travel, 1, width), 0.75);
-        assert_eq!(page_fade(travel, 2, width), 0.25);
-        assert!(
-            (page_fade(travel, 1, width) + page_fade(travel, 2, width) - 1.).abs() < 1e-6,
-            "the transition never shows more or less than one page"
-        );
-
-        // Released to the next day: the row keeps the travel that held the
-        // arriving page in place, and that page is now the middle one.
-        let settle = settle_after(travel, 1, width);
-        assert_eq!(
-            page_fade(settle, 1, width),
-            page_fade(travel, 2, width),
-            "no brightness step at the switch"
-        );
-    }
-
-    /// The page finish keeps the incoming day on the same pixel: switching mid
-    /// drag must not move the row, only restart which pane is the middle one.
-    /// @req REQ-SCR-01
-    #[test]
-    fn the_page_finish_keeps_the_incoming_day_in_place() {
-        let width = 390.;
-        // Dragging left by 50 px: the next day is visible in the right 50 px.
-        // After the switch it must still be there, then slide left to centre.
-        assert_eq!(settle_after(-50., 1, width), -50. + width);
-        // Fully dragged: nothing left to animate.
-        assert_eq!(settle_after(-width, 1, width), 0.);
-        // Dragging right: the previous day is visible in the left strip.
-        assert_eq!(settle_after(50., -1, width), 50. - width);
-        assert_eq!(settle_after(width, -1, width), 0.);
-        // No switch: the row returns from where the finger left it.
-        assert_eq!(settle_after(30., 0, width), 30.);
-        assert_eq!(settle_after(-30., 0, width), -30.);
-    }
-
     /// The carousel pages between published days and stops at the ends.
     /// @req REQ-SCR-01
     #[test]
@@ -1504,34 +1377,23 @@ mod tests {
             .iter()
             .map(|d| d.to_string())
             .collect();
-        let (prev, next) = neighbours(&dates, "2026-11-17");
+        let (prev, next) = day_neighbours(&dates, "2026-11-17");
         assert_eq!(prev.as_deref(), Some("2026-11-16"));
         assert_eq!(next.as_deref(), Some("2026-11-18"));
 
-        let (prev, next) = neighbours(&dates, "2026-11-16");
+        let (prev, next) = day_neighbours(&dates, "2026-11-16");
         assert_eq!(prev, None, "the first day has nothing before it");
         assert_eq!(next.as_deref(), Some("2026-11-17"));
 
-        let (prev, next) = neighbours(&dates, "2026-11-18");
+        let (prev, next) = day_neighbours(&dates, "2026-11-18");
         assert_eq!(prev.as_deref(), Some("2026-11-17"));
         assert_eq!(next, None, "the last day has nothing after it");
 
         assert_eq!(
-            neighbours(&dates, "2026-01-01"),
+            day_neighbours(&dates, "2026-01-01"),
             (None, None),
             "a day outside the week pages nowhere"
         );
-    }
-
-    /// Travel stops at exactly one page, so the neighbour can arrive fully and
-    /// never the page beyond it.
-    /// @req REQ-SCR-01
-    #[test]
-    fn carousel_travel_is_one_page() {
-        assert_eq!(carousel_travel(40., 390.), 40.);
-        assert_eq!(carousel_travel(-2000., 390.), -390.);
-        assert_eq!(carousel_travel(2000., 390.), 390.);
-        assert_eq!(carousel_travel(10., 0.), 10., "a zero width cannot divide");
     }
 
     /// The cached week is what a launch shows: the gate waits for the launch

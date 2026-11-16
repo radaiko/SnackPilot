@@ -4,7 +4,7 @@
 
 use crate::runtime::handle;
 use crate::session::AppModel;
-use crate::state::{BillingSource, ErrorText};
+use crate::state::{BillingSource, ErrorText, State};
 
 /// Where a merged billing entry came from (BillingView `Entry.source`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,90 +94,132 @@ impl AppModel {
     /// selected month, gated on auth and the source filter.
     pub fn merged_entries(&self) -> Vec<BillingEntry> {
         let state = self.state();
-        let mut list = Vec::new();
-        let show_gourmet =
-            state.billing_source != BillingSource::Ventopay && state.gourmet_authenticated;
-        let show_ventopay =
-            state.billing_source != BillingSource::Gourmet && state.ventopay_authenticated;
-        if show_gourmet {
-            if let Some(g) = state.gourmet_month.as_ref() {
-                for bill in &g.bills {
-                    list.push(BillingEntry {
-                        id: format!("g-{}", bill.bill_nr),
-                        epoch_ms: bill.bill_date_epoch_ms,
-                        source: EntrySource::Gourmet,
-                        description: String::new(),
-                        amount: bill.billing,
-                        items: bill
-                            .items
-                            .iter()
-                            .map(|i| BillingLine {
-                                count: i.count,
-                                description: i.description.clone(),
-                                total: i.total,
-                            })
-                            .collect(),
-                    });
-                }
-            }
-        }
-        if show_ventopay {
-            if let Some(v) = state.ventopay_month.as_ref() {
-                for tx in &v.transactions {
-                    list.push(BillingEntry {
-                        id: format!("v-{}", tx.id),
-                        epoch_ms: tx.date_epoch_ms,
-                        source: EntrySource::Ventopay,
-                        description: tx.restaurant.clone(),
-                        amount: tx.amount,
-                        items: Vec::new(),
-                    });
-                }
-            }
-        }
-        list.sort_by_key(|e| std::cmp::Reverse(e.epoch_ms));
-        list
+        entries_from(
+            &state,
+            state.gourmet_month.as_ref(),
+            state.ventopay_month.as_ref(),
+        )
+    }
+
+    /// The same list for any offered month: the carousel pages the month before
+    /// and after the selected one, and they have to show their own rows while
+    /// the finger is still dragging.
+    pub fn billing_entries_for(&self, offset: u8) -> Vec<BillingEntry> {
+        let state = self.state();
+        let Some(key) = month_key_at(&state, offset) else {
+            return Vec::new();
+        };
+        let gourmet = self.core().gourmet_billing_month(key.clone());
+        let ventopay = self.core().ventopay_billing_month(key);
+        entries_from(&state, gourmet.as_ref(), ventopay.as_ref())
     }
 
     /// BillingView totals (:239-249): each side is gated on its own auth and
     /// the source filter; Belege counts the merged entries.
     pub fn billing_totals(&self) -> BillingTotals {
         let state = self.state();
-        let show_gourmet =
-            state.billing_source != BillingSource::Ventopay && state.gourmet_authenticated;
-        let show_ventopay =
-            state.billing_source != BillingSource::Gourmet && state.ventopay_authenticated;
-        let gourmet_total = if show_gourmet {
-            state
-                .gourmet_month
-                .as_ref()
-                .map(|g| g.total_billing)
-                .unwrap_or(0.0)
-        } else {
-            0.0
+        totals_from(
+            &state,
+            state.gourmet_month.as_ref(),
+            state.ventopay_month.as_ref(),
+        )
+    }
+
+    /// The totals of any offered month, for its carousel page.
+    pub fn billing_totals_for(&self, offset: u8) -> BillingTotals {
+        let state = self.state();
+        let Some(key) = month_key_at(&state, offset) else {
+            return BillingTotals::default();
         };
-        let ventopay_total = if show_ventopay {
-            state
-                .ventopay_month
-                .as_ref()
-                .map(|v| v.total)
-                .unwrap_or(0.0)
-        } else {
-            0.0
-        };
-        let zuschuss = if show_gourmet {
-            state
-                .gourmet_month
-                .as_ref()
-                .map(|g| g.total_subsidy)
-                .unwrap_or(0.0)
-        } else {
-            0.0
-        };
-        BillingTotals {
-            gesamt: gourmet_total + ventopay_total,
-            belege: self.merged_entries().len(),
-            zuschuss,
+        let gourmet = self.core().gourmet_billing_month(key.clone());
+        let ventopay = self.core().ventopay_billing_month(key);
+        totals_from(&state, gourmet.as_ref(), ventopay.as_ref())
+    }
+}
+
+/// The "YYYY-MM" key an offset stands for, from the offered months.
+fn month_key_at(state: &State, offset: u8) -> Option<String> {
+    state
+        .month_options
+        .iter()
+        .find(|option| option.offset == offset)
+        .map(|option| option.key.clone())
+}
+
+fn entries_from(
+    state: &State,
+    gourmet: Option<&snackpilot_core::domain::GourmetMonthlyBilling>,
+    ventopay: Option<&snackpilot_core::domain::VentopayMonthlyBilling>,
+) -> Vec<BillingEntry> {
+    let mut list = Vec::new();
+    let show_gourmet =
+        state.billing_source != BillingSource::Ventopay && state.gourmet_authenticated;
+    let show_ventopay =
+        state.billing_source != BillingSource::Gourmet && state.ventopay_authenticated;
+    if let (true, Some(g)) = (show_gourmet, gourmet) {
+        for bill in &g.bills {
+            list.push(BillingEntry {
+                id: format!("g-{}", bill.bill_nr),
+                epoch_ms: bill.bill_date_epoch_ms,
+                source: EntrySource::Gourmet,
+                description: String::new(),
+                amount: bill.billing,
+                items: bill
+                    .items
+                    .iter()
+                    .map(|i| BillingLine {
+                        count: i.count,
+                        description: i.description.clone(),
+                        total: i.total,
+                    })
+                    .collect(),
+            });
         }
+    }
+    if let (true, Some(v)) = (show_ventopay, ventopay) {
+        for tx in &v.transactions {
+            list.push(BillingEntry {
+                id: format!("v-{}", tx.id),
+                epoch_ms: tx.date_epoch_ms,
+                source: EntrySource::Ventopay,
+                description: tx.restaurant.clone(),
+                amount: tx.amount,
+                items: Vec::new(),
+            });
+        }
+    }
+    list.sort_by_key(|e| std::cmp::Reverse(e.epoch_ms));
+    list
+}
+
+fn totals_from(
+    state: &State,
+    gourmet: Option<&snackpilot_core::domain::GourmetMonthlyBilling>,
+    ventopay: Option<&snackpilot_core::domain::VentopayMonthlyBilling>,
+) -> BillingTotals {
+    let show_gourmet =
+        state.billing_source != BillingSource::Ventopay && state.gourmet_authenticated;
+    let show_ventopay =
+        state.billing_source != BillingSource::Gourmet && state.ventopay_authenticated;
+    let entries = entries_from(state, gourmet, ventopay);
+    let gourmet_total = if show_gourmet {
+        gourmet.map(|g| g.total_billing).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    let zuschuss = if show_gourmet {
+        gourmet.map(|g| g.total_subsidy).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    let ventopay_total = if show_ventopay {
+        ventopay.map(|v| v.total).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    BillingTotals {
+        gesamt: gourmet_total + ventopay_total,
+        belege: entries.len(),
+        zuschuss,
     }
 }

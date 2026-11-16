@@ -558,3 +558,25 @@ fn same_date_amount_receipts_keep_distinct_ids() {
         "the formatted amount is identical; only the receipt number identifies"
     );
 }
+
+/// A carousel page shows the month it names: the selected page is the merged
+/// list, another offered month is its own rows, and an offset nobody offers is
+/// empty rather than the wrong month.
+/// @req REQ-SCR-03
+#[test]
+fn a_month_page_shows_the_months_own_rows() {
+    let model = demo_model("month-pages");
+    let selected = model.state().selected_offset;
+    assert_eq!(
+        model.billing_entries_for(selected),
+        model.merged_entries(),
+        "the selected page is the screen's own list"
+    );
+    assert!(
+        model.billing_entries_for(99).is_empty(),
+        "an offset that is not offered has no page"
+    );
+    let options = model.state().month_options;
+    assert!(options.len() > 1);
+    assert_eq!(model.billing_totals_for(selected), model.billing_totals());
+}

@@ -9,6 +9,7 @@
 pub mod bill_card;
 pub mod broadcast_banner;
 pub mod button;
+pub mod carousel;
 pub mod chip;
 pub mod day_navigator;
 pub mod desktop_navigation;

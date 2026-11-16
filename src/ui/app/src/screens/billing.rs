@@ -14,16 +14,18 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::prelude::Styled;
 
-use crate::app::AppShell;
+use crate::app::{AppShell, CarouselPage};
 use crate::components::bill_card::{
     bill_list, desktop_bill_detail, desktop_bill_header, desktop_bill_row,
 };
+use crate::components::carousel::{page_fade, page_travel, settle_after};
 use crate::components::chip::desktop_chip;
 use crate::components::record_table::{detail_entry, RecordListFocus};
 #[cfg(test)]
 use crate::components::segment_tabs::mobile_segment_height;
 use crate::components::segment_tabs::segment_options;
 use crate::components::spinner::spinner;
+use crate::components::swipe::{swipe_day, swipe_surface, SwipeHandlers};
 use crate::components::workspace::{detail_prompt, split_workspace_scrolled, state_message};
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
@@ -54,6 +56,8 @@ pub fn billing_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     theme: &AppTheme,
+    offset: f32,
+    page_width: f32,
     scroll: &ScrollHandle,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
@@ -70,7 +74,6 @@ pub fn billing_tab(
     // screen, so a month switch still in flight never paints the previous
     // month under the new label (design A17/§Abrechnung states).
     let cached = billing_context_cached(state);
-    let has_entries = billing_context_matches(state) && !entries.is_empty();
     let view = billing_view(state.billing_loading, cached);
     // Host-gated dispatch: a narrow desktop window projects as the phone shell
     // but still runs its blocking billing work off the render thread; only a
@@ -95,32 +98,63 @@ pub fn billing_tab(
         theme,
     ));
 
-    let mut content = div().w_full().flex_1().min_h(px(0.)).flex().flex_col();
+    // One page per month, three in a row: the month before, the one on screen
+    // and the month after. The drag slides the row and the release moves the
+    // selection by one, exactly like the day carousel on Menüs — the pages fade
+    // with their distance from centre, so a transition always shows one page.
+    let options = &state.month_options;
+    let index = options
+        .iter()
+        .position(|option| option.offset == state.selected_offset)
+        .unwrap_or(0);
+    let newer = index
+        .checked_sub(1)
+        .and_then(|i| options.get(i))
+        .map(|option| option.offset);
+    let older = options.get(index + 1).map(|option| option.offset);
+    let reduce_motion = cx.reduce_motion();
+    let travel = page_travel(
+        offset,
+        newer.is_some(),
+        older.is_some(),
+        reduce_motion,
+        page_width,
+    );
 
-    if let Some(error) = model.billing_error() {
-        content = content.child(mobile_error_banner(&error.message, theme));
-    }
-
-    match view {
-        BillingView::Initial => {
-            content = content.child(
-                div()
+    let page = |month: u8, tracked: Option<&ScrollHandle>| -> AnyElement {
+        let selected = month == state.selected_offset;
+        let (entries, totals) = if selected {
+            (entries.clone(), totals.clone())
+        } else {
+            (
+                model.billing_entries_for(month),
+                model.billing_totals_for(month),
+            )
+        };
+        let has_entries = !entries.is_empty() && (!selected || billing_context_matches(state));
+        let view = if selected { view } else { BillingView::Ready };
+        let mut page = div().w_full().h_full().flex().flex_col();
+        if selected {
+            if let Some(error) = model.billing_error() {
+                page = page.child(mobile_error_banner(&error.message, theme));
+            }
+        }
+        match view {
+            BillingView::Initial => {
+                return page
                     .flex_1()
-                    .flex()
                     .items_center()
                     .justify_center()
-                    .child(spinner(theme.accent, 36.)),
-            );
+                    .child(spinner(theme.accent, 36.))
+                    .into_any_element();
+            }
+            BillingView::Refresh => {
+                page = page.child(refresh_row(theme));
+            }
+            BillingView::Ready => {}
         }
-        BillingView::Refresh => {
-            content = content.child(refresh_row(theme));
-        }
-        BillingView::Ready => {}
-    }
-
-    if view != BillingView::Initial {
         if has_entries {
-            content = content.child(mobile_summary_surface(
+            page = page.child(mobile_summary_surface(
                 &entries,
                 &totals,
                 state.billing_source,
@@ -128,24 +162,144 @@ pub fn billing_tab(
             ));
         }
         let mut list = div()
-            .id("billing-list")
+            .id(SharedString::from(format!("billing-list-{month}")))
             .w_full()
             .flex_1()
             .min_h(px(0.))
             .flex()
             .flex_col()
-            .overflow_y_scroll()
-            .track_scroll(scroll);
+            .overflow_y_scroll();
+        if let Some(scroll) = tracked {
+            list = list.track_scroll(scroll);
+        }
         if has_entries {
             list = list.child(bill_list(&entries, theme));
         } else {
             let (fact, hint) = empty_copy();
             list = list.child(div().flex_1().child(state_message(fact, hint, theme)));
         }
-        content = content.child(list);
+        page.child(list).into_any_element()
+    };
+
+    // Widths are percentages of the clip, so the carousel does not depend on a
+    // measured pixel width: the row is three pages wide and starts one page to
+    // the left, which puts the month on screen exactly in view.
+    let mut row = div()
+        .flex()
+        .flex_row()
+        .w(relative(3.))
+        .h_full()
+        .ml(relative(-1.));
+    for (slot, month) in [(0, newer), (1, Some(state.selected_offset)), (2, older)] {
+        let pane = match month {
+            Some(month) => page(month, (slot == 1).then_some(scroll)),
+            None => div().into_any_element(),
+        };
+        row = row.child(
+            div()
+                .w(relative(1. / 3.))
+                .opacity(page_fade(travel, slot, page_width))
+                .h_full()
+                .min_h(px(0.))
+                .flex_shrink_0()
+                .overflow_hidden()
+                .child(pane),
+        );
     }
 
-    column.child(content.into_any_element()).into_any_element()
+    let carousel = div()
+        .size_full()
+        .overflow_hidden()
+        .child(div().size_full().ml(px(travel)).child(row))
+        .into_any_element();
+
+    column
+        .child(div().flex_1().min_h(px(0.)).child(swipe_surface(
+            "billing-swipe",
+            carousel,
+            month_swipe_handlers(newer, older, page_width, cx),
+        )))
+        .into_any_element()
+}
+
+/// Drag handlers for the month carousel: the same gesture as the day strip, one
+/// page per month, driven by the shell's billing carousel.
+fn month_swipe_handlers(
+    newer: Option<u8>,
+    older: Option<u8>,
+    page_width: f32,
+    cx: &mut Context<AppShell>,
+) -> SwipeHandlers {
+    let shell = cx.entity().clone();
+    let scrolled = Rc::new(move |e: &ScrollWheelEvent, _: &mut Window, cx: &mut App| {
+        let (dx, dy) = crate::components::swipe::drag_delta(e);
+        let phase = e.touch_phase;
+        shell.update(cx, |s, cx| match phase {
+            TouchPhase::Started => {
+                s.months_page.begin();
+                month_travel(s, dx, dy, cx);
+            }
+            TouchPhase::Moved => month_travel(s, dx, dy, cx),
+            TouchPhase::Ended => month_release(s, newer, older, page_width, cx),
+            TouchPhase::Cancelled => {
+                s.months_page.clear();
+                cx.notify();
+            }
+        });
+    });
+
+    let shell = cx.entity().clone();
+    let up = Rc::new(move |_: &MouseUpEvent, _: &mut Window, cx: &mut App| {
+        // A host that sends no `Ended` still ends the gesture here.
+        shell.update(cx, |s, cx| month_release(s, newer, older, page_width, cx));
+    });
+
+    SwipeHandlers { scrolled, up }
+}
+
+fn month_travel(s: &mut AppShell, dx: f32, dy: f32, cx: &mut Context<AppShell>) {
+    if s.months_page.travel(dx, dy) {
+        cx.notify();
+    }
+}
+
+/// The finger lifted: switch month when the drag was far enough, then finish
+/// the page. Dragging right goes to the newer month, like the strip's left
+/// chevron; dragging left goes back.
+fn month_release(
+    s: &mut AppShell,
+    newer: Option<u8>,
+    older: Option<u8>,
+    page_width: f32,
+    cx: &mut Context<AppShell>,
+) {
+    let Some(dx) = s.months_page.release() else {
+        cx.notify();
+        return;
+    };
+    let mut settle = dx;
+    if let Some(model) = &s.model {
+        match swipe_day(dx, newer.is_some(), older.is_some()) {
+            Some(-1) => {
+                settle = settle_after(dx, -1, page_width);
+                if let Some(offset) = newer {
+                    model.select_month(offset);
+                }
+            }
+            Some(1) => {
+                settle = settle_after(dx, 1, page_width);
+                if let Some(offset) = older {
+                    model.select_month(offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    s.months_page.finish(settle, cx.reduce_motion());
+    if s.months_page.settle != 0. {
+        s.ease_page(CarouselPage::Months, cx);
+    }
+    cx.notify();
 }
 
 /// The compact Abrechnung loading projection (design A17): a fetch without a

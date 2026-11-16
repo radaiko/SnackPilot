@@ -25,6 +25,7 @@ use snackpilot_model::navigation::{
 use snackpilot_model::{format_day_short, AppModel, LaunchStage, State};
 
 use crate::components::broadcast_banner::broadcast_banner;
+use crate::components::carousel::Carousel;
 use crate::components::day_navigator::day_navigator;
 use crate::components::desktop_navigation::desktop_rail;
 use crate::components::dialog::{
@@ -124,12 +125,15 @@ pub(crate) enum RefreshIntent {
 }
 
 /// Which refresh the active tab dispatches; `None` means no header action.
+///
+/// Abrechnung has none: the 15-minute tick, a foreground return and every month
+/// switch already fetch it, so a manual refresh there was a button that only
+/// repeated work the app does itself.
 pub(crate) fn refresh_intent(tab: Tab) -> Option<RefreshIntent> {
     match tab {
         Tab::Menus => Some(RefreshIntent::Menus),
         Tab::Orders => Some(RefreshIntent::Orders),
-        Tab::Billing => Some(RefreshIntent::Billing),
-        Tab::Settings => None,
+        Tab::Billing | Tab::Settings => None,
     }
 }
 
@@ -432,6 +436,13 @@ pub(crate) fn compact_content_bottom(plan: &CompactShellPlan) -> f32 {
 /// the centred column, and the screen's own small offset inside it. Returned as
 /// data so a test asserts the composed distance instead of the plan's
 /// constants.
+/// The two page carousels the compact shell owns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CarouselPage {
+    Days,
+    Months,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct CompactFrame {
     /// Top padding above the screen's first row.
@@ -593,27 +604,18 @@ pub struct AppShell {
     /// synchronously before the spawn, so a double activation is inert even
     /// before the model reports `busy`.
     pub(crate) mutation_gate: MutationGate,
-    /// Transient swipe-between-days gesture state (§3.1): pointer origin and
-    /// the current (damped) horizontal offset.
     /// The day the strip was last scrolled to. The strip aligns itself only
     /// when this differs from the selection: aligning on every frame pulled
     /// the row back under the finger that was swiping it.
     pub(crate) strip_aligned: Option<String>,
-    /// Whether the current drag has claimed the day gesture.
-    pub(crate) swipe_claimed: bool,
-    /// Whether a touch is currently dragging: one gesture per touch, so the
-    /// host's momentum frames after the release cannot count as another one.
-    pub(crate) swipe_live: bool,
-    /// The drag's accumulated horizontal travel, read from the host's scroll
-    /// deltas. The painted offset damps it at the first and last day.
-    pub(crate) swipe_dx: f32,
+    /// The day carousel's gesture and page finish.
+    pub(crate) days_page: Carousel,
+    /// The billing month carousel's gesture and page finish: the same swipe,
+    /// one page per month.
+    pub(crate) months_page: Carousel,
     /// Applied once, on the first frame that has a menu snapshot, so a capture
     /// can show the order dock (taps cannot be injected).
     pub(crate) pending_knob: bool,
-    /// The carousel's remaining travel after a release: the page finish, eased
-    /// to zero over a few frames so the day that was arriving settles instead
-    /// of snapping.
-    pub(crate) swipe_settle: f32,
     /// When the last refresh was dispatched. A double tap cannot hammer the
     /// store with a request that would only repeat the first, and the 15-minute
     /// tick and a foreground return measure their staleness against it.
@@ -687,6 +689,42 @@ pub struct AppShell {
 }
 
 impl AppShell {
+    /// The carousel a gesture belongs to.
+    pub(crate) fn carousel(&mut self, page: CarouselPage) -> &mut Carousel {
+        match page {
+            CarouselPage::Days => &mut self.days_page,
+            CarouselPage::Months => &mut self.months_page,
+        }
+    }
+
+    /// Ease a page finish to rest. The carousel has no physics to model, only a
+    /// page that has to arrive, so a few frames of multiplication are plenty.
+    pub(crate) fn ease_page(&mut self, page: CarouselPage, cx: &mut Context<Self>) {
+        let shell = cx.entity().clone();
+        cx.spawn(
+            async move |_: WeakEntity<AppShell>, cx: &mut AsyncApp| loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(16))
+                    .await;
+                let more = shell.update(cx, |s, cx| {
+                    let carousel = s.carousel(page);
+                    carousel.settle *= 0.68;
+                    if carousel.settle.abs() < 0.5 {
+                        carousel.settle = 0.;
+                        false
+                    } else {
+                        cx.notify();
+                        true
+                    }
+                });
+                if !more {
+                    break;
+                }
+            },
+        )
+        .detach();
+    }
+
     /// Bring the day strip to the selected day when the selection moved, and
     /// only then. Aligning on every frame made the strip unswipeable: the row
     /// snapped back to the selected day under the finger.
@@ -827,10 +865,8 @@ impl AppShell {
             model,
             mutation_gate: MutationGate::default(),
             strip_aligned: None,
-            swipe_claimed: false,
-            swipe_live: false,
-            swipe_dx: 0.,
-            swipe_settle: 0.,
+            days_page: Carousel::default(),
+            months_page: Carousel::default(),
             pending_knob: false,
             last_refresh: None,
             menus_scroll: ScrollHandle::new(),
@@ -909,7 +945,14 @@ impl AppShell {
                 .find_map(|a| a.strip_prefix("--swipe=").map(str::to_owned))
                 .and_then(|v| v.parse::<f32>().ok())
             {
-                shell.swipe_settle = px;
+                shell.days_page.settle = px;
+            }
+            // `--month-swipe=<px>` does the same for the billing carousel.
+            if let Some(px) = std::env::args()
+                .find_map(|a| a.strip_prefix("--month-swipe=").map(str::to_owned))
+                .and_then(|v| v.parse::<f32>().ok())
+            {
+                shell.months_page.settle = px;
             }
             // `--detail=login|automaten` opens a credential screen directly.
             shell.pending_detail = std::env::args().find_map(|a| {
@@ -1586,7 +1629,7 @@ impl AppShell {
                             state,
                             self.model.as_ref(),
                             theme,
-                            self.swipe_dx + self.swipe_settle,
+                            self.days_page.offset(),
                             // The phone host reports no content width, so the
                             // page width comes from the column the shell laid
                             // out — the same number the screen is drawn at.
@@ -1622,7 +1665,15 @@ impl AppShell {
                 }
                 Screen::Billing => {
                     if layout == LayoutMode::Phone {
-                        billing_tab(state, self.model.as_ref(), theme, &self.billing_scroll, cx)
+                        billing_tab(
+                            state,
+                            self.model.as_ref(),
+                            theme,
+                            self.months_page.offset(),
+                            page_width,
+                            &self.billing_scroll,
+                            cx,
+                        )
                     } else {
                         desktop_billing_tab(
                             state,
@@ -2586,7 +2637,11 @@ mod tests {
     fn refresh_intent_follows_the_active_tab() {
         assert_eq!(refresh_intent(Tab::Menus), Some(RefreshIntent::Menus));
         assert_eq!(refresh_intent(Tab::Orders), Some(RefreshIntent::Orders));
-        assert_eq!(refresh_intent(Tab::Billing), Some(RefreshIntent::Billing));
+        assert_eq!(
+            refresh_intent(Tab::Billing),
+            None,
+            "Abrechnung refreshes itself: no manual action"
+        );
         assert_eq!(refresh_intent(Tab::Settings), None);
     }
 
