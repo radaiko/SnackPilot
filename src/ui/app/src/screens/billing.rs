@@ -21,7 +21,6 @@ use crate::components::bill_card::{
 use crate::components::carousel::{page_fade, page_travel, settle_after};
 use crate::components::chip::desktop_chip;
 use crate::components::record_table::{detail_entry, RecordListFocus};
-use crate::components::refresh_bar::refresh_bar;
 #[cfg(test)]
 use crate::components::segment_tabs::mobile_segment_height;
 use crate::components::segment_tabs::segment_options;
@@ -140,18 +139,11 @@ pub fn billing_tab(
                 page = page.child(mobile_error_banner(&error.message, theme));
             }
         }
-        match view {
-            BillingView::Initial => {
-                // No cache for this month yet: the same 2 px segment as every
-                // other background task, never a wheel over empty space.
-                return page
-                    .child(refresh_bar(theme, "billing-refresh-bar"))
-                    .into_any_element();
-            }
-            BillingView::Refresh => {
-                page = page.child(refresh_row(theme));
-            }
-            BillingView::Ready => {}
+        // Progress is the shell's slim bar at the top of the column, exactly as
+        // on Menüs: the page draws none of its own, and a month without a cache
+        // stays blank under the filters instead of spinning.
+        if view == BillingView::Initial {
+            return page.into_any_element();
         }
         if has_entries {
             page = page.child(mobile_summary_surface(
@@ -560,16 +552,6 @@ pub(crate) fn mobile_source_row(
             on_select,
             theme,
         ))
-}
-
-/// A fetch over a cached month: the same 2 px segment, above the rows it is
-/// refreshing. No spinner, no label — one progress language everywhere.
-fn refresh_row(theme: &AppTheme) -> AnyElement {
-    div()
-        .w_full()
-        .pb(px(theme.scale.space_2))
-        .child(refresh_bar(theme, "billing-refresh-bar"))
-        .into_any_element()
 }
 
 fn mobile_error_banner(message: &str, theme: &AppTheme) -> AnyElement {
