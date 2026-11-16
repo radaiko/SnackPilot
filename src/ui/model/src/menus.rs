@@ -43,7 +43,7 @@ pub fn category_rank(category: MenuCategory) -> u8 {
 /// (MenusView `categoryHeading`, menus §5).
 pub fn category_heading(category: MenuCategory) -> Option<&'static str> {
     match category {
-        MenuCategory::SoupAndSalad => None,
+        MenuCategory::Unknown => None,
         other => Some(other.display()),
     }
 }

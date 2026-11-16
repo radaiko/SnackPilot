@@ -418,7 +418,24 @@ fn menu_list(
         list = list.track_scroll(scroll);
     }
 
-    for (category, items) in groups {
+    for (index, (category, items)) in groups.into_iter().enumerate() {
+        // A section rule with more air above it, only where the kind changes:
+        // the three menus run as one block, and the soup/salad extras are a
+        // different thing. Between the menus the row hairlines already do it.
+        if index > 0
+            && !matches!(
+                category,
+                MenuCategory::Menu1 | MenuCategory::Menu2 | MenuCategory::Menu3
+            )
+        {
+            list = list.child(
+                div()
+                    .w_full()
+                    .h(px(1.))
+                    .mt(px(theme.scale.space_5))
+                    .bg(theme.border),
+            );
+        }
         list = list.child(group(
             category,
             items,

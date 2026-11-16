@@ -52,6 +52,9 @@ pub enum MenuStatus {
     Ordered,
     Cancelling,
     SoldOut,
+    /// The day is past its ordering cutoff: the dish stays on the page as a
+    /// fact, and the chip is the one word that explains why nothing reacts.
+    Closed,
 }
 
 impl MenuStatus {
@@ -62,6 +65,7 @@ impl MenuStatus {
             Self::Ordered => "Bestellt",
             Self::Cancelling => "Stornierung offen",
             Self::SoldOut => "Ausgebucht",
+            Self::Closed => "Geschlossen",
         }
     }
 }
@@ -72,10 +76,10 @@ pub fn mobile_menu_status(state: &MenuCardState) -> Option<MenuStatus> {
         MenuStatus::Cancelling
     } else if state.ordered {
         MenuStatus::Ordered
+    } else if state.cutoff {
+        MenuStatus::Closed
     } else if !state.available {
         MenuStatus::SoldOut
-    } else if state.cutoff {
-        return None;
     } else {
         MenuStatus::Open
     })
@@ -89,6 +93,7 @@ pub fn mobile_status_tones(status: MenuStatus, theme: &AppTheme) -> (Hsla, Hsla,
         MenuStatus::Ordered => (theme.success_surface, theme.success, theme.success),
         MenuStatus::Cancelling => (theme.warning_surface, theme.warning, theme.warning),
         MenuStatus::SoldOut => (theme.error_surface, theme.error, theme.error),
+        MenuStatus::Closed => (theme.surface_alt, theme.text_secondary, theme.border),
     }
 }
 
@@ -234,14 +239,8 @@ pub fn menu_card(
     }
 
     // Name line: the dish across the full width, plus the reserved check while
-    // pending. A closed day is greyed out instead of captioned: the rows are
-    // still readable, and the recessed ink is the whole explanation — nothing
-    // here can be changed any more.
-    let ink = if state.cutoff {
-        theme.text_secondary
-    } else {
-        theme.text_primary
-    };
+    // pending.
+    let ink = theme.text_primary;
     let dish_text = div()
         .flex_1()
         .min_w(px(0.))
@@ -426,9 +425,9 @@ mod tests {
     }
 
     /// The one status word per row (REQ-SCR-01/REQ-UI-15): pending
-    /// cancellation outranks ordered, ordered outranks the pending selection,
-    /// a pending selection outranks sold out, and a dish past the cutoff carries
-    /// no chip. Every toned surface keeps a readable word (never colour alone).
+    /// cancellation outranks ordered, ordered outranks the day's cutoff, the
+    /// cutoff outranks sold out, and a pending selection carries no word of its
+    /// own. Every toned surface keeps a readable word (never colour alone).
     /// @req REQ-SCR-01 @req REQ-UI-15
     #[test]
     fn mobile_menu_status_chip_words_and_readable_tones() {
@@ -474,8 +473,27 @@ mod tests {
                 cutoff: true,
                 ..state()
             }),
-            None,
-            "a closed dish is not a status word; it is simply not tappable"
+            Some(MenuStatus::Closed),
+            "a dish on a closed day says so on its own row"
+        );
+        assert_eq!(MenuStatus::Closed.label(), "Geschlossen");
+        assert_eq!(
+            mobile_menu_status(&MenuCardState {
+                cutoff: true,
+                ordered: true,
+                ..state()
+            }),
+            Some(MenuStatus::Ordered),
+            "an ordered dish keeps the fact, not the day's state"
+        );
+        assert_eq!(
+            mobile_menu_status(&MenuCardState {
+                cutoff: true,
+                available: false,
+                ..state()
+            }),
+            Some(MenuStatus::Closed),
+            "the day is the reason nothing reacts"
         );
 
         // Each chip's word reads at 4.5:1 on its own toned surface.
@@ -486,6 +504,7 @@ mod tests {
                 MenuStatus::Ordered,
                 MenuStatus::Cancelling,
                 MenuStatus::SoldOut,
+                MenuStatus::Closed,
             ] {
                 let (fill, ink, border) = mobile_status_tones(status, &theme);
                 let on_fill = to_rgb(fill, fill);

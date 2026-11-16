@@ -259,8 +259,8 @@ fn categories_are_ordered_and_soup_heading_suppressed() {
     );
     assert_eq!(
         category_heading(MenuCategory::SoupAndSalad),
-        None,
-        "SUPPE & SALAT hidden"
+        Some("SUPPE & SALAT"),
+        "the extras are named, so they do not read as a fourth menu"
     );
     assert_eq!(category_heading(MenuCategory::Menu1), Some("MENÜ I"));
 
