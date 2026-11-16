@@ -1,10 +1,16 @@
 //! Horizontal swipe between menu days — docs/requirements/04-ui-ux.md §3.1.
 //!
-//! The content area below the day navigator follows the pointer: vertical
-//! movement stays a scroll, horizontal movement over 10 px claims the gesture.
-//! At the first/last date the translation is damped to 30 % (rubber band).
-//! Releasing past 50 px switches to the previous/next day; the shell owns the
-//! transient drag state.
+//! The content area below the day navigator follows the drag: vertical movement
+//! stays a scroll, horizontal movement over 10 px claims the gesture. At the
+//! first/last date the translation is damped to 30 % (rubber band). Releasing
+//! past 50 px switches to the previous/next day; the shell owns the transient
+//! drag state.
+//!
+//! The drag is read from scroll deltas, never from mouse events: both device
+//! hosts deliver a finger drag as `ScrollWheel` + `MouseMove` and defer
+//! `MouseDown` until the finger lifts (so a drag near a row cannot activate
+//! it). Reading `MouseDown` as the gesture start was what kept the swipe from
+//! ever firing on a phone — there was no press to start it from.
 //!
 //! Task 1.3 adds the approved reduced-motion presentation only: the day swap
 //! happens without the drag travelling, while the claim/switch thresholds and
@@ -20,15 +26,20 @@ pub const SWITCH_PX: f32 = 50.;
 /// Rubber-band factor at the first/last date.
 pub const EDGE_DAMPING: f32 = 0.3;
 
-pub type DownHandler = Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;
-pub type MoveHandler = Rc<dyn Fn(&MouseMoveEvent, &mut Window, &mut App)>;
+pub type ScrollHandler = Rc<dyn Fn(&ScrollWheelEvent, &mut Window, &mut App)>;
 pub type UpHandler = Rc<dyn Fn(&MouseUpEvent, &mut Window, &mut App)>;
 
 /// Callbacks the shell wires to its own transient drag state.
 pub struct SwipeHandlers {
-    pub down: DownHandler,
-    pub moved: MoveHandler,
+    pub scrolled: ScrollHandler,
     pub up: UpHandler,
+}
+
+/// One drag's travel in logical px: the host reports a finger drag as scroll
+/// deltas, so this is the gesture's only input on device.
+pub fn drag_delta(event: &ScrollWheelEvent) -> (f32, f32) {
+    let delta = event.delta.pixel_delta(px(16.));
+    (f32::from(delta.x), f32::from(delta.y))
 }
 
 /// Whether one pointer movement claims the day gesture: horizontal movement
@@ -71,13 +82,12 @@ pub fn swipe_days(
     offset: f32,
     handlers: SwipeHandlers,
 ) -> AnyElement {
-    let (down, moved, up) = (handlers.down, handlers.moved, handlers.up);
+    let (scrolled, up) = (handlers.scrolled, handlers.up);
     div()
         .id(id)
         .size_full()
         .overflow_hidden()
-        .on_mouse_down(MouseButton::Left, move |e, w, cx| down(e, w, cx))
-        .on_mouse_move(move |e, w, cx| moved(e, w, cx))
+        .on_scroll_wheel(move |e, w, cx| scrolled(e, w, cx))
         .on_mouse_up(MouseButton::Left, move |e, w, cx| up(e, w, cx))
         .child(div().size_full().ml(px(offset)).child(content))
         .into_any_element()
@@ -86,6 +96,43 @@ pub fn swipe_days(
 #[cfg(test)]
 mod tests {
     use super::{claims_horizontal, swipe_day, swipe_offset, CLAIM_PX, EDGE_DAMPING, SWITCH_PX};
+
+    /// A thumb drag arrives as a run of scroll deltas, not as one movement:
+    /// the gesture is claimed once their sum passes the threshold, and the
+    /// same sum decides the day. A drag with more vertical than horizontal
+    /// travel stays a scroll.
+    /// @req REQ-SCR-01
+    #[test]
+    fn a_run_of_drag_deltas_accumulates_into_a_day_switch() {
+        let travel = |deltas: &[(f32, f32)]| {
+            let (mut dx, mut dy, mut claimed) = (0., 0., false);
+            for (x, y) in deltas {
+                dx += x;
+                dy += y;
+                claimed = claimed || claims_horizontal(dx, dy);
+            }
+            (dx, claimed)
+        };
+
+        let (dx, claimed) = travel(&[(6., 1.), (9., 1.), (14., 2.), (20., 3.), (9., 1.)]);
+        assert!(claimed, "59 px across claims the gesture");
+        assert_eq!(swipe_day(dx, true, true), Some(-1), "right is the day back");
+
+        let (dx, claimed) = travel(&[(-18., 2.), (-30., 3.), (-16., 2.)]);
+        assert!(claimed);
+        assert_eq!(swipe_day(dx, true, true), Some(1), "left is the day on");
+
+        let (_, claimed) = travel(&[(4., 12.), (5., 30.), (2., 24.)]);
+        assert!(!claimed, "a vertical scroll never becomes a day swipe");
+
+        let (dx, claimed) = travel(&[(-40., 0.), (-40., 0.)]);
+        assert!(claimed);
+        assert_eq!(
+            swipe_day(dx, true, false),
+            None,
+            "the last day cannot go further"
+        );
+    }
 
     /// The day gesture keeps its pinned thresholds (REQ-SCR-01) and the
     /// approved reduced-motion presentation changes nothing about them: the

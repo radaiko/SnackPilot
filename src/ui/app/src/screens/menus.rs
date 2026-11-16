@@ -124,7 +124,7 @@ pub fn menus_tab(
             "menus-swipe",
             content,
             swipe_offset(offset, can_back, can_forward, reduce_motion),
-            swipe_handlers(can_back, can_forward, reduce_motion, cx),
+            swipe_handlers(can_back, can_forward, cx),
         )))
         .into_any_element()
 }
@@ -589,65 +589,39 @@ fn tap_handler(cx: &mut Context<AppShell>, item: MenuItem) -> ClickHandler {
     })
 }
 
-/// Drag handlers: claim past 10 px horizontal, damp at the edges, switch at
-/// 50 px on release. The thresholds and events are unchanged; reduced motion
-/// only suppresses the painted travel.
-fn swipe_handlers(
-    can_back: bool,
-    can_forward: bool,
-    reduce_motion: bool,
-    cx: &mut Context<AppShell>,
-) -> SwipeHandlers {
+/// Drag handlers: accumulate the drag's scroll deltas, claim past 10 px
+/// horizontal, damp at the edges, switch at 50 px on release. A release is the
+/// `MouseUp` the host sends when the finger lifts.
+fn swipe_handlers(can_back: bool, can_forward: bool, cx: &mut Context<AppShell>) -> SwipeHandlers {
     let shell = cx.entity().clone();
-    let down = Rc::new(move |e: &MouseDownEvent, _: &mut Window, cx: &mut App| {
-        let x = f32::from(e.position.x);
-        let y = f32::from(e.position.y);
-        shell.update(cx, |s, _| {
-            s.swipe_start = Some(x);
-            s.swipe_start_y = Some(y);
-            s.swipe_claimed = false;
-        });
-    });
-
-    let shell = cx.entity().clone();
-    let moved = Rc::new(move |e: &MouseMoveEvent, _: &mut Window, cx: &mut App| {
-        if e.pressed_button != Some(MouseButton::Left) {
-            return;
-        }
-        let x = f32::from(e.position.x);
-        let y = f32::from(e.position.y);
+    let scrolled = Rc::new(move |e: &ScrollWheelEvent, _: &mut Window, cx: &mut App| {
+        let (dx, dy) = crate::components::swipe::drag_delta(e);
         shell.update(cx, |s, cx| {
-            let (Some(start), Some(start_y)) = (s.swipe_start, s.swipe_start_y) else {
-                return;
-            };
-            let dx = x - start;
-            let dy = y - start_y;
-            if !s.swipe_claimed {
-                // Claim only when horizontal movement dominates (§3.1).
-                if !claims_horizontal(dx, dy) {
-                    return;
-                }
+            // The painted offset is the raw travel; `swipe_offset` damps it at
+            // the ends and drops it entirely under reduced motion.
+            s.swipe_dx += dx;
+            s.swipe_dy += dy;
+            let claimed = !s.swipe_claimed && claims_horizontal(s.swipe_dx, s.swipe_dy);
+            if claimed {
                 s.swipe_claimed = true;
             }
-            s.swipe_dx = swipe_offset(dx, can_back, can_forward, reduce_motion);
-            cx.notify();
+            if claimed || s.swipe_claimed {
+                cx.notify();
+            }
         });
     });
 
     let shell = cx.entity().clone();
-    let up = Rc::new(move |e: &MouseUpEvent, _: &mut Window, cx: &mut App| {
-        let x = f32::from(e.position.x);
+    let up = Rc::new(move |_: &MouseUpEvent, _: &mut Window, cx: &mut App| {
         shell.update(cx, |s, cx| {
-            let Some(start) = s.swipe_start.take() else {
-                return;
-            };
             let claimed = std::mem::take(&mut s.swipe_claimed);
-            s.swipe_start_y = None;
-            let dx = x - start;
-            s.swipe_dx = 0.;
+            let dx = std::mem::take(&mut s.swipe_dx);
+            s.swipe_dy = 0.;
             if claimed {
                 if let Some(model) = &s.model {
-                    match swipe_day(dx, can_back, can_forward) {
+                    let day = swipe_day(dx, can_back, can_forward);
+                    log::info!("swipe: {dx} px released, day {day:?}");
+                    match day {
                         Some(-1) => model.prev_day(),
                         Some(1) => model.next_day(),
                         _ => {}
@@ -658,7 +632,7 @@ fn swipe_handlers(
         });
     });
 
-    SwipeHandlers { down, moved, up }
+    SwipeHandlers { scrolled, up }
 }
 
 /// The wide-desktop Menüs workspace (task 1.3): the shell's DayNavigator sits

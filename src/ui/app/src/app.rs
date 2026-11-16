@@ -600,11 +600,12 @@ pub struct AppShell {
     /// when this differs from the selection: aligning on every frame pulled
     /// the row back under the finger that was swiping it.
     pub(crate) strip_aligned: Option<String>,
-    pub(crate) swipe_start: Option<f32>,
-    pub(crate) swipe_start_y: Option<f32>,
+    /// Whether the current drag has claimed the day gesture.
     pub(crate) swipe_claimed: bool,
+    /// The drag's accumulated travel: `swipe_dx` across and `swipe_dy` down,
+    /// both read from the host's scroll deltas. The painted offset damps them.
     pub(crate) swipe_dx: f32,
-    /// Pull-to-refresh drag: the live distance past the top of a list.
+    pub(crate) swipe_dy: f32,
     /// When the last refresh was dispatched. A double tap cannot hammer the
     /// store with a request that would only repeat the first, and the 15-minute
     /// tick and a foreground return measure their staleness against it.
@@ -812,10 +813,9 @@ impl AppShell {
             model,
             mutation_gate: MutationGate::default(),
             strip_aligned: None,
-            swipe_start: None,
-            swipe_start_y: None,
             swipe_claimed: false,
             swipe_dx: 0.,
+            swipe_dy: 0.,
             last_refresh: None,
             menus_scroll: ScrollHandle::new(),
             menus_days_scroll: ScrollHandle::new(),
