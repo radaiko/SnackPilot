@@ -21,6 +21,7 @@ use crate::components::bill_card::{
 use crate::components::carousel::{page_fade, page_travel, settle_after};
 use crate::components::chip::desktop_chip;
 use crate::components::record_table::{detail_entry, RecordListFocus};
+use crate::components::refresh_bar::refresh_bar;
 #[cfg(test)]
 use crate::components::segment_tabs::mobile_segment_height;
 use crate::components::segment_tabs::segment_options;
@@ -141,11 +142,10 @@ pub fn billing_tab(
         }
         match view {
             BillingView::Initial => {
+                // No cache for this month yet: the same 2 px segment as every
+                // other background task, never a wheel over empty space.
                 return page
-                    .flex_1()
-                    .items_center()
-                    .justify_center()
-                    .child(spinner(theme.accent, 36.))
+                    .child(refresh_bar(theme, "billing-refresh-bar"))
                     .into_any_element();
             }
             BillingView::Refresh => {
@@ -524,36 +524,6 @@ pub(crate) fn mobile_month_row(
         .flex_col()
         .gap(px(theme.scale.space_2));
     column = column.child(row);
-    if selected != 0 {
-        // The way home, only when there is a way back: one tap to the month
-        // the receipts are usually wanted from.
-        let on = Rc::clone(&on_select);
-        column = column.child(
-            div().w_full().flex().justify_center().child(
-                div()
-                    .id("billing-month-current")
-                    .h(px(theme.scale.target))
-                    .px(px(theme.scale.space_4))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(theme.scale.radius_chip))
-                    .cursor_pointer()
-                    .tab_index(0)
-                    .focus(theme::desktop_focus(theme.accent))
-                    .hover(move |s| s.bg(theme.surface_alt))
-                    .on_click(move |_, window, cx| on(0, window, cx))
-                    .child(
-                        div()
-                            .text_size(px(theme.scale.meta))
-                            .line_height(px(theme.scale.meta_line))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.accent)
-                            .child("Dieser Monat"),
-                    ),
-            ),
-        );
-    }
     column.into_any_element()
 }
 
@@ -592,24 +562,13 @@ pub(crate) fn mobile_source_row(
         ))
 }
 
-/// The neutral cached-refresh feedback: a 16 px spinner with the incumbent
-/// `Aktualisiere...` label, instead of a blocking overlay.
+/// A fetch over a cached month: the same 2 px segment, above the rows it is
+/// refreshing. No spinner, no label — one progress language everywhere.
 fn refresh_row(theme: &AppTheme) -> AnyElement {
-    let ink = theme.text_secondary;
     div()
-        .py(px(theme.scale.space_2))
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap(px(theme.scale.space_2))
-        .child(spinner(ink, theme.scale.icon))
-        .child(
-            div()
-                .text_size(px(theme.scale.meta))
-                .line_height(px(theme.scale.meta_line))
-                .text_color(ink)
-                .child("Aktualisiere..."),
-        )
+        .w_full()
+        .pb(px(theme.scale.space_2))
+        .child(refresh_bar(theme, "billing-refresh-bar"))
         .into_any_element()
 }
 

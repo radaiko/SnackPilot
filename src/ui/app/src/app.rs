@@ -1901,7 +1901,11 @@ impl Render for AppShell {
         };
         // Every compact background task — a sign-in, a refresh, a billing load —
         // is the same thin bar and never a layer over the data.
+        // Abrechnung paints the same bar inside its own page while a month
+        // loads; two bars would read as two tasks.
+        let screen_has_bar = nav.top() == Screen::Billing && state.billing_loading;
         let background_work = state.launch_settled
+            && !screen_has_bar
             && (state.busy
                 || state.ventopay_busy
                 || state.billing_loading
