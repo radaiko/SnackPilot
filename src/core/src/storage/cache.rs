@@ -155,6 +155,37 @@ pub fn save_orders(kv: &dyn Kv, orders: &[OrderedMenu]) -> CoreResult<()> {
     save(kv, ORDERS_KEY, orders)
 }
 
+/// Every month that has billing on disk, newest first: the union of the
+/// Gourmet and Ventopay month keys. Nothing prunes them when a month leaves the
+/// three-month window, so this is the user's real history — older than the
+/// store will still answer for.
+pub fn cached_billing_months(kv: &dyn Kv) -> Vec<String> {
+    let mut keys: Vec<String> = kv
+        .keys()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|key| {
+            key.strip_prefix(GOURMET_BILLING_PREFIX)
+                .or_else(|| key.strip_prefix(VENTOPAY_BILLING_PREFIX))
+                .map(str::to_string)
+        })
+        .filter(|month| is_month_key(month))
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys.reverse();
+    keys
+}
+
+/// `YYYY-MM`, nothing else: the shape every billing key carries.
+fn is_month_key(key: &str) -> bool {
+    let bytes = key.as_bytes();
+    bytes.len() == 7
+        && bytes[4] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..].iter().all(u8::is_ascii_digit)
+}
+
 /// Load Gourmet bills for a month; `None` if absent or corrupt (corrupt NOT removed, §3.4).
 pub fn load_gourmet_billing(kv: &dyn Kv, month_key: &str) -> Option<Vec<Bill>> {
     load_keep_corrupt(kv, &format!("{GOURMET_BILLING_PREFIX}{month_key}"))

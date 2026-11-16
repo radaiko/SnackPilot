@@ -62,6 +62,29 @@ impl Kv for FileKv {
         })?;
         Ok(())
     }
+    /// The stems of the files on disk. Key mapping is lossy only for characters
+    /// storage keys never use (billing month keys are letters, digits, `-` and
+    /// `_`), so the stem is the key for everything this is for.
+    fn keys(&self) -> CoreResult<Vec<String>> {
+        let _g = self.lock.lock().unwrap();
+        let entries = match std::fs::read_dir(&self.dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => {
+                return Err(CoreError::Storage {
+                    detail: e.to_string(),
+                })
+            }
+        };
+        let mut keys = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some(stem) = name.strip_suffix(".val") {
+                keys.push(stem.to_string());
+            }
+        }
+        Ok(keys)
+    }
     fn remove(&self, key: &str) -> CoreResult<()> {
         let _g = self.lock.lock().unwrap();
         match std::fs::remove_file(self.path_for(key)) {

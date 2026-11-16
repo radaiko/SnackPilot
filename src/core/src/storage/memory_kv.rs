@@ -25,6 +25,9 @@ impl Kv for MemoryKv {
             .insert(key.to_string(), value.to_string());
         Ok(())
     }
+    fn keys(&self) -> CoreResult<Vec<String>> {
+        Ok(self.map.lock().unwrap().keys().cloned().collect())
+    }
     fn remove(&self, key: &str) -> CoreResult<()> {
         self.map.lock().unwrap().remove(key);
         Ok(())

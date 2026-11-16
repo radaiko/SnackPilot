@@ -42,9 +42,15 @@ impl BillingStore {
         }
     }
 
-    /// The three month options (offsets 0,1,2), recomputed from the clock (billing §2).
+    /// The month options: the three the store still answers for (offsets 0,1,2,
+    /// recomputed from the clock, billing §2), then every older month that is
+    /// still on disk, newest first.
+    ///
+    /// The store addresses a month only as an offset, so three is all it will
+    /// ever hand back. History older than that is already cached and nothing
+    /// prunes it, so those months are offered from disk — read-only, no request.
     pub fn month_options(&self) -> Vec<MonthOption> {
-        (0u8..=2)
+        let mut options: Vec<MonthOption> = (0u8..=2)
             .map(|offset| {
                 let key = cache::month_key_from_offset(self.clock.as_ref(), offset as u32);
                 MonthOption {
@@ -53,7 +59,51 @@ impl BillingStore {
                     offset,
                 }
             })
-            .collect()
+            .collect();
+        let oldest = options.last().map(|o| o.key.clone()).unwrap_or_default();
+        for key in cache::cached_billing_months(self.kv.as_ref()) {
+            if key.as_str() >= oldest.as_str() {
+                continue; // still inside the window the store answers for
+            }
+            let offset = options.len() as u8;
+            options.push(MonthOption {
+                label: cache::month_label(&key),
+                key,
+                offset,
+            });
+        }
+        options
+    }
+
+    /// The month key an offset stands for. An offset is the option's position
+    /// in [`Self::month_options`], which is why offsets at most 2 are also the
+    /// store's own.
+    pub fn month_key(&self, offset: u8) -> Option<String> {
+        self.month_options()
+            .get(offset as usize)
+            .map(|option| option.key.clone())
+    }
+
+    /// Put a cached month in memory without asking anyone. Used for history the
+    /// store no longer answers for.
+    fn publish_cached(&self, key: &str) {
+        let label = cache::month_label(key);
+        if !self.gourmet_months.lock().unwrap().contains_key(key) {
+            if let Some(bills) = cache::load_gourmet_billing(self.kv.as_ref(), key) {
+                self.gourmet_months
+                    .lock()
+                    .unwrap()
+                    .insert(key.to_string(), build_gourmet_month(key, &label, bills, 0));
+            }
+        }
+        if !self.ventopay_months.lock().unwrap().contains_key(key) {
+            if let Some(txs) = cache::load_ventopay_billing(self.kv.as_ref(), key) {
+                self.ventopay_months
+                    .lock()
+                    .unwrap()
+                    .insert(key.to_string(), build_ventopay_month(key, &label, txs, 0));
+            }
+        }
     }
 
     pub fn error(&self) -> Option<String> {
@@ -90,13 +140,18 @@ impl BillingStore {
 
     /// §4.1 Gourmet fetch. Loading/error reflect this fetch only.
     pub async fn fetch_billing(&self, offset: u8, force: bool) -> CoreResult<()> {
+        let Some(key) = self.month_key(offset) else {
+            return Ok(()); // no such month → silent
+        };
         if offset > 2 {
-            return Ok(()); // invalid offset → silent
+            // History older than the store's window: show what the disk has and
+            // ask nobody. `force` cannot change that — there is nothing to ask.
+            self.publish_cached(&key);
+            return Ok(());
         }
         if *self.loading.lock().unwrap() {
             return Ok(()); // in-flight guard
         }
-        let key = cache::month_key_from_offset(self.clock.as_ref(), offset as u32);
         // past-month skip: offset != 0 and a non-empty entry already exists — unless `force`
         // (pull-to-refresh), which always re-hits the server so a stale/older cache is replaced.
         if offset != 0 && !force {
@@ -136,10 +191,13 @@ impl BillingStore {
 
     /// §4.2 Ventopay fetch. Non-blocking: never sets loading/error; silent on failure.
     pub async fn fetch_ventopay_billing(&self, offset: u8, force: bool) -> CoreResult<()> {
+        let Some(key) = self.month_key(offset) else {
+            return Ok(());
+        };
         if offset > 2 {
+            self.publish_cached(&key);
             return Ok(());
         }
-        let key = cache::month_key_from_offset(self.clock.as_ref(), offset as u32);
         if offset != 0 && !force {
             if let Some(m) = self.ventopay_months.lock().unwrap().get(&key) {
                 if !m.transactions.is_empty() {
@@ -288,6 +346,58 @@ mod tests {
         .await
         .unwrap();
         gp(api)
+    }
+
+    /// Billing months are discovered from disk: the three the store answers
+    /// for, then everything older that is still cached. Selecting an older
+    /// month reads the disk and never sends a request.
+    #[tokio::test]
+    async fn cached_history_joins_the_month_options_without_a_request() {
+        let t = Arc::new(CapturingTransport::new());
+        let kv = Arc::new(MemoryKv::new());
+        // Two months from before the window, one Gourmet-only, one Ventopay-only.
+        cache::save_gourmet_billing(
+            kv.as_ref(),
+            "2025-11",
+            &[Bill {
+                bill_nr: 1,
+                bill_date_epoch_ms: 1_762_000_000_000,
+                location: "Wien".into(),
+                items: Vec::new(),
+                billing: 4.5,
+            }],
+        )
+        .unwrap();
+        cache::save_ventopay_billing(kv.as_ref(), "2025-10", &[]).unwrap();
+        let store = BillingStore::new(
+            gp(Arc::new(GourmetApi::new(t.clone()))),
+            vp(Arc::new(VentopayApi::new(t.clone()))),
+            kv.clone(),
+            feb_2026_clock(),
+        );
+        // Cached months are not in memory until something asks for them.
+        store.load_cached_months();
+
+        let opts = store.month_options();
+        let keys: Vec<&str> = opts.iter().map(|o| o.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["2026-02", "2026-01", "2025-12", "2025-11", "2025-10"],
+            "the window first, then the older months, newest first"
+        );
+        assert_eq!(opts[3].offset, 3, "an offset is the option's position");
+
+        // Selecting month 3 asks nobody: the store has no offset for it.
+        store.fetch_billing(3, false).await.unwrap();
+        store.fetch_ventopay_billing(3, false).await.unwrap();
+        assert!(
+            t.requests().is_empty(),
+            "history older than the window is read from disk only"
+        );
+        let month = store
+            .gourmet_month("2025-11")
+            .expect("published from cache");
+        assert_eq!(month.bills.len(), 1);
     }
 
     #[tokio::test]

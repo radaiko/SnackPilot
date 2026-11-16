@@ -571,58 +571,29 @@ fn source_select(model: &Arc<AppModel>, cx: &mut Context<AppShell>) -> SourceSel
     })
 }
 
+/// The desktop month control is the same row the phone uses: one month with a
+/// ‹ › either side. A segmented row of chips was fine for exactly three
+/// months, but the app now offers every month it still has on disk, and that
+/// count grows with use.
 fn month_row(
     state: &State,
     model: &Arc<AppModel>,
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) -> Div {
-    let bg = theme.surface;
-    let mut row = div().flex().w_full().bg(bg);
-    for option in state.month_options.iter() {
-        let offset = option.offset;
-        let selected = state.selected_offset == offset;
-        let shell = cx.entity().clone();
-        let model = Arc::clone(model);
-        let action: ClickHandler = Rc::new(move |_: &mut Window, cx: &mut App| {
-            dispatch_billing_action(cx, {
-                let model = Arc::clone(&model);
-                move || model.select_month(offset)
-            });
-            let _ = shell.update(cx, |_, cx| cx.notify());
-        });
-        row = row.child(
-            div()
-                .id(SharedString::from(format!("billing-month-{offset}")))
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .min_h(px(snackpilot_model::tokens::TARGET))
-                .py(px(theme.scale.space_3))
-                .cursor_pointer()
-                .border_b_3()
-                .border_color(if selected {
-                    theme.accent
-                } else {
-                    hsla(0., 0., 0., 0.)
-                })
-                .on_click(move |_, window, cx| action(window, cx))
-                .child(
-                    div()
-                        .text_size(px(theme.scale.meta))
-                        .line_height(px(theme.scale.meta_line))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if selected {
-                            theme.accent
-                        } else {
-                            theme.text_tertiary
-                        })
-                        .child(option.label.clone()),
-                ),
-        );
-    }
-    row
+    let model = Arc::clone(model);
+    let shell = cx.entity().clone();
+    let on_select: MonthSelect = Rc::new(move |offset: u8, _: &mut Window, cx: &mut App| {
+        let model = Arc::clone(&model);
+        dispatch_billing_action(cx, move || model.select_month(offset));
+        let _ = shell.update(cx, |_, cx| cx.notify());
+    });
+    div().w_full().child(mobile_month_row(
+        &state.month_options,
+        state.selected_offset,
+        on_select,
+        theme,
+    ))
 }
 
 fn desktop_chips_row(
