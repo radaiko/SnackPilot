@@ -602,10 +602,12 @@ pub struct AppShell {
     pub(crate) strip_aligned: Option<String>,
     /// Whether the current drag has claimed the day gesture.
     pub(crate) swipe_claimed: bool,
-    /// The drag's accumulated travel: `swipe_dx` across and `swipe_dy` down,
-    /// both read from the host's scroll deltas. The painted offset damps them.
+    /// Whether a touch is currently dragging: one gesture per touch, so the
+    /// host's momentum frames after the release cannot count as another one.
+    pub(crate) swipe_live: bool,
+    /// The drag's accumulated horizontal travel, read from the host's scroll
+    /// deltas. The painted offset damps it at the first and last day.
     pub(crate) swipe_dx: f32,
-    pub(crate) swipe_dy: f32,
     /// When the last refresh was dispatched. A double tap cannot hammer the
     /// store with a request that would only repeat the first, and the 15-minute
     /// tick and a foreground return measure their staleness against it.
@@ -814,8 +816,8 @@ impl AppShell {
             mutation_gate: MutationGate::default(),
             strip_aligned: None,
             swipe_claimed: false,
+            swipe_live: false,
             swipe_dx: 0.,
-            swipe_dy: 0.,
             last_refresh: None,
             menus_scroll: ScrollHandle::new(),
             menus_days_scroll: ScrollHandle::new(),

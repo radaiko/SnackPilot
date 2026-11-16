@@ -23,6 +23,9 @@ use gpui::*;
 /// Gesture claim threshold and switch threshold in logical px (§3.1).
 pub const CLAIM_PX: f32 = 10.;
 pub const SWITCH_PX: f32 = 50.;
+/// How far the content may travel: a long drag stops pushing it further, so it
+/// can never be dragged off the surface.
+pub const TRAVEL_MAX: f32 = 240.;
 /// Rubber-band factor at the first/last date.
 pub const EDGE_DAMPING: f32 = 0.3;
 
@@ -46,6 +49,19 @@ pub fn drag_delta(event: &ScrollWheelEvent) -> (f32, f32) {
 /// dominates and passes the 10 px claim threshold (§3.1, unchanged).
 pub fn claims_horizontal(dx: f32, dy: f32) -> bool {
     dx.abs() > CLAIM_PX && dx.abs() > dy.abs()
+}
+
+/// Whether one scroll delta belongs to the day gesture. It has to travel
+/// further across than down, so the list's own vertical scrolling never moves
+/// the day — a run of slightly slanted vertical deltas used to accumulate into
+/// a day switch on release.
+pub fn is_swipe_delta(dx: f32, dy: f32) -> bool {
+    dx != 0. && dx.abs() > dy.abs()
+}
+
+/// One more delta of travel, capped at [`TRAVEL_MAX`].
+pub fn add_travel(total: f32, dx: f32) -> f32 {
+    (total + dx).clamp(-TRAVEL_MAX, TRAVEL_MAX)
 }
 
 /// The damped horizontal offset painted while the gesture runs. Reduced motion
@@ -95,43 +111,57 @@ pub fn swipe_days(
 
 #[cfg(test)]
 mod tests {
-    use super::{claims_horizontal, swipe_day, swipe_offset, CLAIM_PX, EDGE_DAMPING, SWITCH_PX};
+    use super::{
+        add_travel, claims_horizontal, is_swipe_delta, swipe_day, swipe_offset, CLAIM_PX,
+        EDGE_DAMPING, SWITCH_PX, TRAVEL_MAX,
+    };
 
     /// A thumb drag arrives as a run of scroll deltas, not as one movement:
     /// the gesture is claimed once their sum passes the threshold, and the
-    /// same sum decides the day. A drag with more vertical than horizontal
-    /// travel stays a scroll.
+    /// same sum decides the day.
     /// @req REQ-SCR-01
     #[test]
     fn a_run_of_drag_deltas_accumulates_into_a_day_switch() {
         let travel = |deltas: &[(f32, f32)]| {
-            let (mut dx, mut dy, mut claimed) = (0., 0., false);
-            for (x, y) in deltas {
-                dx += x;
-                dy += y;
-                claimed = claimed || claims_horizontal(dx, dy);
-            }
-            (dx, claimed)
+            deltas
+                .iter()
+                .filter(|(dx, dy)| is_swipe_delta(*dx, *dy))
+                .fold(0., |total, (dx, _)| add_travel(total, *dx))
         };
 
-        let (dx, claimed) = travel(&[(6., 1.), (9., 1.), (14., 2.), (20., 3.), (9., 1.)]);
-        assert!(claimed, "59 px across claims the gesture");
+        let dx = travel(&[(6., 1.), (9., 1.), (14., 2.), (20., 3.), (9., 1.)]);
+        assert!(claims_horizontal(dx, 0.), "59 px across claims the gesture");
         assert_eq!(swipe_day(dx, true, true), Some(-1), "right is the day back");
 
-        let (dx, claimed) = travel(&[(-18., 2.), (-30., 3.), (-16., 2.)]);
-        assert!(claimed);
+        let dx = travel(&[(-18., 2.), (-30., 3.), (-16., 2.)]);
         assert_eq!(swipe_day(dx, true, true), Some(1), "left is the day on");
 
-        let (_, claimed) = travel(&[(4., 12.), (5., 30.), (2., 24.)]);
-        assert!(!claimed, "a vertical scroll never becomes a day swipe");
+        // A slanted vertical scroll: every delta travels further down than
+        // across, so the day never sees it. This used to add up to a switch on
+        // release whenever the thumb drifted sideways on the way down.
+        let dx = travel(&[(5., 30.), (4., 28.), (6., 22.)]);
+        assert_eq!(dx, 0.);
+        assert_eq!(swipe_day(dx, true, true), None);
 
-        let (dx, claimed) = travel(&[(-40., 0.), (-40., 0.)]);
-        assert!(claimed);
+        let dx = travel(&[(-40., 0.), (-40., 0.)]);
         assert_eq!(
             swipe_day(dx, true, false),
             None,
             "the last day cannot go further"
         );
+    }
+
+    /// A drag stops moving the content at [`TRAVEL_MAX`], so a long swipe can
+    /// never drag the list off its surface.
+    /// @req REQ-SCR-01
+    #[test]
+    fn travel_is_capped() {
+        let mut total = 0.;
+        for _ in 0..20 {
+            total = add_travel(total, 40.);
+        }
+        assert_eq!(total, TRAVEL_MAX);
+        assert_eq!(add_travel(-1000., -1.), -TRAVEL_MAX);
     }
 
     /// The day gesture keeps its pinned thresholds (REQ-SCR-01) and the

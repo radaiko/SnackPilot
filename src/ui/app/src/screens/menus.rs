@@ -26,7 +26,8 @@ use crate::components::record_table::{
 use crate::components::refresh_bar::refresh_bar;
 use crate::components::spinner::spinner;
 use crate::components::swipe::{
-    claims_horizontal, swipe_day, swipe_days, swipe_offset, SwipeHandlers,
+    add_travel, claims_horizontal, is_swipe_delta, swipe_day, swipe_days, swipe_offset,
+    SwipeHandlers,
 };
 use crate::components::workspace::{
     action_strip, detail_prompt, loading_state as desktop_loading_state, section_label,
@@ -589,50 +590,81 @@ fn tap_handler(cx: &mut Context<AppShell>, item: MenuItem) -> ClickHandler {
     })
 }
 
-/// Drag handlers: accumulate the drag's scroll deltas, claim past 10 px
-/// horizontal, damp at the edges, switch at 50 px on release. A release is the
-/// `MouseUp` the host sends when the finger lifts.
+/// Drag handlers. The gesture lives for one touch: `Started` begins it,
+/// `Moved` travels, `Ended` decides. Only deltas that move further across than
+/// down count, so the list's own vertical scrolling never moves the day.
+///
+/// The phase gate is what makes this work on a device: after the finger lifts,
+/// the host keeps replaying the fling as further `Moved` deltas (its momentum
+/// scroller runs on the display link). Those are not the gesture any more —
+/// counting them switched the day a second time, or left the content shifted
+/// with no release left to clear it.
 fn swipe_handlers(can_back: bool, can_forward: bool, cx: &mut Context<AppShell>) -> SwipeHandlers {
     let shell = cx.entity().clone();
     let scrolled = Rc::new(move |e: &ScrollWheelEvent, _: &mut Window, cx: &mut App| {
         let (dx, dy) = crate::components::swipe::drag_delta(e);
-        shell.update(cx, |s, cx| {
-            // The painted offset is the raw travel; `swipe_offset` damps it at
-            // the ends and drops it entirely under reduced motion.
-            s.swipe_dx += dx;
-            s.swipe_dy += dy;
-            let claimed = !s.swipe_claimed && claims_horizontal(s.swipe_dx, s.swipe_dy);
-            if claimed {
-                s.swipe_claimed = true;
+        let phase = e.touch_phase;
+        shell.update(cx, |s, cx| match phase {
+            TouchPhase::Started => {
+                s.swipe_live = true;
+                s.swipe_claimed = false;
+                s.swipe_dx = 0.;
+                swipe_travel(s, dx, dy, cx);
             }
-            if claimed || s.swipe_claimed {
-                cx.notify();
-            }
+            TouchPhase::Moved => swipe_travel(s, dx, dy, cx),
+            TouchPhase::Ended => swipe_release(s, can_back, can_forward, cx),
+            TouchPhase::Cancelled => swipe_clear(s, cx),
         });
     });
 
     let shell = cx.entity().clone();
     let up = Rc::new(move |_: &MouseUpEvent, _: &mut Window, cx: &mut App| {
-        shell.update(cx, |s, cx| {
-            let claimed = std::mem::take(&mut s.swipe_claimed);
-            let dx = std::mem::take(&mut s.swipe_dx);
-            s.swipe_dy = 0.;
-            if claimed {
-                if let Some(model) = &s.model {
-                    let day = swipe_day(dx, can_back, can_forward);
-                    log::info!("swipe: {dx} px released, day {day:?}");
-                    match day {
-                        Some(-1) => model.prev_day(),
-                        Some(1) => model.next_day(),
-                        _ => {}
-                    }
-                }
-            }
-            cx.notify();
-        });
+        // A host that sends no `Ended` still ends the gesture here.
+        shell.update(cx, |s, cx| swipe_release(s, can_back, can_forward, cx));
     });
 
     SwipeHandlers { scrolled, up }
+}
+
+/// One delta of the live gesture: travel the content and claim it once the
+/// threshold passes.
+fn swipe_travel(s: &mut AppShell, dx: f32, dy: f32, cx: &mut Context<AppShell>) {
+    if !s.swipe_live || !is_swipe_delta(dx, dy) {
+        return;
+    }
+    s.swipe_dx = add_travel(s.swipe_dx, dx);
+    let claimed = !s.swipe_claimed && claims_horizontal(s.swipe_dx, 0.);
+    s.swipe_claimed = s.swipe_claimed || claimed;
+    cx.notify();
+}
+
+/// The finger lifted: switch the day when the drag was far enough, then clear.
+fn swipe_release(s: &mut AppShell, can_back: bool, can_forward: bool, cx: &mut Context<AppShell>) {
+    if !std::mem::take(&mut s.swipe_live) {
+        return;
+    }
+    let claimed = std::mem::take(&mut s.swipe_claimed);
+    let dx = std::mem::take(&mut s.swipe_dx);
+    if claimed {
+        if let Some(model) = &s.model {
+            let day = swipe_day(dx, can_back, can_forward);
+            log::info!("swipe: {dx} px released, day {day:?}");
+            match day {
+                Some(-1) => model.prev_day(),
+                Some(1) => model.next_day(),
+                _ => {}
+            }
+        }
+    }
+    cx.notify();
+}
+
+/// The system took the touch: drop the gesture without switching.
+fn swipe_clear(s: &mut AppShell, cx: &mut Context<AppShell>) {
+    s.swipe_live = false;
+    s.swipe_claimed = false;
+    s.swipe_dx = 0.;
+    cx.notify();
 }
 
 /// The wide-desktop Menüs workspace (task 1.3): the shell's DayNavigator sits
