@@ -223,6 +223,10 @@ impl AppModel {
                 s.month_options = months;
             }
         });
+        // The cached week is only paintable with a day selected: without one the
+        // list renders its empty state while the strip already shows the days,
+        // so a launch looked like "no menus" until the network answered.
+        self.sync_selected_day();
     }
 
     /// The deferred half of the launch order: everything that can wait on the

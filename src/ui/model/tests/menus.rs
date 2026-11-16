@@ -710,3 +710,36 @@ fn the_location_reminder_target_persists_and_refuses_values_outside_the_window()
         "the target survives a restart"
     );
 }
+
+/// A launch paints the cached week on the first frame — with a day selected.
+/// Without one the list rendered "Keine Menüs verfügbar" while the strip
+/// already showed the days, so a cold start looked empty until the store
+/// answered.
+/// @req REQ-SCR-01
+#[test]
+fn bootstrap_local_selects_a_cached_day_so_the_week_paints() {
+    let dir = temp_dir("cache-first-day");
+    let (model, _fake) = demo_model_in(dir.clone());
+    let cached_days = snapshot(&model).available_dates;
+    assert!(!cached_days.is_empty(), "the demo week has days");
+    drop(model);
+
+    let model = AppModel::new(dir, Arc::new(FakePlatform::new())).unwrap();
+    model.bootstrap_local();
+    let state = model.state();
+    let day = state
+        .selected_day
+        .clone()
+        .expect("a cached day is selected");
+    assert!(
+        cached_days.contains(&day),
+        "the selected day belongs to the cached week"
+    );
+    assert!(
+        state
+            .menu_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| !snapshot.items.is_empty()),
+        "and the list has something to paint for it"
+    );
+}
