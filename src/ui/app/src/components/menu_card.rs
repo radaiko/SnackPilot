@@ -234,14 +234,21 @@ pub fn menu_card(
     }
 
     // Name line: the dish across the full width, plus the reserved check while
-    // pending.
+    // pending. A closed day is greyed out instead of captioned: the rows are
+    // still readable, and the recessed ink is the whole explanation — nothing
+    // here can be changed any more.
+    let ink = if state.cutoff {
+        theme.text_secondary
+    } else {
+        theme.text_primary
+    };
     let dish_text = div()
         .flex_1()
         .min_w(px(0.))
         .text_size(px(m.body))
         .line_height(px(m.body_line))
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme.text_primary)
+        .text_color(ink)
         .child(dish_label(item));
     let dish_text = if treatment.struck() {
         dish_text.line_through()
@@ -293,7 +300,7 @@ pub fn menu_card(
                 .text_size(px(tokens::BODY_STRONG.size))
                 .line_height(px(tokens::BODY_STRONG.line_height))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_primary)
+                .text_color(ink)
                 .child(item.price.clone()),
         });
     }

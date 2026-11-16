@@ -89,17 +89,6 @@ pub fn menus_tab(
     }
     column = column.child(day_row);
 
-    // A day the cutoff has closed still shows its dishes — they were eaten, or
-    // they were never ordered — but nothing about them can change, and the rows
-    // no longer offer a tap. Say it once, where the day is chosen.
-    if state
-        .selected_day
-        .as_deref()
-        .is_some_and(|day| model.is_some_and(|model| model.is_cutoff(day)))
-    {
-        column = column.child(cutoff_line(theme));
-    }
-
     let host = state.host_kind;
     if let Some(error) = &state.error_text {
         column = column.child(mobile_error_banner(
@@ -537,20 +526,6 @@ fn loading_state(theme: &AppTheme) -> AnyElement {
         .justify_center()
         .p(px(theme.scale.space_4))
         .child(spinner(theme.text_secondary, theme.scale.icon))
-        .into_any_element()
-}
-
-/// The closed-day line: quiet, one row, no box — the same meta role the day
-/// strip uses for its labels.
-fn cutoff_line(theme: &AppTheme) -> AnyElement {
-    div()
-        .w_full()
-        .px(px(theme.scale.space_4))
-        .py(px(theme.scale.space_2))
-        .text_size(px(theme.scale.meta))
-        .line_height(px(theme.scale.meta_line))
-        .text_color(theme.text_secondary)
-        .child("Bestellschluss war 9:00 – nichts mehr änderbar.")
         .into_any_element()
 }
 
