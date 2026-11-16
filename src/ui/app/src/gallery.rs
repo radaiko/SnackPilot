@@ -23,8 +23,7 @@ use crate::components::order_item::order_item;
 use crate::components::segment_tabs::{segment_tabs, Segment, SegmentHandler};
 use crate::components::tab_bar::TabSelect;
 use crate::components::{
-    button, chip, desktop_navigation, loading_overlay, record_table, spinner, text_field, toast,
-    workspace,
+    button, chip, desktop_navigation, loading_overlay, record_table, text_field, toast, workspace,
 };
 use crate::navigation::ClickHandler;
 use crate::screens::billing::{
@@ -804,16 +803,21 @@ fn mobile_menus_case(width: f32, theme: &AppTheme) -> AnyElement {
         };
         list = list.child(menu_card(&item, state, Some(noop.clone()), theme));
     }
-    // The quiet states: one centred metadata line and the refresh spinner.
+    // The quiet states: one centred metadata line under the refresh bar.
     list = list
         .child(
             div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .gap(px(theme.scale.space_2))
+                .w_full()
+                .px(px(theme.scale.space_4))
                 .py(px(theme.scale.space_4))
-                .child(spinner::spinner(theme.text_secondary, theme.scale.icon))
+                .flex()
+                .flex_col()
+                .gap(px(theme.scale.space_1))
+                .child(crate::components::refresh_bar::refresh_bar(
+                    theme,
+                    None,
+                    "gallery-refresh-bar",
+                ))
                 .child(
                     div()
                         .text_size(px(theme.scale.meta))

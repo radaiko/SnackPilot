@@ -1,7 +1,8 @@
 //! Pull-to-refresh — docs/requirements/04-ui-ux.md §3.3 / §4.7.
 //!
 //! A drag of 60+ px that starts while the list is at its top forces a fetch.
-//! The gesture is only a trigger; the spinner comes from the model's loading
+//! The gesture is only a trigger; the bar the pull reveals fills with the drag
+//! distance and the request's own progress comes from the model's loading
 //! state, so no extra view state is kept beyond the live pull distance the
 //! shell holds for the indicator.
 
@@ -57,12 +58,16 @@ pub fn pull_refresh(
                 .right(px(0.))
                 .h(px(pull))
                 .flex()
-                .items_center()
+                .items_end()
                 .justify_center()
+                .px(px(theme.scale.space_4))
                 .opacity((pull / PULL_PX).min(1.))
-                .child(crate::components::spinner::spinner(
-                    theme.text_secondary,
-                    16.,
+                // The bar sits at the strip's bottom edge, so it reads as
+                // pulled out of the top of the list, and fills with the drag.
+                .child(crate::components::refresh_bar::refresh_bar(
+                    theme,
+                    Some(pull / PULL_PX),
+                    "pull-bar",
                 )),
         );
     }

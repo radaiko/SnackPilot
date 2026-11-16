@@ -24,6 +24,7 @@ use crate::components::pull_refresh::pull_refresh;
 use crate::components::record_table::{
     detail_entry, record_cell_right, record_row_focusable, record_status_cell, RecordListFocus,
 };
+use crate::components::refresh_bar::refresh_bar;
 use crate::components::spinner::spinner;
 use crate::components::swipe::{
     claims_horizontal, swipe_day, swipe_days, swipe_offset, SwipeHandlers,
@@ -426,16 +427,17 @@ fn loading_state(theme: &AppTheme) -> AnyElement {
         .into_any_element()
 }
 
-/// The cached refresh keeps the day and rows: one quiet 20 px spinner with the
+/// The cached refresh keeps the day and rows: a 2 px progress bar over the
 /// existing `Aktualisiere...` metadata line, never a decorative card.
 fn refresh_line(theme: &AppTheme) -> AnyElement {
     div()
+        .w_full()
+        .px(px(theme.scale.space_4))
         .py(px(theme.scale.space_2))
         .flex()
-        .items_center()
-        .justify_center()
-        .gap(px(theme.scale.space_2))
-        .child(spinner(theme.text_secondary, theme.scale.icon))
+        .flex_col()
+        .gap(px(theme.scale.space_1))
+        .child(refresh_bar(theme, None, "menus-refresh-bar"))
         .child(
             div()
                 .text_size(px(theme.scale.meta))
@@ -494,27 +496,21 @@ fn mobile_error_banner(message: &str, retry: ClickHandler, theme: &AppTheme) -> 
 }
 
 fn refresh_banner(theme: &AppTheme) -> AnyElement {
-    let r = theme.tinted_banner(theme.accent_surface);
-    theme::apply(
-        div()
-            .mx(px(16.))
-            .mt(px(8.))
-            .py(px(8.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .gap(px(8.))
-            .child(spinner(theme.accent, 12.))
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::NORMAL)
-                    .text_color(theme.accent)
-                    .child("Aktualisiere..."),
-            ),
-        &r,
-    )
-    .into_any_element()
+    div()
+        .mx(px(16.))
+        .mt(px(8.))
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .child(refresh_bar(theme, None, "desktop-refresh-bar"))
+        .child(
+            div()
+                .text_size(px(12.))
+                .font_weight(FontWeight::NORMAL)
+                .text_color(theme.accent)
+                .child("Aktualisiere..."),
+        )
+        .into_any_element()
 }
 
 fn progress_banner(progress: &str, theme: &AppTheme) -> AnyElement {
