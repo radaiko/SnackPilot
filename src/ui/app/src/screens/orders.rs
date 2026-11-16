@@ -23,7 +23,6 @@ use crate::components::order_item::{
     desktop_order_detail, desktop_order_header, desktop_order_row, order_description, order_item,
     DesktopOrderRowState,
 };
-use crate::components::pull_refresh::pull_refresh;
 use crate::components::record_table::{detail_entry, RecordListFocus};
 use crate::components::segment_tabs::{desktop_segment_toolbar, segment_tabs, Segment};
 use crate::components::spinner::spinner;
@@ -34,7 +33,7 @@ use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::OrderedMenu;
 use snackpilot_model::desktop::{ControlState, HostKind, LayoutMode};
-use snackpilot_model::navigation::{ListKind, Tab};
+use snackpilot_model::navigation::ListKind;
 use snackpilot_model::{AppModel, State};
 
 /// The compact Orders tab content (task 1.4): shell-owned heading and gutters,
@@ -50,7 +49,6 @@ pub fn orders_tab(
     past: bool,
     theme: &AppTheme,
     scroll: &ScrollHandle,
-    pull: f32,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     if !state.gourmet_authenticated {
@@ -165,16 +163,7 @@ pub fn orders_tab(
         }
     }
 
-    // A drag from the top of the list reloads the orders.
-    let on_refresh = crate::app::refresh_handler(Tab::Orders, Some(model), state.host_kind, cx);
-    let gesture = crate::app::pull_handlers(scroll.clone(), state.host_kind, on_refresh, cx);
-    column = column.child(pull_refresh(
-        "orders-pull",
-        list.track_scroll(scroll).into_any_element(),
-        pull,
-        gesture,
-        theme,
-    ));
+    column = column.child(list.track_scroll(scroll));
 
     // Batch-cancel bar while multi-select mode is active.
     if state.order_selection_mode {

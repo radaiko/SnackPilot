@@ -17,7 +17,6 @@ pub mod fab;
 pub mod loading_overlay;
 pub mod menu_card;
 pub mod order_item;
-pub mod pull_refresh;
 pub mod record_table;
 pub mod refresh_bar;
 pub mod segment_tabs;

@@ -31,7 +31,6 @@ use crate::components::dialog::{
     dialog_key, dialog_move, dialog_overlay, Dialog, DialogKey, DialogResolution,
 };
 use crate::components::loading_overlay::{desktop_loading_overlay, loading_overlay};
-use crate::components::pull_refresh::PullGesture;
 use crate::components::record_table::RecordListFocus;
 use crate::components::tab_bar::{reserved_height, tab_bar, TabSelect, BAR_HEIGHT};
 use crate::components::toast::{
@@ -347,8 +346,8 @@ pub(crate) fn dispatch_refresh(
     cx: &mut App,
 ) {
     // A refresh is a network fetch on every host. Inline, it froze the phone
-    // for as long as the store took to answer — the pull had already released,
-    // so the user saw a dead screen instead of the progress the model reports.
+    // for as long as the store took to answer, so the user saw a dead screen
+    // instead of the progress the model reports.
     let model = Arc::clone(model);
     cx.background_executor()
         .spawn(async move { run_refresh(&model, intent) })
@@ -498,9 +497,17 @@ pub(crate) fn compact_shell_plan(
 /// The launch mark's minimum stay: shorter and it reads as a flicker instead of
 /// a start.
 const LAUNCH_MIN: Duration = Duration::from_millis(500);
-/// The shortest interval between two pulls of the same screen: long enough to
-/// swallow a double gesture, short enough for a deliberate second try.
-const REFRESH_DEBOUNCE: Duration = Duration::from_millis(1500);
+/// How long a refresh stays fresh. The 15-minute tick and a foreground return
+/// both go through [`AppShell::auto_refresh`]; a return inside the window costs
+/// no request, which is what keeps the phone from reloading on every glance.
+pub const AUTO_REFRESH: Duration = Duration::from_secs(15 * 60);
+
+/// Whether an automatic refresh is due: nothing has been refreshed yet, or the
+/// last one is at least [`AUTO_REFRESH`] old. The single rule behind both the
+/// tick and the foreground return.
+pub fn refresh_due(last_refresh: Option<Instant>) -> bool {
+    last_refresh.is_none_or(|at| at.elapsed() >= AUTO_REFRESH)
+}
 
 /// Past this the mark gives way even if the launch order is still waiting on
 /// the network, so a dead connection cannot hold the surface hostage.
@@ -572,122 +579,6 @@ fn launch_screen(stage: LaunchStage, theme: &AppTheme) -> Div {
         )
 }
 
-/// Whether a list scrolled to `offset` is at its top: gpui reports 0 there and
-/// a negative value once it is scrolled down.
-fn pull_is_at_top(offset: f32) -> bool {
-    offset >= -0.5
-}
-
-/// The pull distance after one delta of `dy`: a downward move from the top
-/// grows it, an upward move takes it back, and leaving the top drops it.
-fn pull_offset(dy: f32, at_top: bool, current: f32) -> f32 {
-    if !at_top {
-        return 0.;
-    }
-    (current + dy)
-        .max(0.)
-        .min(crate::components::pull_refresh::PULL_MAX)
-}
-
-/// A click handler that runs one tab's refresh through the shared intent
-/// boundary — the pull-to-refresh trigger, and the banners' own retry.
-pub(crate) fn refresh_handler(
-    tab: Tab,
-    model: Option<&Arc<AppModel>>,
-    host: HostKind,
-    cx: &mut Context<AppShell>,
-) -> ClickHandler {
-    let model = model.cloned();
-    let intent = refresh_intent(tab);
-    let shell = cx.entity().clone();
-    Rc::new(move |_window: &mut Window, cx: &mut App| {
-        let (Some(model), Some(intent)) = (&model, intent) else {
-            return;
-        };
-        // A pull that lands right after another one repeats the same request;
-        // the store has nothing new to say and does not like being asked.
-        let allowed = shell.update(cx, |s, _| {
-            let recent = s
-                .last_refresh
-                .is_some_and(|at| at.elapsed() < REFRESH_DEBOUNCE);
-            if !recent {
-                s.last_refresh = Some(Instant::now());
-            }
-            !recent
-        });
-        if !allowed {
-            log::info!("refresh: {intent:?} ignored, just refreshed");
-            return;
-        }
-        // One refresh per tab at a time: a second pull while the first is in
-        // flight would stack requests against the store for no new data.
-        let state = model.state();
-        let busy = match intent {
-            RefreshIntent::Menus => state
-                .menu_snapshot
-                .as_ref()
-                .is_some_and(|snapshot| snapshot.refreshing),
-            RefreshIntent::Orders => state.busy,
-            RefreshIntent::Billing => state.billing_loading,
-        };
-        if busy {
-            log::info!("refresh: {intent:?} already running, pull ignored");
-            return;
-        }
-        log::info!("refresh: {intent:?} dispatched by pull");
-        dispatch_refresh(model, intent, host, cx);
-    })
-}
-
-/// The pull-to-refresh gesture for one list. The drag is read from the scroll
-/// deltas the list itself receives — the iOS host never sends `MouseDown` for a
-/// drag — and only while that list sits at its top, so scrolling can never
-/// reload by accident. Releasing past [`PULL_PX`] runs the tab's refresh.
-pub(crate) fn pull_handlers(
-    scroll: ScrollHandle,
-    host: HostKind,
-    on_refresh: ClickHandler,
-    cx: &mut Context<AppShell>,
-) -> PullGesture {
-    // Only a finger pulls. A desktop host scrolls with a wheel, whose deltas
-    // arrive with the same shape as a touch drag, and it has its own refresh.
-    let touch = host != HostKind::Desktop;
-    let shell = cx.entity().clone();
-    let measured = scroll.clone();
-    let scrolled = Rc::new(move |e: &ScrollWheelEvent, _: &mut Window, cx: &mut App| {
-        if !touch {
-            return;
-        }
-        let dy = f32::from(e.delta.pixel_delta(px(16.)).y);
-        let at_top = pull_is_at_top(f32::from(measured.offset().y));
-        shell.update(cx, |s, cx| {
-            let pull = pull_offset(dy, at_top, s.pull_dy);
-            if pull != s.pull_dy {
-                s.pull_dy = pull;
-                cx.notify();
-            }
-        });
-    });
-
-    let shell = cx.entity().clone();
-    let up = Rc::new(move |_: &MouseUpEvent, window: &mut Window, cx: &mut App| {
-        if !touch {
-            return;
-        }
-        let fired = shell.update(cx, |s, cx| {
-            let fired = s.pull_dy >= crate::components::pull_refresh::PULL_PX;
-            s.pull_dy = 0.;
-            cx.notify();
-            fired
-        });
-        if fired {
-            on_refresh(window, cx);
-        }
-    });
-
-    PullGesture { scrolled, up }
-}
-
 /// The single root view: four tabs, one push/pop stack, dialogs, loading
 /// overlay and the new-menu toast.
 /// @req REQ-UI-04
@@ -714,12 +605,12 @@ pub struct AppShell {
     pub(crate) swipe_claimed: bool,
     pub(crate) swipe_dx: f32,
     /// Pull-to-refresh drag: the live distance past the top of a list.
-    pub(crate) pull_dy: f32,
-    /// When the last refresh was dispatched, so a second pull cannot hammer the
-    /// store with requests that would only repeat the first.
+    /// When the last refresh was dispatched. A double tap cannot hammer the
+    /// store with a request that would only repeat the first, and the 15-minute
+    /// tick and a foreground return measure their staleness against it.
     pub(crate) last_refresh: Option<Instant>,
-    /// One handle per scrollable tab list, kept here so the pull gesture can
-    /// ask the list whether it is at its top.
+    /// One handle per scrollable tab list, kept here so the shell can scroll
+    /// and measure them.
     pub(crate) menus_scroll: ScrollHandle,
     /// The day strip scrolls sideways on its own; kept here so the selected
     /// day can be brought back into view.
@@ -821,6 +712,30 @@ impl AppShell {
             .scroll_to_item((index + 1).min(dates.len() - 1));
     }
 
+    /// Refresh menus, orders and billing in the background when the data is
+    /// older than [`AUTO_REFRESH`] — the 15-minute tick and a foreground return
+    /// both call this. Off the render thread on every host: a phone that came
+    /// back to the foreground used to freeze while the store answered.
+    fn auto_refresh(&mut self, cx: &mut Context<Self>) {
+        let Some(model) = self.model.as_ref() else {
+            return;
+        };
+        if !refresh_due(self.last_refresh) || !model.state().launch_settled {
+            return;
+        }
+        self.last_refresh = Some(Instant::now());
+        let model = Arc::clone(model);
+        log::info!("refresh: automatic, the last one is 15 minutes old");
+        cx.background_executor()
+            .spawn(async move {
+                model.refresh_menus();
+                // Orders and billing plus the broadcast check: the same work a
+                // foreground return used to do on every single return.
+                model.on_foreground();
+            })
+            .detach();
+    }
+
     /// Wrap the model (or nothing, when a host installed none) and subscribe
     /// to state changes: each notification wakes the 50 ms poll loop, which
     /// repaints the shell.
@@ -841,6 +756,18 @@ impl AppShell {
                     if dirty.swap(false, Ordering::AcqRel)
                         && this.update(cx, |_, cx| cx.notify()).is_err()
                     {
+                        break;
+                    }
+                },
+            )
+            .detach();
+            // The 15-minute refresh: menus, orders and billing are pulled
+            // again in the background while the app stays open, so the user
+            // never waits on a refresh and never has to ask for one.
+            cx.spawn(
+                async move |this: WeakEntity<AppShell>, cx: &mut AsyncApp| loop {
+                    cx.background_executor().timer(AUTO_REFRESH).await;
+                    if this.update(cx, |shell, cx| shell.auto_refresh(cx)).is_err() {
                         break;
                     }
                 },
@@ -889,7 +816,6 @@ impl AppShell {
             swipe_start_y: None,
             swipe_claimed: false,
             swipe_dx: 0.,
-            pull_dy: 0.,
             last_refresh: None,
             menus_scroll: ScrollHandle::new(),
             menus_days_scroll: ScrollHandle::new(),
@@ -1279,6 +1205,9 @@ impl AppShell {
         let Some(intent) = refresh_intent(state.navigation.active_tab()) else {
             return false;
         };
+        // A manual refresh restarts the 15-minute clock, so the tick cannot
+        // fire again on top of one the user just asked for.
+        self.last_refresh = Some(Instant::now());
         let host = state.host_kind;
         run_blocking(host, cx, move || {
             let _claim = claim;
@@ -1632,7 +1561,6 @@ impl AppShell {
                             self.swipe_dx,
                             &self.menus_scroll,
                             &self.menus_days_scroll,
-                            self.pull_dy,
                             cx,
                         )
                     }
@@ -1645,7 +1573,6 @@ impl AppShell {
                             state.orders_past,
                             theme,
                             &self.orders_scroll,
-                            self.pull_dy,
                             cx,
                         )
                     } else {
@@ -1663,14 +1590,7 @@ impl AppShell {
                 }
                 Screen::Billing => {
                     if layout == LayoutMode::Phone {
-                        billing_tab(
-                            state,
-                            self.model.as_ref(),
-                            theme,
-                            &self.billing_scroll,
-                            self.pull_dy,
-                            cx,
-                        )
+                        billing_tab(state, self.model.as_ref(), theme, &self.billing_scroll, cx)
                     } else {
                         desktop_billing_tab(
                             state,
@@ -1703,17 +1623,10 @@ impl Render for AppShell {
             .as_ref()
             .is_none_or(|model| model.state().launch_settled);
         if self.seen_frame && active && !self.was_active && launched {
-            if let Some(model) = self.model.as_ref() {
-                // A foreground return is not a user action: its fetch must
-                // never hold the frame, on any host. Inline, the orders and
-                // billing round-trips froze the shell for seconds after the
-                // phone came back, so day switching did nothing. It runs on
-                // the worker; the hub repaints when the answer lands.
-                let model = Arc::clone(model);
-                cx.background_executor()
-                    .spawn(async move { model.on_foreground() })
-                    .detach();
-            }
+            // A foreground return is not a user action: its fetch must never
+            // hold the frame, on any host. It also only runs when the data is
+            // stale, so coming back a minute later reloads nothing.
+            self.auto_refresh(cx);
         }
         self.was_active = active;
         self.seen_frame = true;
@@ -1949,7 +1862,11 @@ impl Render for AppShell {
                 (Some(intent), Some(model)) => {
                     let model = Arc::clone(model);
                     let host = state.host_kind;
+                    let shell = cx.entity().clone();
                     Some(Rc::new(move |_w: &mut Window, cx: &mut App| {
+                        // Restart the 15-minute clock: a fetch the user asked
+                        // for must not be repeated by the tick minutes later.
+                        let _ = shell.update(cx, |s, _| s.last_refresh = Some(Instant::now()));
                         dispatch_refresh(&model, intent, host, cx);
                     }) as ClickHandler)
                 }
@@ -2134,18 +2051,17 @@ mod tests {
         desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
         focus_restore, keyboard_action, launch_visible, menu_row_action, model_settings_detail,
         navigation_top, nearest_restore_cursor, obstruction_reservation, order_cancel_state,
-        order_row_effect, pull_is_at_top, pull_offset, refresh_intent, safe_area,
-        should_create_inputs, Detail, FocusRestore, MenuRowAction, MutationGate, OrderCancelState,
-        OrderRowEffect, RefreshIntent, CONTENT_TOP, LAUNCH_MAX, LAUNCH_MIN, SCROLL_END_GAP,
+        order_row_effect, refresh_due, refresh_intent, safe_area, should_create_inputs, Detail,
+        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
+        AUTO_REFRESH, CONTENT_TOP, LAUNCH_MAX, LAUNCH_MIN, SCROLL_END_GAP,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
-    use crate::components::pull_refresh::PULL_MAX;
     use snackpilot_model::desktop::HostKind;
     use snackpilot_model::desktop::LayoutMode;
     use snackpilot_model::navigation::{ListKind, Screen, SettingsDetail, Tab};
     use snackpilot_model::{AppModel, FakePlatform};
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use crate::screens::orders::{
         desktop_cancel_basis, desktop_cancel_dispatch, desktop_cancel_selected_dispatch,
@@ -3252,23 +3168,25 @@ mod tests {
             .unwrap_or_default()
     }
 
-    /// Pull-to-refresh only follows a downward drag that starts at the top of
-    /// the list, so scrolling can never reload by accident.
+    /// The 15-minute rule behind both triggers: nothing refreshed yet is due,
+    /// anything inside the window is not, and the boundary itself is due.
     #[test]
-    fn pull_only_measures_from_the_top() {
-        assert!(pull_is_at_top(0.));
-        assert!(!pull_is_at_top(-1.));
-        assert_eq!(pull_offset(200., true, 0.), PULL_MAX, "one delta is capped");
-        assert_eq!(pull_offset(30., true, 20.), 50., "deltas accumulate");
-        assert_eq!(pull_offset(-40., true, 20.), 0., "an upward drag clears it");
-        assert_eq!(pull_offset(-40., true, 0.), 0.);
-        assert_eq!(
-            pull_offset(80., false, 0.),
-            0.,
-            "a scrolled list is not pulled"
+    fn a_refresh_is_due_once_the_data_is_fifteen_minutes_old() {
+        assert!(
+            refresh_due(None),
+            "a launch has no last refresh to compare against"
         );
-        assert_eq!(pull_offset(0., false, 70.), 0., "leaving the top drops it");
-        assert!(PULL_MAX > crate::components::pull_refresh::PULL_PX);
+        assert!(
+            !refresh_due(Some(Instant::now())),
+            "coming back a second later reloads nothing"
+        );
+        let inside = Instant::now()
+            .checked_sub(AUTO_REFRESH - Duration::from_secs(1))
+            .unwrap();
+        assert!(!refresh_due(Some(inside)), "14:59 is still fresh");
+        let boundary = Instant::now().checked_sub(AUTO_REFRESH).unwrap();
+        assert!(refresh_due(Some(boundary)), "15:00 is due");
+        assert_eq!(AUTO_REFRESH, Duration::from_secs(15 * 60));
     }
 
     /// The launch mark covers the empty states on the way to data, and still

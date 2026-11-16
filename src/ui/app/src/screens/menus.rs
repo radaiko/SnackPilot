@@ -20,7 +20,6 @@ use crate::components::menu_card::{
     desktop_menu_action, desktop_menu_status, menu_card, mobile_menu_tappable, DesktopMenuRowState,
     MenuCardState,
 };
-use crate::components::pull_refresh::pull_refresh;
 use crate::components::record_table::{
     detail_entry, record_cell_right, record_row_focusable, record_status_cell, RecordListFocus,
 };
@@ -37,7 +36,7 @@ use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::{MenuCategory, MenuItem};
 use snackpilot_model::desktop::{desktop_geometry, ControlState, HostKind};
-use snackpilot_model::navigation::{ListKind, Tab};
+use snackpilot_model::navigation::ListKind;
 use snackpilot_model::tokens;
 use snackpilot_model::{
     category_heading, day_key_from_epoch_ms, format_day_short, menu_key, today_key, AppModel, State,
@@ -56,7 +55,6 @@ pub fn menus_tab(
     offset: f32,
     scroll: &ScrollHandle,
     days_scroll: &ScrollHandle,
-    pull: f32,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     if !state.gourmet_authenticated {
@@ -85,8 +83,8 @@ pub fn menus_tab(
     }
     column = column.child(day_row);
 
-    // A pull releases into the model's own refresh: the quiet line is the only
-    // progress a cached Menüs shows while its cards stay in place.
+    // The quiet line is the only progress a cached Menüs shows while a
+    // background refresh keeps its cards in place.
     if state.order_progress.is_none()
         && state
             .menu_snapshot
@@ -120,51 +118,15 @@ pub fn menus_tab(
 
     // The swipe surface takes only the height left under the day navigator;
     // a size_full child there pushed the list under the shell's bottom edge and
-    // clipped the last row. A drag from the top of the list reloads the menus.
-    let on_refresh = crate::app::refresh_handler(Tab::Menus, model, state.host_kind, cx);
-    let gesture = crate::app::pull_handlers(scroll.clone(), state.host_kind, on_refresh, cx);
-    column = column.child(pull_refresh(
-        "menus-pull",
-        div()
-            .flex_1()
-            .min_h_0()
-            .child(swipe_days(
-                "menus-swipe",
-                content,
-                swipe_offset(offset, can_back, can_forward, reduce_motion),
-                swipe_handlers(can_back, can_forward, reduce_motion, cx),
-            ))
-            .into_any_element(),
-        pull,
-        gesture,
-        theme,
-    ));
-
-    // The pull indicator ends only when the finger lifts over the list. A drag
-    // that ends on the day strip above it never gets there, and the spinner
-    // then sits under the strip for the rest of the session. Any release in
-    // this screen cancels a pull its own list did not finish.
-    let clear_pull = pull_cancel_handler(cx);
+    // clipped the last row.
     column
-        .on_mouse_up(MouseButton::Left, move |e, w, cx| clear_pull(e, w, cx))
+        .child(div().flex_1().min_h_0().child(swipe_days(
+            "menus-swipe",
+            content,
+            swipe_offset(offset, can_back, can_forward, reduce_motion),
+            swipe_handlers(can_back, can_forward, reduce_motion, cx),
+        )))
         .into_any_element()
-}
-
-/// Drop an unfinished pull: the list's own release already decided whether it
-/// was far enough, this only removes an indicator whose gesture ended
-/// somewhere else on the screen.
-fn pull_cancel_handler(
-    cx: &mut Context<AppShell>,
-) -> Rc<dyn Fn(&MouseUpEvent, &mut Window, &mut App)> {
-    let shell = cx.entity().clone();
-    Rc::new(move |_: &MouseUpEvent, _: &mut Window, cx: &mut App| {
-        shell.update(cx, |s, cx| {
-            if s.pull_dy > 0. {
-                s.pull_dy = 0.;
-                cx.notify();
-            }
-        });
-    })
 }
 
 /// What each available day carries, in the strip's order: whether an order
@@ -437,7 +399,7 @@ fn refresh_line(theme: &AppTheme) -> AnyElement {
         .flex()
         .flex_col()
         .gap(px(theme.scale.space_1))
-        .child(refresh_bar(theme, None, "menus-refresh-bar"))
+        .child(refresh_bar(theme, "menus-refresh-bar"))
         .child(
             div()
                 .text_size(px(theme.scale.meta))
@@ -502,7 +464,7 @@ fn refresh_banner(theme: &AppTheme) -> AnyElement {
         .flex()
         .flex_col()
         .gap(px(6.))
-        .child(refresh_bar(theme, None, "desktop-refresh-bar"))
+        .child(refresh_bar(theme, "desktop-refresh-bar"))
         .child(
             div()
                 .text_size(px(12.))

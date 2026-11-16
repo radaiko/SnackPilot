@@ -815,7 +815,6 @@ fn mobile_menus_case(width: f32, theme: &AppTheme) -> AnyElement {
                 .gap(px(theme.scale.space_1))
                 .child(crate::components::refresh_bar::refresh_bar(
                     theme,
-                    None,
                     "gallery-refresh-bar",
                 ))
                 .child(

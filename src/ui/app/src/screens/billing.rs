@@ -2,7 +2,7 @@
 //!
 //! One compact filter band (month chips over source segments), one summary
 //! surface, the newest-first receipt list in one shared card, the
-//! empty/loading/error states and pull-to-refresh. All data comes from the
+//! empty/loading/error states and the month reload. All data comes from the
 //! model's merged entries and totals; the selected month and source live in
 //! `AppModel` state.
 
@@ -19,7 +19,6 @@ use crate::components::bill_card::{
     bill_list, desktop_bill_detail, desktop_bill_header, desktop_bill_row,
 };
 use crate::components::chip::desktop_chip;
-use crate::components::pull_refresh::pull_refresh;
 use crate::components::record_table::{detail_entry, RecordListFocus};
 #[cfg(test)]
 use crate::components::segment_tabs::mobile_segment_height;
@@ -30,7 +29,7 @@ use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 use snackpilot_core::domain::MonthOption;
 use snackpilot_model::desktop::{ControlState, LayoutMode};
-use snackpilot_model::navigation::{ListKind, Screen, Tab};
+use snackpilot_model::navigation::{ListKind, Screen};
 use snackpilot_model::{format_eur, AppModel, BillingEntry, BillingSource, BillingTotals, State};
 
 const EMPTY_COPY: (&str, &str) = (
@@ -56,7 +55,6 @@ pub fn billing_tab(
     model: Option<&Arc<AppModel>>,
     theme: &AppTheme,
     scroll: &ScrollHandle,
-    pull: f32,
     cx: &mut Context<AppShell>,
 ) -> AnyElement {
     if !state.gourmet_authenticated && !state.ventopay_authenticated {
@@ -147,17 +145,7 @@ pub fn billing_tab(
         content = content.child(list);
     }
 
-    // A drag from the top of the receipts reloads the month.
-    let on_refresh = crate::app::refresh_handler(Tab::Billing, Some(model), state.host_kind, cx);
-    let gesture = crate::app::pull_handlers(scroll.clone(), state.host_kind, on_refresh, cx);
-    column = column.child(pull_refresh(
-        "billing-pull",
-        content.into_any_element(),
-        pull,
-        gesture,
-        theme,
-    ));
-    column.into_any_element()
+    column.child(content.into_any_element()).into_any_element()
 }
 
 /// The compact Abrechnung loading projection (design A17): a fetch without a
