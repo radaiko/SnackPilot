@@ -18,7 +18,7 @@ use crate::app::{AppShell, CarouselPage};
 use crate::components::bill_card::{
     bill_list, desktop_bill_detail, desktop_bill_header, desktop_bill_row,
 };
-use crate::components::carousel::{page_fade, page_travel, settle_after};
+use crate::components::carousel::{page_fade, painted_travel, settle_after, Carousel};
 use crate::components::chip::desktop_chip;
 use crate::components::record_table::{detail_entry, RecordListFocus};
 #[cfg(test)]
@@ -56,7 +56,7 @@ pub fn billing_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     theme: &AppTheme,
-    offset: f32,
+    page: Carousel,
     page_width: f32,
     scroll: &ScrollHandle,
     cx: &mut Context<AppShell>,
@@ -113,8 +113,8 @@ pub fn billing_tab(
         .map(|option| option.offset);
     let older = options.get(index + 1).map(|option| option.offset);
     let reduce_motion = cx.reduce_motion();
-    let travel = page_travel(
-        offset,
+    let travel = painted_travel(
+        &page,
         newer.is_some(),
         older.is_some(),
         reduce_motion,
@@ -265,28 +265,30 @@ fn month_release(
     page_width: f32,
     cx: &mut Context<AppShell>,
 ) {
-    let Some(dx) = s.months_page.release() else {
-        cx.notify();
-        return;
-    };
-    // The page finish starts at the painted pixel: at a month-carousel edge
-    // that is the damped travel, so the release does not jump.
-    let mut settle = crate::components::carousel::page_travel(
-        dx,
+    // The finish starts from the pixel the row is painted at: that is the
+    // damped travel at an edge, and it includes any finish that was still
+    // easing when the touch began, so the release never jumps.
+    let painted = painted_travel(
+        &s.months_page,
         newer.is_some(),
         older.is_some(),
         cx.reduce_motion(),
         page_width,
     );
+    let Some(dx) = s.months_page.release() else {
+        cx.notify();
+        return;
+    };
+    let mut settle = painted;
     let mut switch = None;
     if let Some(model) = &s.model {
         match swipe_day(dx, newer.is_some(), older.is_some()) {
             Some(-1) => {
-                settle = settle_after(dx, -1, page_width);
+                settle = settle_after(painted, -1, page_width);
                 switch = newer.map(|offset| (Arc::clone(model), offset));
             }
             Some(1) => {
-                settle = settle_after(dx, 1, page_width);
+                settle = settle_after(painted, 1, page_width);
                 switch = older.map(|offset| (Arc::clone(model), offset));
             }
             _ => {}

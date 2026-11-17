@@ -1622,7 +1622,7 @@ impl AppShell {
                             state,
                             self.model.as_ref(),
                             theme,
-                            self.days_page.offset(),
+                            self.days_page,
                             strip_offset,
                             // The phone host reports no content width, so the
                             // page width comes from the column the shell laid
@@ -1662,7 +1662,7 @@ impl AppShell {
                             state,
                             self.model.as_ref(),
                             theme,
-                            self.months_page.offset(),
+                            self.months_page,
                             page_width,
                             &self.billing_scroll,
                             cx,

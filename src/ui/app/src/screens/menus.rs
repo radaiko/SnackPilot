@@ -15,7 +15,7 @@ use gpui::*;
 use crate::app::CarouselPage;
 use crate::app::{desktop_mutation_blocked, run_blocking, AppShell};
 use crate::components::button::desktop_action_state;
-use crate::components::carousel::{neighbours, page_fade, page_travel, settle_after};
+use crate::components::carousel::{neighbours, page_fade, painted_travel, settle_after, Carousel};
 use crate::components::day_navigator::strip_snap;
 use crate::components::day_navigator::{mobile_day_strip, DayFacts, DaySelectHandler};
 use crate::components::fab::{dock_bottom, dock_height, dock_state, mobile_dock, DockState};
@@ -53,7 +53,7 @@ pub fn menus_tab(
     state: &State,
     model: Option<&Arc<AppModel>>,
     theme: &AppTheme,
-    offset: f32,
+    page: Carousel,
     strip_offset: f32,
     page_width: f32,
     scroll: &ScrollHandle,
@@ -127,9 +127,9 @@ pub fn menus_tab(
     let can_back = prev.is_some();
     let can_forward = next.is_some();
     let reduce_motion = cx.reduce_motion();
-    // One damping step only: the row shows the damped travel at an edge and
-    // the release starts from exactly that pixel.
-    let travel = page_travel(offset, can_back, can_forward, reduce_motion, page_width);
+    // One damping step only: the row shows the damped drag at an edge plus the
+    // finish that is still running, and the release starts from those pixels.
+    let travel = painted_travel(&page, can_back, can_forward, reduce_motion, page_width);
 
     // The day carousel: the day before, the day on screen and the day after,
     // side by side in one clipped row. Dragging slides the row, so the next day
@@ -786,24 +786,31 @@ fn swipe_release(
     page_width: f32,
     cx: &mut Context<AppShell>,
 ) {
+    // The finish starts from the pixel the row is painted at: that is the
+    // damped travel at an edge, and it includes any finish that was still
+    // easing when the touch began, so the release never jumps.
+    let painted = painted_travel(
+        &s.days_page,
+        can_back,
+        can_forward,
+        cx.reduce_motion(),
+        page_width,
+    );
     let Some(dx) = s.days_page.release() else {
         cx.notify();
         return;
     };
-    // Without a day switch the page finish starts from the pixel the row is
-    // painted at — at an edge that is the damped travel, not the raw drag, so
-    // the release does not jump.
-    let mut settle = page_travel(dx, can_back, can_forward, cx.reduce_motion(), page_width);
+    let mut settle = painted;
     if let Some(model) = &s.model {
         let day = swipe_day(dx, can_back, can_forward);
         log::info!("swipe: {dx} px released, day {day:?}");
         match day {
             Some(-1) => {
-                settle = settle_after(dx, -1, page_width);
+                settle = settle_after(painted, -1, page_width);
                 model.prev_day();
             }
             Some(1) => {
-                settle = settle_after(dx, 1, page_width);
+                settle = settle_after(painted, 1, page_width);
                 model.next_day();
             }
             _ => {}

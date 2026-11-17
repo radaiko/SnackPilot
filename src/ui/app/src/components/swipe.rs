@@ -28,6 +28,14 @@ pub const SWITCH_PX: f32 = 50.;
 pub const TRAVEL_MAX: f32 = 240.;
 /// Rubber-band factor at the first/last date.
 pub const EDGE_DAMPING: f32 = 0.3;
+/// How much more a delta has to travel across than down before it belongs to a
+/// page gesture. A thumb that scrolls down drifts sideways the whole way; at 1.5
+/// that drift can never add up to a page swipe, which is what made the billing
+/// list move diagonally.
+pub const AXIS_RATIO: f32 = 1.5;
+/// Vertical travel that settles the axis lock: a gesture that has moved this
+/// far down without going across is a scroll for the rest of the touch.
+pub const AXIS_LOCK_PX: f32 = CLAIM_PX;
 
 pub type ScrollHandler = Rc<dyn Fn(&ScrollWheelEvent, &mut Window, &mut App)>;
 pub type UpHandler = Rc<dyn Fn(&MouseUpEvent, &mut Window, &mut App)>;
@@ -51,12 +59,12 @@ pub fn claims_horizontal(dx: f32, dy: f32) -> bool {
     dx.abs() > CLAIM_PX && dx.abs() > dy.abs()
 }
 
-/// Whether one scroll delta belongs to the day gesture. It has to travel
-/// further across than down, so the list's own vertical scrolling never moves
-/// the day — a run of slightly slanted vertical deltas used to accumulate into
-/// a day switch on release.
+/// Whether one scroll delta belongs to a page gesture. It has to travel
+/// [`AXIS_RATIO`] further across than down, so the list's own vertical
+/// scrolling never moves the page — a run of slightly slanted vertical deltas
+/// used to accumulate into a swipe on release.
 pub fn is_swipe_delta(dx: f32, dy: f32) -> bool {
-    dx != 0. && dx.abs() > dy.abs()
+    dx != 0. && dx.abs() >= AXIS_RATIO * dy.abs()
 }
 
 /// One more delta of travel, capped at [`TRAVEL_MAX`].
@@ -95,8 +103,8 @@ pub fn swipe_surface(id: &'static str, content: AnyElement, handlers: SwipeHandl
 #[cfg(test)]
 mod tests {
     use super::{
-        add_travel, claims_horizontal, is_swipe_delta, swipe_day, CLAIM_PX, EDGE_DAMPING,
-        SWITCH_PX, TRAVEL_MAX,
+        add_travel, claims_horizontal, is_swipe_delta, swipe_day, AXIS_RATIO, CLAIM_PX,
+        EDGE_DAMPING, SWITCH_PX, TRAVEL_MAX,
     };
 
     /// A thumb drag arrives as a run of scroll deltas, not as one movement:
@@ -120,9 +128,13 @@ mod tests {
         assert_eq!(swipe_day(dx, true, true), Some(1), "left is the day on");
 
         // A slanted vertical scroll: every delta travels further down than
-        // across, so the day never sees it. This used to add up to a switch on
-        // release whenever the thumb drifted sideways on the way down.
+        // across by the axis ratio, so the day never sees it. This used to add
+        // up to a switch on release whenever the thumb drifted sideways on the
+        // way down.
         let dx = travel(&[(5., 30.), (4., 28.), (6., 22.)]);
+        assert_eq!(dx, 0.);
+        assert_eq!(swipe_day(dx, true, true), None);
+        let dx = travel(&[(12., 10.), (14., 11.), (9., 12.)]);
         assert_eq!(dx, 0.);
         assert_eq!(swipe_day(dx, true, true), None);
 
@@ -165,6 +177,17 @@ mod tests {
             !claims_horizontal(-11., 20.),
             "a vertical scroll stays a scroll"
         );
+
+        // One delta's own axes: 1.5 across for every 1 down, so an ordinary
+        // thumb scroll — which always drifts sideways — is never page travel.
+        assert_eq!(AXIS_RATIO, 1.5);
+        assert!(is_swipe_delta(15., 10.));
+        assert!(is_swipe_delta(-15., 10.));
+        assert!(
+            !is_swipe_delta(14., 10.),
+            "14 across against 10 down is still a scroll"
+        );
+        assert!(!is_swipe_delta(0., 0.), "a dead delta is nothing");
 
         // Switch at exactly 50 px is not yet a switch; 51 is.
         assert_eq!(swipe_day(50., true, true), None);
