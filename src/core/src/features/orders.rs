@@ -95,11 +95,7 @@ impl OrderStore {
                 Ok(self.post_fetch_notifications(&orders))
             }
             Err(e) => {
-                let msg = match e.to_string().as_str() {
-                    "" => "Bestellungen konnten nicht geladen werden".to_string(),
-                    s => s.to_string(),
-                };
-                *self.error.lock().unwrap() = Some(msg);
+                *self.error.lock().unwrap() = Some(e.user_message());
                 *self.loading.lock().unwrap() = false;
                 Ok(vec![]) // failure captured in `error`; existing orders kept
             }
@@ -156,10 +152,7 @@ impl OrderStore {
     pub async fn confirm_orders(&self) -> CoreResult<()> {
         *self.error.lock().unwrap() = None;
         if let Err(e) = self.gourmet.confirm_orders().await {
-            *self.error.lock().unwrap() = Some(match e.to_string().as_str() {
-                "" => "Bestellungen konnten nicht bestätigt werden".to_string(),
-                s => s.to_string(),
-            });
+            *self.error.lock().unwrap() = Some(e.user_message());
             return Ok(());
         }
         self.fetch_orders().await?;
@@ -179,10 +172,7 @@ impl OrderStore {
                 Ok(())
             }
             Err(e) => {
-                *self.error.lock().unwrap() = Some(match e.to_string().as_str() {
-                    "" => "Bestellung konnte nicht storniert werden".to_string(),
-                    s => s.to_string(),
-                });
+                *self.error.lock().unwrap() = Some(e.user_message());
                 Ok(())
             }
         }
@@ -204,10 +194,7 @@ impl OrderStore {
                 Ok(())
             }
             Err(e) => {
-                *self.error.lock().unwrap() = Some(match e.to_string().as_str() {
-                    "" => "Bestellungen konnten nicht storniert werden".to_string(),
-                    s => s.to_string(),
-                });
+                *self.error.lock().unwrap() = Some(e.user_message());
                 Ok(())
             }
         }

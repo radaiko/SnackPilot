@@ -30,6 +30,40 @@ pub enum CoreError {
     InvalidSetting { detail: String },
 }
 
+impl CoreError {
+    /// The one sentence the app shows for this failure.
+    ///
+    /// The `Display` strings are v1's verbatim texts and stay that way — they
+    /// are logs and test expectations. What a person reads is this: transport
+    /// and parse failures are summarised, because a reqwest message quotes the
+    /// URL and says nothing anyone can act on, and the store's own texts
+    /// (credentials, constraints) are carried as they are.
+    pub fn user_message(&self) -> String {
+        match self {
+            CoreError::LoginFailed { detail } if !detail.is_empty() => detail.clone(),
+            CoreError::LoginFailed { .. } => "Anmeldung fehlgeschlagen.".to_string(),
+            CoreError::AddToCartFailed { detail } if !detail.is_empty() => detail.clone(),
+            CoreError::AddToCartFailed { .. } => "Bestellung fehlgeschlagen.".to_string(),
+            CoreError::SessionExpired => {
+                "Die Sitzung ist abgelaufen. Bitte melde dich erneut an.".to_string()
+            }
+            CoreError::NotLoggedIn => "Nicht angemeldet.".to_string(),
+            CoreError::Http { .. } => {
+                "Verbindungsproblem. Bitte prüfe deine Internetverbindung und versuche es erneut."
+                    .to_string()
+            }
+            CoreError::Parse { .. } => {
+                "Die Serverantwort konnte nicht gelesen werden. Bitte später erneut versuchen."
+                    .to_string()
+            }
+            CoreError::EditModeFailed => "Bestellung konnte nicht bearbeitet werden.".to_string(),
+            CoreError::Storage { .. } => "Speicherfehler.".to_string(),
+            // The core carries the constraint text itself ("… zwischen 06:00 und 08:45 …").
+            CoreError::InvalidSetting { detail } => detail.clone(),
+        }
+    }
+}
+
 pub type CoreResult<T> = Result<T, CoreError>;
 
 #[cfg(test)]
@@ -59,5 +93,43 @@ mod tests {
             .to_string(),
             "Add to cart failed: boom"
         );
+    }
+
+    /// What the app shows never quotes a transport or parser message.
+    #[test]
+    fn user_messages_are_readable() {
+        let http = CoreError::Http {
+            detail:
+                "error sending request for url (https://alaclickneu.gourmet.at/de/bestellungen/)"
+                    .into(),
+            status: None,
+        };
+        assert_eq!(
+            http.user_message(),
+            "Verbindungsproblem. Bitte prüfe deine Internetverbindung und versuche es erneut."
+        );
+        assert_eq!(
+            CoreError::Parse {
+                detail: "expected token".into()
+            }
+            .user_message(),
+            "Die Serverantwort konnte nicht gelesen werden. Bitte später erneut versuchen."
+        );
+        // The store's own texts are the message.
+        assert_eq!(
+            CoreError::LoginFailed {
+                detail: "Falsches Passwort".into()
+            }
+            .user_message(),
+            "Falsches Passwort"
+        );
+        assert_eq!(
+            CoreError::InvalidSetting {
+                detail: "Uhrzeit zwischen 06:00 und 08:45".into()
+            }
+            .user_message(),
+            "Uhrzeit zwischen 06:00 und 08:45"
+        );
+        assert_eq!(CoreError::NotLoggedIn.user_message(), "Nicht angemeldet.");
     }
 }
