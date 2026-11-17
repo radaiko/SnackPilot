@@ -17,7 +17,7 @@ android {
         applicationId = "dev.radaiko.gourmetclient"
         minSdk = 29          // shipped v1 floor (task 6.1 checklist)
         targetSdk = 36
-        versionCode = 36
+        versionCode = 37
         versionName = "2.1.0"
 
         // x86_64 for the headless emulator, arm64-v8a for devices.

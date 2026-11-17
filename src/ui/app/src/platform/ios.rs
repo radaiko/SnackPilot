@@ -27,7 +27,10 @@ use snackpilot_core::notify::NotificationCommand;
 use snackpilot_model::{Capabilities, LocationFix, Platform, PlatformError, SupportEmail};
 
 /// [`IosShimTable::size`]: number of function fields plus the size field.
-pub const TABLE_SIZE: u32 = 17;
+/// A mismatch rejects the whole table in `snackpilot_ios_register_shims`, and
+/// the app then runs with no bridge at all — no keychain, no storage dir — so
+/// its saved state looks wiped while the files sit untouched.
+pub const TABLE_SIZE: u32 = 18;
 
 /// Command marshalled to the Swift `SnackPilotWireCommand`. `id` is the
 /// v1 `UNNotificationRequest` identifier (a string), `channel_id` is
@@ -1162,6 +1165,25 @@ mod tests {
             set_app_icon: Some(stub_set_app_icon),
             is_dark: Some(stub_is_dark),
         }
+    }
+
+    /// `TABLE_SIZE` must count every function field. The stub table builds its
+    /// own size from the constant, so only this check catches a field added on
+    /// both sides while the constant stayed behind — the failure the Swift host
+    /// hits as a rejected table (no keychain, no storage dir: state looks
+    /// wiped).
+    /// @req REQ-PLT-06
+    #[test]
+    fn table_size_counts_every_function_field() {
+        let pointer = std::mem::size_of::<Option<extern "C" fn()>>();
+        // repr(C) on a 64-bit target: the u32 size pads to one pointer slot,
+        // then one slot per function field — so the struct's size counts the
+        // size field plus every function field, which is what TABLE_SIZE is.
+        let slots = std::mem::size_of::<IosShimTable>() / pointer;
+        assert_eq!(
+            TABLE_SIZE as usize, slots,
+            "bump TABLE_SIZE whenever IosShimTable gains a field"
+        );
     }
 
     /// Short-timeout registry shared by every test platform; ids are unique
