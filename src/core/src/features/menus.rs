@@ -153,22 +153,38 @@ impl MenuStore {
         match self.gourmet.get_menus().await {
             Ok(items) => {
                 let now = self.clock.now_epoch_ms();
-                {
-                    let mut s = self.inner.lock().unwrap();
-                    s.items = items.clone();
-                    s.last_fetched = Some(now);
-                    s.loading = false;
-                    // §3.2 step 6: auto-select nearest date if the current one has no menus.
-                    let dates = Self::available_dates(&s.items);
-                    let target = s
-                        .selected_date
-                        .clone()
-                        .unwrap_or_else(|| local_date_key(now));
-                    if !dates.contains(&target) {
-                        s.selected_date = find_nearest_date(&dates, &target);
+                // A store answering "no menus" for a week the app already lists is
+                // not news: one empty page (a session restore, the 15-minute tick,
+                // a second request in quick succession) blanked Menüs and
+                // overwrote the cache until the next successful request. A week
+                // only becomes empty when it was empty before, so readable data is
+                // never lost to a single empty answer — the rule billing already
+                // applies to a month. `force` still skips the TTL; it just no
+                // longer turns one empty answer into the truth.
+                let empty_answer_is_news =
+                    !items.is_empty() || self.inner.lock().unwrap().items.is_empty();
+                if empty_answer_is_news {
+                    {
+                        let mut s = self.inner.lock().unwrap();
+                        s.items = items.clone();
+                        s.last_fetched = Some(now);
+                        // §3.2 step 6: auto-select nearest date if the current one has no menus.
+                        let dates = Self::available_dates(&s.items);
+                        let target = s
+                            .selected_date
+                            .clone()
+                            .unwrap_or_else(|| local_date_key(now));
+                        if !dates.contains(&target) {
+                            s.selected_date = find_nearest_date(&dates, &target);
+                        }
                     }
+                    let _ = cache::save_menus(self.kv.as_ref(), &items);
+                } else {
+                    // Keep the retry clock honest: the empty answer still counts
+                    // as an attempt, so the tick does not hammer the store.
+                    self.inner.lock().unwrap().last_fetched = Some(now);
                 }
-                let _ = cache::save_menus(self.kv.as_ref(), &items);
+                self.inner.lock().unwrap().loading = false;
                 Ok(())
             }
             Err(e) => {
@@ -730,6 +746,58 @@ mod tests {
         let n = t.requests().len();
         store.fetch_menus(false).await.unwrap();
         assert_eq!(t.requests().len(), n);
+    }
+
+    /// A background answer with no menus never blanks a week the app already
+    /// lists (the screen showed "Keine Menüs für diesen Tag" after a session
+    /// restore came back empty), and it never overwrites the cache. The user's
+    /// own forced refresh still accepts the empty answer.
+    #[tokio::test]
+    async fn an_empty_answer_does_not_blank_a_known_week() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = logged_in_gourmet(&t).await;
+        let kv = Arc::new(MemoryKv::new());
+        let store = MenuStore::new(g, kv.clone(), Arc::new(SystemClock));
+        t.queue_response(ok(MENUS_0));
+        t.queue_response(ok(MENUS_1));
+        store.fetch_menus(false).await.unwrap();
+        let week = store.snapshot();
+        assert!(!week.items.is_empty(), "the first fetch lists the week");
+
+        // Non-forced: the empty page is not news.
+        t.queue_response(ok(
+            r#"<html><body><span id="btnHeaderLogout"></span>Keine Menüs</body></html>"#,
+        ));
+        store.fetch_menus(false).await.unwrap();
+        assert_eq!(store.snapshot().items, week.items);
+        assert_eq!(
+            cache::load_menus(kv.as_ref()).map(|items| items.len()),
+            Some(week.items.len()),
+            "the cache keeps the week"
+        );
+
+        // Forced means "skip the TTL", and the automatic tick uses it too: it
+        // must not accept the empty answer either.
+        t.queue_response(ok(
+            r#"<html><body><span id="btnHeaderLogout"></span>Keine Menüs</body></html>"#,
+        ));
+        t.queue_response(ok(
+            r#"<html><body><span id="btnHeaderLogout"></span>Keine Menüs</body></html>"#,
+        ));
+        store.fetch_menus(true).await.unwrap();
+        assert_eq!(store.snapshot().items, week.items);
+
+        // A week that was empty to begin with accepts an empty answer.
+        let empty_store = MenuStore::new(
+            logged_in_gourmet(&t).await,
+            kv.clone(),
+            Arc::new(SystemClock),
+        );
+        t.queue_response(ok(
+            r#"<html><body><span id="btnHeaderLogout"></span>Keine Menüs</body></html>"#,
+        ));
+        empty_store.fetch_menus(false).await.unwrap();
+        assert!(empty_store.snapshot().items.is_empty());
     }
 
     #[tokio::test]
