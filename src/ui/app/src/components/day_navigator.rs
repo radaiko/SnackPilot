@@ -197,6 +197,15 @@ pub fn strip_snap(offset: f32, days: usize, viewport: f32, theme: &AppTheme) -> 
     ((offset / step).round() * step).clamp(0., strip_max_offset(days, viewport, theme))
 }
 
+/// What a release hands the painter: the chip the row settles on, and the
+/// settle offset to start from. Painted as `base + settle`, the row sits on the
+/// pixel it was released at and only then eases to the chip — the release frame
+/// never moves.
+pub fn strip_release(painted: f32, days: usize, viewport: f32, theme: &AppTheme) -> (f32, f32) {
+    let target = strip_snap(painted, days, viewport, theme);
+    (target, painted - target)
+}
+
 /// The settled offset that puts chip `index` at the left edge of the visible
 /// part.
 pub fn strip_offset_for_index(index: usize, days: usize, viewport: f32, theme: &AppTheme) -> f32 {
@@ -324,7 +333,7 @@ pub fn mobile_day_strip(
 mod tests {
     use super::{
         day_dot, mobile_day_strip, strip_max_offset, strip_offset_for_index, strip_painted,
-        strip_snap, strip_travel_offset, DayDot, DayFacts, DAY_CHIP_W, STRIP_SLOP,
+        strip_release, strip_snap, strip_travel_offset, DayDot, DayFacts, DAY_CHIP_W, STRIP_SLOP,
     };
     use crate::components::swipe::SwipeHandlers;
     use crate::theme::AppTheme;
@@ -372,6 +381,29 @@ mod tests {
             "dragging back uncovers the row from its end"
         );
         assert_eq!(strip_painted(5., -25., 0., days, viewport, &theme), 0.);
+    }
+
+    /// The release frame does not move the row: base + settle is exactly the
+    /// pixel it was released at, and the settle eases to zero so the strip
+    /// lands on the chip instead of jumping there first.
+    /// @req REQ-SCR-01 @req REQ-UI-16
+    #[test]
+    fn a_release_continues_from_the_pixel_it_was_let_go_at() {
+        let theme = AppTheme::build(false);
+        let (days, viewport) = (9, 268.);
+        for painted in [0., 7., 40., 80., 119., 288., 300.] {
+            let (base, settle) = strip_release(painted, days, viewport, &theme);
+            assert_eq!(
+                base + settle,
+                painted,
+                "{painted} px must not move on the release frame"
+            );
+            // Easing the settle to zero leaves the row on a chip boundary.
+            assert_eq!(base, strip_snap(painted, days, viewport, &theme));
+            assert_eq!(base % super::strip_step(&theme), 0.);
+        }
+        assert_eq!(strip_release(80., days, viewport, &theme), (60., 20.));
+        assert_eq!(strip_release(100., days, viewport, &theme), (120., -20.));
     }
 
     /// The strip settles onto whole chips, never between two, and never past

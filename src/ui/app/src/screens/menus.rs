@@ -929,9 +929,12 @@ fn strip_release(
         viewport,
         theme,
     );
-    let target = strip_snap(painted, days, viewport, theme);
+    // Continue from the pixel the row is on: base + settle is that pixel, and
+    // the settle eases to zero, which lands it on the chip.
+    let (target, settle) =
+        crate::components::day_navigator::strip_release(painted, days, viewport, theme);
     s.strip_scroll = target;
-    s.strip_page.finish(target - painted, reduce_motion);
+    s.strip_page.finish(settle, reduce_motion);
     if s.strip_page.settle != 0. {
         s.ease_page(CarouselPage::Strip, cx);
     }
