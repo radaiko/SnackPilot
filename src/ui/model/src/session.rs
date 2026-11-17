@@ -424,6 +424,8 @@ impl AppModel {
     /// fails; the failure surfaces as a typed error instead of leaving the
     /// flow stuck (REQ-PLT-06).
     pub(crate) async fn load_orders(&self) -> Result<(), PlatformError> {
+        self.hub
+            .update("orders_loading", |s| s.orders_loading = true);
         let mut fetched = self.core.fetch_orders().await;
         if matches!(fetched, Err(CoreError::SessionExpired))
             && self.restore_expired_session("orders").await
@@ -445,6 +447,7 @@ impl AppModel {
         self.hub.update("orders", |s| {
             s.orders_split = Some(split);
             s.orders_error = error;
+            s.orders_loading = false;
         });
         self.record_notifications(commands)
     }

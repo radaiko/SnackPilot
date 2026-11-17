@@ -137,6 +137,9 @@ pub struct State {
     pub menu_snapshot: Option<MenuSnapshot>,
     pub orders_split: Option<OrdersSplit>,
     pub orders_error: Option<ErrorText>,
+    /// A Bestellungen fetch is running: the shell's slim bar shows it, so a
+    /// refresh tapped on the open tab is visible even when the list is empty.
+    pub orders_loading: bool,
 
     pub selected_offset: u8,
     pub month_options: Vec<MonthOption>,

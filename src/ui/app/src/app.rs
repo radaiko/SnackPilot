@@ -1932,6 +1932,7 @@ impl Render for AppShell {
         let background_work = state.launch_settled
             && (state.busy
                 || state.ventopay_busy
+                || state.orders_loading
                 || state.billing_loading
                 || state
                     .menu_snapshot
