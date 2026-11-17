@@ -505,3 +505,111 @@ fn diagnostic_log_state_machine() {
     assert!(!s.log_active && s.log_expired);
     assert_eq!(s.log_status, "Aufzeichnung abgeschlossen (0 Einträge).");
 }
+
+// ---- analytics (analytics.md §4, REQ-PLT-04) ----
+
+/// Every payload tracked under `event`, in emission order.
+fn tracked(fake: &FakePlatform, event: &str) -> Vec<std::collections::HashMap<String, String>> {
+    fake.tracks()
+        .into_iter()
+        .filter(|(name, _)| name == event)
+        .map(|(_, props)| props)
+        .collect()
+}
+
+fn prop<'a>(props: &'a std::collections::HashMap<String, String>, key: &str) -> Option<&'a str> {
+    props.get(key).map(String::as_str)
+}
+
+// @req REQ-PLT-04
+#[test]
+fn reminder_toggle_reports_the_switch_and_the_configured_time() {
+    let (model, fake, _dir) = signed_in("analytics_toggle");
+    model.set_daily_reminder_time(13, 30);
+    model.set_daily_reminder_enabled(true);
+    model.set_daily_reminder_enabled(false);
+
+    let toggles = tracked(&fake, "notification.reminderToggled");
+    assert_eq!(toggles.len(), 2, "{toggles:?}");
+    assert_eq!(prop(&toggles[0], "enabled"), Some("true"));
+    assert_eq!(prop(&toggles[0], "hour"), Some("13"));
+    assert_eq!(prop(&toggles[0], "minute"), Some("30"));
+    assert_eq!(prop(&toggles[1], "enabled"), Some("false"));
+    assert_eq!(prop(&toggles[1], "hour"), Some("13"));
+    assert_eq!(prop(&toggles[1], "minute"), Some("30"));
+}
+
+// @req REQ-PLT-04
+#[test]
+fn a_moved_reminder_time_is_reported_for_both_kinds() {
+    let (model, fake, _dir) = signed_in("analytics_time");
+    model.set_daily_reminder_time(9, 45);
+    model.set_location_reminder_time(7, 15);
+
+    let changes = tracked(&fake, "notification.timeChanged");
+    assert_eq!(changes.len(), 2, "{changes:?}");
+    assert_eq!(prop(&changes[0], "kind"), Some("daily"));
+    assert_eq!(prop(&changes[0], "hour"), Some("9"));
+    assert_eq!(prop(&changes[0], "minute"), Some("45"));
+    assert_eq!(prop(&changes[1], "kind"), Some("location"));
+    assert_eq!(prop(&changes[1], "hour"), Some("7"));
+    assert_eq!(prop(&changes[1], "minute"), Some("15"));
+
+    // An out-of-window target is refused and reported as no change at all.
+    model.set_location_reminder_time(9, 0);
+    assert_eq!(tracked(&fake, "notification.timeChanged").len(), 2);
+}
+
+// @req REQ-PLT-04
+#[test]
+fn permission_answers_are_reported_with_their_kind() {
+    let (model, fake, _dir) = signed_in("analytics_permission");
+    fake.set_location_permission(false);
+    model.set_company_location_from_current_position();
+    // A denied location aborts before the notification prompt, and nothing is
+    // reported as an adopted geofence.
+    let answers = tracked(&fake, "notification.permission");
+    assert_eq!(answers.len(), 1, "{answers:?}");
+    assert_eq!(prop(&answers[0], "kind"), Some("location"));
+    assert_eq!(prop(&answers[0], "granted"), Some("false"));
+    assert!(tracked(&fake, "notification.locationSet").is_empty());
+
+    fake.set_location_permission(true);
+    fake.set_notification_permission(false);
+    model.set_daily_reminder_enabled(true);
+    let answers = tracked(&fake, "notification.permission");
+    let denied = answers
+        .iter()
+        .find(|p| prop(p, "kind") == Some("notifications"))
+        .expect("the reminder toggle asks for notifications");
+    assert_eq!(prop(denied, "granted"), Some("false"));
+}
+
+// @req REQ-PLT-04
+#[test]
+fn geofence_adoption_and_removal_are_reported() {
+    let (model, fake, _dir) = signed_in("analytics_geofence");
+    fake.set_location(Some(LocationFix {
+        latitude: 48.2082,
+        longitude: 16.3738,
+    }));
+    model.set_location_reminder_time(7, 15);
+    model.set_company_location_from_current_position();
+
+    // Both prompts were granted on the way to a saved location.
+    let answers = tracked(&fake, "notification.permission");
+    assert_eq!(answers.len(), 2, "{answers:?}");
+    assert!(answers.iter().all(|p| prop(p, "granted") == Some("true")));
+
+    let set = tracked(&fake, "notification.locationSet");
+    assert_eq!(set.len(), 1, "one saved company location");
+    assert_eq!(prop(&set[0], "hour"), Some("7"));
+    assert_eq!(prop(&set[0], "minute"), Some("15"));
+
+    model.clear_company_location();
+    assert_eq!(
+        tracked(&fake, "notification.locationCleared").len(),
+        1,
+        "removing the location is reported too"
+    );
+}

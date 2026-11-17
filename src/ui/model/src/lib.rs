@@ -2,6 +2,7 @@
 //! to this crate, never to `snackpilot_core::ffi` directly. Owns the core
 //! session flows, the observable state hub and the `Platform` host abstraction.
 
+mod analytics;
 mod billing;
 pub mod desktop;
 mod diagnostics;

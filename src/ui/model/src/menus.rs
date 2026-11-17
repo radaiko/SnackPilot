@@ -168,6 +168,14 @@ impl AppModel {
     /// Swift `refreshMenus` (:336): force a fresh fetch and republish
     /// ("Erneut versuchen"); failures surface via `error_text`.
     pub fn refresh_menus(&self) {
+        self.refresh_menus_caused_by("manual");
+    }
+
+    /// The same force fetch, naming what asked for it (analytics.md §9):
+    /// `manual` for the refresh button, "Erneut versuchen" and Cmd+R, `auto`
+    /// for the 15-minute tick. A failed fetch still counts — how often a
+    /// refresh is attempted is the number, and `ok` separates the outcomes.
+    pub fn refresh_menus_caused_by(&self, trigger: &str) {
         let hub = self.hub();
         let _claim = ClearClaim(hub, "refresh");
         handle().block_on(async {
@@ -175,21 +183,32 @@ impl AppModel {
                 s.busy = true;
                 s.error_text = None;
             });
-            match self.core().fetch_menus(true).await {
+            let ok = match self.core().fetch_menus(true).await {
                 Ok(snap) => {
                     self.hub().update("menus", |s| s.menu_snapshot = Some(snap));
                     self.sync_selected_day();
+                    true
                 }
-                Err(e) => self.hub().update("menus_failed", |s| {
-                    s.error_text = Some(ErrorText {
-                        message: human_error(&e),
-                        retry: true,
+                Err(e) => {
+                    self.hub().update("menus_failed", |s| {
+                        s.error_text = Some(ErrorText {
+                            message: human_error(&e),
+                            retry: true,
+                        });
                     });
-                }),
-            }
+                    false
+                }
+            };
             self.hub().update("busy_off", |s| {
                 s.busy = false;
             });
+            let _ = self.platform.track(
+                "menu.refreshed",
+                std::collections::HashMap::from([
+                    ("trigger".to_string(), trigger.to_string()),
+                    ("ok".to_string(), ok.to_string()),
+                ]),
+            );
         });
     }
 

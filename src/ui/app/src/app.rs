@@ -756,7 +756,7 @@ impl AppShell {
         log::info!("refresh: automatic, the last one is 15 minutes old");
         cx.background_executor()
             .spawn(async move {
-                model.refresh_menus();
+                model.refresh_menus_caused_by("auto");
                 // Orders and billing plus the broadcast check: the same work a
                 // foreground return used to do on every single return.
                 model.on_foreground();

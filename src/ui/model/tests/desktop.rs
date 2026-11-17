@@ -606,6 +606,37 @@ fn preview_does_not_mutate() {
     );
 }
 
+/// @req REQ-PLT-04
+#[test]
+fn menu_refreshes_report_their_trigger_and_outcome() {
+    let (model, fake) = demo_model("refresh-analytics");
+    model.refresh_menus();
+    model.refresh_menus_caused_by("auto");
+
+    let refreshes: Vec<_> = fake
+        .tracks()
+        .into_iter()
+        .filter(|(event, _)| event == "menu.refreshed")
+        .map(|(_, props)| props)
+        .collect();
+    assert_eq!(refreshes.len(), 2, "{refreshes:?}");
+    assert_eq!(
+        refreshes[0].get("trigger").map(String::as_str),
+        Some("manual"),
+        "the refresh button, retry and Cmd+R are a person's choice"
+    );
+    assert_eq!(
+        refreshes[1].get("trigger").map(String::as_str),
+        Some("auto"),
+        "the 15-minute tick names itself"
+    );
+    assert_eq!(
+        refreshes[0].get("ok").map(String::as_str),
+        Some("true"),
+        "demo data answers without a host"
+    );
+}
+
 #[test]
 /// @req REQ-UI-10
 fn refresh_keeps_stable_identity() {

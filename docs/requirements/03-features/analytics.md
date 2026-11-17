@@ -9,7 +9,8 @@
 > `hetzner-server-1.ibex-dory.ts.net`). The **anonymity guarantee is preserved** (no user/device
 > IDs, no IDFA, no cross-app tracking — GDPR Recital 26). Event names use the core's dotted
 > convention: `app.launched` (per-launch, native), `order.submitted` + `order.cancelled` +
-> `menu.newDetected` (emitted by the Rust core). Setup + rationale: vault doc
+> `menu.newDetected` (emitted by the Rust core), plus the notification-adoption and
+> menu-refresh events added in v2 (§9). Setup + rationale: vault doc
 > "Snackpilot - Aptabase Self-Host". The TelemetryDeck specifics below are historical.
 
 SnackPilot (v1) sends anonymous usage analytics to **TelemetryDeck**. There is no user-level
@@ -288,3 +289,35 @@ construction as an import side effect, which is why the whole module is mocked).
 - Dev-build behavior (§2): signal call sites are not gated by the `__DEV__` check that
   gates the provider, so debug builds still emit non-lifecycle signals without default
   parameters. Code wins: documented as-is.
+
+---
+
+## 9. v2 additions — notification adoption and menu refresh frequency
+
+v1's schema could not answer "how many installs use location reminders, how many enabled the
+daily reminder, at which times, and how often menus are actually refreshed". Rows 14/15 existed
+in v1 but the v2 port (gpui model) did not emit them; they are now emitted, and six events were
+added. All of them are emitted by the Rust UI model (`src/ui/model/src/analytics.rs` holds the
+shared payload shapes) through `Platform::track`, i.e. the same Aptabase path as `app.launched`.
+Payload values stay strings, and nothing here becomes content or identity data (§5): no
+credentials, no menu titles, no location coordinates.
+
+| # | Event `type` | Payload | Trigger |
+|---|---|---|---|
+| 17 | `notification.reminderToggled` | `enabled: "true"/"false"`, `hour: "<0-23>"`, `minute: "<0-59>"` | Daily-reminder switch toggled in the Notifications screen — both directions. The time is the configured one at toggle time (the picker's 11:00 default before a first enable). v1 row 14, previously missing. |
+| 18 | `notification.timeChanged` | `kind: "daily"/"location"`, `hour`, `minute` | A reminder time was moved: the daily push reminder (`daily`) or the geofence "no order" target (`location`). An out-of-window location target is refused by core and emits nothing. |
+| 19 | `notification.locationSet` | `hour`, `minute` | The company location was saved **and** the OS actually armed the region; the clock is the configured "no order" target. v1 row 15, previously missing. A refused arming emits nothing. |
+| 20 | `notification.locationCleared` | — | "Standort entfernen" succeeded: the geofence stopped and the saved location was cleared. |
+| 21 | `notification.permission` | `kind: "location"/"notifications"`, `granted: "true"/"false"` | Every permission answer the app asks for: the two prompts of the location setup flow, the notification prompt when enabling the daily reminder, and the launch check (which answers without a dialog when the permission is already granted, so this reports the install's standing state once per launch). |
+| 22 | `menu.refreshed` | `trigger: "manual"/"auto"`, `ok: "true"/"false"` | A **forced** menu fetch finished. `manual` = refresh action, "Erneut versuchen" or Cmd+R; `auto` = the 15-minute foreground tick. A failed fetch is still a refresh attempt, hence `ok`. The cached launch load (`fetch_menus(false)`) is not a refresh and is not reported. |
+
+Notes:
+- "Adoption" questions are answered by shares, not absolute counts: `notification.locationSet`
+  against `app.launched` gives the location-reminder share, `notification.reminderToggled`
+  with `enabled: "true"` against `app.launched` the daily-reminder share, and the
+  `notification.permission` curve shows whether a missing feature is a permission problem or a
+  choice.
+- `menu.refreshed` counts refreshes, not fetches: with the 15-minute tick it also measures how
+  often the app refreshes without the user asking.
+- These events carry no new default parameters; they are sent with whatever payload the
+  Aptabase SDK attaches (device/OS/locale), unchanged from `app.launched`.

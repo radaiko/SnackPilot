@@ -15,21 +15,29 @@ impl AppModel {
         self.hub.update("location_busy", |s| s.location_busy = true);
 
         // 1. Region monitoring needs "Always" (§7.1).
-        if !self
+        let location_granted = self
             .platform
             .request_location_authorisation()
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        let _ = self.platform.track(
+            "notification.permission",
+            crate::analytics::permission("location", location_granted),
+        );
+        if !location_granted {
             self.show_location_alert(Alert::location_required());
             return;
         }
 
         // 2. Notifications (§7.2).
-        if !self
+        let notifications_granted = self
             .platform
             .request_notification_permission()
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        let _ = self.platform.track(
+            "notification.permission",
+            crate::analytics::permission("notifications", notifications_granted),
+        );
+        if !notifications_granted {
             self.show_location_alert(Alert::denied());
             return;
         }
@@ -60,6 +68,10 @@ impl AppModel {
             return;
         }
         let time = self.state().location_reminder_time;
+        let _ = self.platform.track(
+            "notification.locationSet",
+            crate::analytics::clock(time.hour, time.minute),
+        );
         self.show_location_alert(Alert::saved(crate::format::format_clock(
             time.hour,
             time.minute,
@@ -72,6 +84,9 @@ impl AppModel {
     pub fn clear_company_location(&self) {
         let _ = self.platform.stop_geofence();
         self.core.clear_company_location();
+        let _ = self
+            .platform
+            .track("notification.locationCleared", Default::default());
         self.hub.update("company_location_cleared", |s| {
             s.company_location = None;
         });

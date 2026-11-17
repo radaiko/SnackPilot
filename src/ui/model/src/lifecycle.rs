@@ -257,7 +257,17 @@ impl AppModel {
         #[cfg(not(debug_assertions))]
         let skip_prompt = false;
         if !skip_prompt && capabilities.notifications {
-            let _ = self.platform.request_notification_permission();
+            // The launch check answers without a dialog when the permission is
+            // already granted, so this reports the install's standing state
+            // once per launch.
+            let granted = self
+                .platform
+                .request_notification_permission()
+                .unwrap_or(false);
+            let _ = self.platform.track(
+                "notification.permission",
+                crate::analytics::permission("notifications", granted),
+            );
         }
         if capabilities.geofence && !self.evidence_mode() && self.state().company_location.is_some()
         {

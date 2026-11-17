@@ -80,6 +80,10 @@ impl AppModel {
             self.hub.update("location_reminder_time", |s| {
                 s.location_reminder_time = time
             });
+            let _ = self.platform.track(
+                "notification.timeChanged",
+                crate::analytics::time_changed("location", time.hour, time.minute),
+            );
             // A "no order" notice already scheduled for the old target would
             // still fire then. While the device is inside the region, the Enter
             // decisions re-issue it at the configured time (same id, so this

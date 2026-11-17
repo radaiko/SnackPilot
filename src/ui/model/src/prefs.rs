@@ -106,6 +106,11 @@ impl AppModel {
     /// alert and nothing is written, so the switch stays off (REQ-PLT-06).
     pub fn set_daily_reminder_enabled(&self, enabled: bool) {
         if !enabled {
+            let time = self.reminder_time_or_default();
+            let _ = self.platform.track(
+                "notification.reminderToggled",
+                crate::analytics::reminder_toggled(false, time.hour, time.minute),
+            );
             self.disable_daily_reminder();
             return;
         }
@@ -113,16 +118,19 @@ impl AppModel {
             .platform
             .request_notification_permission()
             .unwrap_or(false);
+        // Adoption of the notification permission, answered without a dialog
+        // when it is already granted.
+        let _ = self.platform.track(
+            "notification.permission",
+            crate::analytics::permission("notifications", granted),
+        );
         if !granted {
             self.hub.update("reminder_denied", |s| {
                 s.location_alert = Some(Alert::denied());
             });
             return;
         }
-        let time = self.hub.get().reminder_time.unwrap_or(ReminderTime {
-            hour: REMINDER_PICKER_DEFAULT_HOUR,
-            minute: REMINDER_PICKER_DEFAULT_MINUTE,
-        });
+        let time = self.reminder_time_or_default();
         // §9 step 2: time before the enabled flag, mirrored to core so headless
         // background callers read the same settings.
         self.write_reminder_time_keys(Some(time));
@@ -133,6 +141,19 @@ impl AppModel {
             s.reminder_time = Some(time);
         });
         self.apply_daily_reminder();
+        let _ = self.platform.track(
+            "notification.reminderToggled",
+            crate::analytics::reminder_toggled(true, time.hour, time.minute),
+        );
+    }
+
+    /// The configured reminder time, or the picker's default before a first
+    /// enable (v1 has no stored time until then).
+    fn reminder_time_or_default(&self) -> ReminderTime {
+        self.hub.get().reminder_time.unwrap_or(ReminderTime {
+            hour: REMINDER_PICKER_DEFAULT_HOUR,
+            minute: REMINDER_PICKER_DEFAULT_MINUTE,
+        })
     }
 
     /// Persists a new reminder time and re-applies the schedule while enabled
@@ -148,6 +169,10 @@ impl AppModel {
         self.hub.update("reminder_time", |s| {
             s.reminder_time = Some(ReminderTime { hour, minute });
         });
+        let _ = self.platform.track(
+            "notification.timeChanged",
+            crate::analytics::time_changed("daily", hour, minute),
+        );
         if self.hub.get().daily_reminder_enabled {
             self.apply_daily_reminder();
         }
