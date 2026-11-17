@@ -19,6 +19,10 @@ pub struct FakePlatform {
     failing: Mutex<HashSet<String>>,
     capabilities: Capabilities,
     location: Mutex<Option<LocationFix>>,
+    /// The `trigger_on_entry` flag of every `start_geofence` call, in order.
+    geofence_triggers: Mutex<Vec<bool>>,
+    /// Whether a region is currently registered, as the OS would report it.
+    monitoring: Mutex<bool>,
     // Permission grants default to true; tests deny them to drive the
     // §7.1/§7.2 alert branches.
     deny_location: Mutex<bool>,
@@ -59,6 +63,12 @@ impl FakePlatform {
 
     pub fn tracks(&self) -> Vec<(String, HashMap<String, String>)> {
         self.tracks.lock().unwrap().clone()
+    }
+
+    /// Whether each `start_geofence` call asked for the initial Enter: setup
+    /// passes `true`, a launch restore `false` (§3.2/§3.3).
+    pub fn geofence_triggers(&self) -> Vec<bool> {
+        self.geofence_triggers.lock().unwrap().clone()
     }
 
     pub fn set_location(&self, fix: Option<LocationFix>) {
@@ -138,20 +148,35 @@ impl Platform for FakePlatform {
         Ok(*self.location.lock().unwrap())
     }
 
-    fn start_geofence(&self) -> Result<(), PlatformError> {
+    fn start_geofence(&self, trigger_on_entry: bool) -> Result<(), PlatformError> {
         self.record("start_geofence");
-        self.check("start_geofence")
+        self.geofence_triggers
+            .lock()
+            .unwrap()
+            .push(trigger_on_entry);
+        self.check("start_geofence")?;
+        // The real hosts report what is actually registered, so the fake does
+        // too: a successful arm is what `is_geofence_monitoring` then sees.
+        *self.monitoring.lock().unwrap() = true;
+        Ok(())
+    }
+
+    fn register_background_sync(&self) -> Result<(), PlatformError> {
+        self.record("register_background_sync");
+        self.check("register_background_sync")
     }
 
     fn stop_geofence(&self) -> Result<(), PlatformError> {
         self.record("stop_geofence");
-        self.check("stop_geofence")
+        self.check("stop_geofence")?;
+        *self.monitoring.lock().unwrap() = false;
+        Ok(())
     }
 
     fn is_geofence_monitoring(&self) -> Result<bool, PlatformError> {
         self.record("is_geofence_monitoring");
         self.check("is_geofence_monitoring")?;
-        Ok(false)
+        Ok(*self.monitoring.lock().unwrap())
     }
 
     fn track(&self, event: &str, props: HashMap<String, String>) -> Result<(), PlatformError> {

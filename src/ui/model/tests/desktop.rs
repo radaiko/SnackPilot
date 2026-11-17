@@ -110,8 +110,8 @@ impl Platform for GatePlatform {
     fn current_location(&self) -> Result<Option<snackpilot_model::LocationFix>, PlatformError> {
         self.inner.current_location()
     }
-    fn start_geofence(&self) -> Result<(), PlatformError> {
-        self.inner.start_geofence()
+    fn start_geofence(&self, trigger_on_entry: bool) -> Result<(), PlatformError> {
+        self.inner.start_geofence(trigger_on_entry)
     }
     fn stop_geofence(&self) -> Result<(), PlatformError> {
         self.inner.stop_geofence()
@@ -186,8 +186,8 @@ impl Platform for PanicPlatform {
     fn current_location(&self) -> Result<Option<snackpilot_model::LocationFix>, PlatformError> {
         self.inner.current_location()
     }
-    fn start_geofence(&self) -> Result<(), PlatformError> {
-        self.inner.start_geofence()
+    fn start_geofence(&self, trigger_on_entry: bool) -> Result<(), PlatformError> {
+        self.inner.start_geofence(trigger_on_entry)
     }
     fn stop_geofence(&self) -> Result<(), PlatformError> {
         self.inner.stop_geofence()

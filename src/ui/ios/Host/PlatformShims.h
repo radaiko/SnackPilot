@@ -21,6 +21,7 @@ typedef struct {
   const char *body;
   const char *channel_id;   // ignored on iOS, mirrors Android
   int64_t fire_at_epoch_ms;
+  const char *screen;       // tab a tap opens (v1 data.screen); may be NULL
 } SnackPilotWireCommand;
 
 typedef uint8_t (*SnackPilotKeychainSetFn)(const char *key, const char *value);
@@ -31,7 +32,9 @@ typedef uint8_t (*SnackPilotNotifyPermissionFn)(uint64_t request_id, void *ctx);
 typedef uint8_t (*SnackPilotLocationAuthorisationFn)(uint64_t request_id, void *ctx);
 typedef uint8_t (*SnackPilotLocationCurrentFn)(uint64_t request_id, void *ctx);
 typedef uint8_t (*SnackPilotGeofenceStartFn)(double latitude, double longitude,
+                                              uint8_t trigger_on_entry,
                                               uint64_t request_id, void *ctx);
+typedef uint8_t (*SnackPilotBackgroundSyncFn)(void);
 typedef uint8_t (*SnackPilotGeofenceStopFn)(void);
 typedef uint8_t (*SnackPilotGeofenceIsMonitoringFn)(void);
 typedef uint8_t (*SnackPilotTrackFn)(const char *event_json);
@@ -54,6 +57,7 @@ typedef struct {
   SnackPilotLocationAuthorisationFn location_authorisation;
   SnackPilotLocationCurrentFn location_current;
   SnackPilotGeofenceStartFn geofence_start;
+  SnackPilotBackgroundSyncFn background_sync;
   SnackPilotGeofenceStopFn geofence_stop;
   SnackPilotGeofenceIsMonitoringFn geofence_is_monitoring;
   SnackPilotTrackFn track;
@@ -76,6 +80,13 @@ uint8_t snackpilot_ios_register_shims(const SnackPilotIosShimTable *table,
 /// shims. ok = 1 carries an optional payload, ok = 0 carries the error
 /// message. The payload is read before this call returns.
 void snackpilot_ios_complete(uint64_t request_id, uint8_t ok, const char *payload);
+
+/// The BGTask handler's entry point: reminder re-evaluation plus the new-menu
+/// check, delivering whatever the core decides.
+void snackpilot_ios_run_background_tick(void);
+
+/// A tapped notification's target screen (v1 `data.screen`); switches the tab.
+void snackpilot_ios_open_screen(const char *screen);
 
 /// CoreLocation enter/exit edge; forwards to the Rust geofence delegate.
 void snackpilot_ios_on_geofence_event(uint8_t inside);

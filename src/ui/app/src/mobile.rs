@@ -61,6 +61,9 @@ mod android_host {
                 // The shell renders from the same AppModel the geofence
                 // session pumps (task 4.2).
                 crate::install_shell_model(std::sync::Arc::clone(&model));
+                // A notification tap can have started this process; its screen
+                // was queued before the model existed.
+                crate::platform::android::apply_pending_screen();
                 // The cached snapshots land before the first frame; the
                 // network half (broadcast, auto-login, tracking, permissions)
                 // runs off the UI thread so a cold launch paints immediately.

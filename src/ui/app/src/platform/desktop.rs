@@ -81,7 +81,7 @@ impl Platform for DesktopPlatform {
         ))
     }
 
-    fn start_geofence(&self) -> Result<(), PlatformError> {
+    fn start_geofence(&self, _trigger_on_entry: bool) -> Result<(), PlatformError> {
         Err(PlatformError::Location(
             "desktop has no geofence service".to_string(),
         ))
@@ -304,7 +304,7 @@ mod tests {
             Err(PlatformError::Location(_))
         ));
         assert!(matches!(
-            platform.start_geofence(),
+            platform.start_geofence(false),
             Err(PlatformError::Location(_))
         ));
         assert!(matches!(

@@ -67,16 +67,24 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.monitoredRegions.contains { $0.identifier == Self.regionId }
     }
 
-    /// Start monitoring the single 500 m region (§2–§3). No-op if it is already monitored, so it
-    /// does not re-fire the initial Enter and spam notifications (§3.2). Because monitored
-    /// regions survive relaunch, the guard also keeps the launch-restore path silent. When
-    /// [requestInitialState] is true (the setup path, §3.3), it asks CoreLocation for the current
-    /// region state — unlike Android's INITIAL_TRIGGER_ENTER, `startMonitoring(for:)` does NOT
-    /// synthesize an Enter for a device already inside, so we synthesize it via
+    /// Start monitoring the single 500 m region (§2–§3). Returns whether the region is actually
+    /// being monitored afterwards, so the caller can report the truth instead of claiming a
+    /// reminder that can never arrive.
+    ///
+    /// Already monitored is success, not a restart: re-adding the region re-fires the initial
+    /// Enter and spams notifications (§3.2), and monitored regions survive relaunch anyway.
+    /// "Always" is required: with only "When In Use" the region is registered but never delivers
+    /// in the background, which is exactly what the feature promises (§7.1).
+    ///
+    /// When [requestInitialState] is true (the setup path, §3.3), it asks CoreLocation for the
+    /// current region state — unlike Android's INITIAL_TRIGGER_ENTER, `startMonitoring(for:)`
+    /// does NOT synthesize an Enter for a device already inside, so we synthesize it via
     /// `requestState`/`didDetermineState`.
-    func startMonitoring(latitude: Double, longitude: Double, requestInitialState: Bool = false) {
-        guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else { return }
-        if isMonitoringCompany { return }
+    @discardableResult
+    func startMonitoring(latitude: Double, longitude: Double, requestInitialState: Bool = false) -> Bool {
+        guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self),
+              manager.authorizationStatus == .authorizedAlways else { return false }
+        if isMonitoringCompany { return true }
         let region = CLCircularRegion(
             center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
             radius: Self.radiusM, identifier: Self.regionId)
@@ -87,6 +95,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             pendingInitialStateRegionId = Self.regionId
             manager.requestState(for: region)
         }
+        return isMonitoringCompany
     }
 
     /// Stop monitoring the company region if active (§3, `stopGeofencing`).

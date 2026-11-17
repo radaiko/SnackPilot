@@ -37,6 +37,28 @@ targets:
       - path: PrivacyInfo.xcprivacy
     dependencies:
       - package: Aptabase
+    info:
+      path: Host/Info.plist
+      properties:
+        CFBundleDisplayName: SnackPilot
+        # Version numbers come from the build settings below, as the generated
+        # plist did before it moved to this block.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Purpose strings carried over from src/ios/project.yml (v1 parity).
+        NSLocationWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um deinen Firmenstandort zu speichern."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um dich an Bestellungen zu erinnern, wenn du im Büro bist."
+        # Region monitoring, and one background refresh for the reminder re-arm
+        # and the new-menu check (notifications-location §10).
+        UIBackgroundModes:
+          - location
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - dev.radaiko.gourmetclient.sync
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.radaiko.gourmetclient
@@ -44,7 +66,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "2.1.0"
         CURRENT_PROJECT_VERSION: "36"
-        ITSAppUsesNonExemptEncryption: "NO"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: "YES"
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-emerald AppIcon-berry AppIcon-golden AppIcon-ocean"
@@ -69,14 +90,9 @@ targets:
         ENABLE_DEBUG_DYLIB: NO
         OTHER_LINK_BINARY_WITH_LIBRARIES_SECTION_TYPE: static
         DEAD_CODE_STRIPPING: NO
-        # Info.plist generated from INFOPLIST_KEY_* (no checked-in plist file);
-        # the generated launch screen is required for full-size rendering.
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        # Location purpose strings carried over from src/ios/project.yml (v1 parity).
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um deinen Firmenstandort zu speichern."
-        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "SnackPilot nutzt deinen Standort, um dich an Bestellungen zu erinnern, wenn du im Büro bist."
+        # Info.plist is generated from the `info:` block below: the background
+        # modes and the BGTask identifier are arrays, which INFOPLIST_KEY_*
+        # cannot express.
         # Link the Rust staticlib built by bootstrap.sh (cargo rustc --crate-type=staticlib).
         # Explicit .a path so the linker cannot pick up a dylib from the same directory.
         # The Release configuration links the optimised library

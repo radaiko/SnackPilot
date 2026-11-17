@@ -465,6 +465,27 @@ impl AppModel {
         )
     }
 
+    /// A tapped notification names the screen it opens (v1's `data.screen`).
+    /// The core stores v1 routes ("/(tabs)/orders"), so the match is on the
+    /// route's words; anything unknown opens Menüs, the app's home.
+    pub fn open_screen(&self, screen: &str) {
+        let route = screen.to_ascii_lowercase();
+        let tab = if route.contains("billing") || route.contains("abrechnung") {
+            Tab::Billing
+        } else if route.contains("settings")
+            || route.contains("einstellungen")
+            || route.contains("notification")
+            || route.contains("benachrichtigung")
+        {
+            Tab::Settings
+        } else if route.contains("order") || route.contains("bestellung") {
+            Tab::Orders
+        } else {
+            Tab::Menus
+        };
+        self.select_tab(tab);
+    }
+
     /// The navigation instance the shell renders.
     pub fn navigation(&self) -> crate::navigation::Navigation {
         self.state().navigation

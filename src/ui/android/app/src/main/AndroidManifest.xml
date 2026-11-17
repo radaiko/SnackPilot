@@ -44,8 +44,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <!-- Background sync re-arm after reboot (docs/architecture §4.4); the boot receiver comes
-         back with the core wiring (task 3.5). -->
+    <!-- Background sync re-arm after a reboot (notifications-location §3, §9.3). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
@@ -177,6 +176,17 @@
         <receiver
             android:name="dev.radaiko.snackpilot.GeofenceBroadcastReceiver"
             android:exported="false" />
+
+        <!-- Re-arms the periodic reminder task after a reboot: Android drops
+             alarms and periodic work on restart (notifications-location §3). -->
+        <receiver
+            android:name="dev.radaiko.snackpilot.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

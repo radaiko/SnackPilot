@@ -15,7 +15,8 @@ class AlarmReceiver : BroadcastReceiver() {
             id = id,
             title = intent.getStringExtra(EXTRA_TITLE).orEmpty(),
             body = intent.getStringExtra(EXTRA_BODY).orEmpty(),
-            channelId = intent.getStringExtra(EXTRA_CHANNEL)
+            channelId = intent.getStringExtra(EXTRA_CHANNEL),
+            screen = intent.getStringExtra(EXTRA_SCREEN),
         )
     }
 
@@ -24,5 +25,6 @@ class AlarmReceiver : BroadcastReceiver() {
         const val EXTRA_TITLE = "title"
         const val EXTRA_BODY = "body"
         const val EXTRA_CHANNEL = "channel"
+        const val EXTRA_SCREEN = "screen"
     }
 }

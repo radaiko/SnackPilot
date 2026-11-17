@@ -18,6 +18,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             setvbuf(stderr, nil, _IONBF, 0)
         }
         // Register the platform shim table before any Rust code runs (task 3.5).
+        // It also registers the BGTask handler, which must be known to the
+        // system before this method returns.
         PlatformBridge.bootstrap()
         // Evidence run: `xcrun simctl launch ... -DebugPlatformExercise YES`
         // exercises credential, notification and schedule flows end to end;

@@ -50,7 +50,15 @@ impl AppModel {
         self.hub.update("company_location", |s| {
             s.company_location = Some(saved);
         });
-        let _ = self.platform.start_geofence();
+        // Setup is the one path that asks for the initial Enter (§3.3): saving
+        // the location while standing at the office must set `is_at_company`.
+        if self.platform.start_geofence(true).is_err() {
+            // The success alert promises a reminder that will arrive, so an
+            // unarmed region is reported instead of claimed. The coordinates
+            // stay saved — they are the feature's own switch.
+            self.show_location_alert(Alert::not_armed());
+            return;
+        }
         let time = self.state().location_reminder_time;
         self.show_location_alert(Alert::saved(crate::format::format_clock(
             time.hour,

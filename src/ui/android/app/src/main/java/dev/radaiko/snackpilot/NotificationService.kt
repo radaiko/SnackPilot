@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import dev.radaiko.gourmetclient.SnackPilotActivity
 
 /** Doze-safe AlarmManager mode chosen by [NotificationService.alarmMode]. */
 internal enum class AlarmMode { EXACT_IDLE, INEXACT_IDLE }
@@ -44,11 +45,13 @@ class NotificationService(private val context: Context) {
 
     fun execute(command: CommandData): Boolean = when (command.kind) {
         KIND_FIRE_NOW -> {
-            deliver(command.id, command.title, command.body, command.channelId.ifEmpty { null })
+            deliver(command.id, command.title, command.body, command.channelId.ifEmpty { null },
+                command.screen.ifEmpty { null })
             true
         }
         KIND_SCHEDULE_AT -> {
-            schedule(command.id, command.title, command.body, command.channelId.ifEmpty { null }, command.fireAtEpochMs)
+            schedule(command.id, command.title, command.body, command.channelId.ifEmpty { null },
+                command.fireAtEpochMs, command.screen.ifEmpty { null })
             true
         }
         KIND_CANCEL_PENDING -> {
@@ -62,7 +65,7 @@ class NotificationService(private val context: Context) {
     }
 
     /** Post a notification now (also called from AlarmReceiver when a scheduled alarm fires). */
-    fun deliver(id: String, title: String, body: String, channelId: String?) {
+    fun deliver(id: String, title: String, body: String, channelId: String?, screen: String?) {
         // POST_NOTIFICATIONS (API 33+): NotificationManagerCompat silently no-ops when denied,
         // so check explicitly — the background paths (worker / alarm) have no UI to prompt.
         val granted = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
@@ -76,18 +79,40 @@ class NotificationService(private val context: Context) {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(contentIntent(id, screen))
             .setAutoCancel(true)
             .build()
         // POST_NOTIFICATIONS is checked by the caller; NotificationManagerCompat no-ops if denied.
         NotificationManagerCompat.from(context).notify(id.hashCode(), notification)
     }
 
-    private fun schedule(id: String, title: String, body: String, channelId: String?, fireAtEpochMs: Long) {
+    /// The tap target: the app, with the screen the reminder is about (v1
+    /// `data.screen`). The activity hands it to Rust, which switches the tab.
+    private fun contentIntent(id: String, screen: String?): PendingIntent {
+        val intent = Intent(context, SnackPilotActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            if (!screen.isNullOrEmpty()) putExtra(EXTRA_SCREEN, screen)
+        }
+        return PendingIntent.getActivity(
+            context, id.hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun schedule(
+        id: String,
+        title: String,
+        body: String,
+        channelId: String?,
+        fireAtEpochMs: Long,
+        screen: String?,
+    ) {
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra(AlarmReceiver.EXTRA_ID, id)
             putExtra(AlarmReceiver.EXTRA_TITLE, title)
             putExtra(AlarmReceiver.EXTRA_BODY, body)
             putExtra(AlarmReceiver.EXTRA_CHANNEL, channelId)
+            putExtra(AlarmReceiver.EXTRA_SCREEN, screen)
         }
         val pending = PendingIntent.getBroadcast(
             context, id.hashCode(), intent,
@@ -115,6 +140,9 @@ class NotificationService(private val context: Context) {
     }
 
     companion object {
+        /** Intent extra carrying a tapped notification's target screen. */
+        const val EXTRA_SCREEN = "snackpilot.screen"
+
         const val CHANNEL_ORDER_REMINDERS = "order-reminders"
         const val CHANNEL_MENU_UPDATES = "menu-updates"
         // Exact names/importance/vibration per 05-platform-services §5.3, as named constants so

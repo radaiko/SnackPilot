@@ -15,6 +15,8 @@ struct CommandData {
     let body: String
     let channelId: String
     let fireAtEpochMs: Int64
+    /// The tab a tap opens (v1 `data.screen`); empty = the app's home.
+    let screen: String
 }
 
 final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
@@ -50,6 +52,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         switch command.kind {
         case 0, 1:
             add(Self.request(id: command.id, title: command.title, body: command.body,
+                             screen: command.screen,
                              after: Self.delay(for: command, nowMs: nowMs)))
         case 2:
             remove([command.id])
@@ -68,11 +71,15 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
     /// Build the request: no trigger when `after <= 0` so it shows immediately (background
     /// task / fire-now while the process is alive), otherwise a one-shot time-interval trigger.
-    static func request(id: String, title: String, body: String, after: TimeInterval) -> UNNotificationRequest {
+    static func request(id: String, title: String, body: String, screen: String,
+                        after: TimeInterval) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        // The tap target travels with the notification; the delegate below
+        // hands it to the shell.
+        if !screen.isEmpty { content.userInfo = ["screen": screen] }
         let trigger: UNNotificationTrigger? = after > 0
             ? UNTimeIntervalNotificationTrigger(timeInterval: after, repeats: false)
             : nil
@@ -93,6 +100,11 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        // v1's `data.screen`: a tapped reminder opens the tab it is about.
+        if let screen = response.notification.request.content.userInfo["screen"] as? String,
+           !screen.isEmpty {
+            screen.withCString { snackpilot_ios_open_screen($0) }
+        }
         completionHandler()
     }
 }

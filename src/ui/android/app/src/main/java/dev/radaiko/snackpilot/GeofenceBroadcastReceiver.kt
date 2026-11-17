@@ -32,7 +32,16 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
         val pump = SnackPilotActivity.getGeofencePump()
         if (pump == null) {
-            Log.w(TAG, "geofence ${if (entered) "ENTER" else "EXIT"}: native library not loaded in this process")
+            // The broadcast started this process: no Activity, no pump. Run the
+            // same decisions headless rather than lose the transition — an Exit
+            // is what retracts the "no order" notice and schedules the cancel
+            // reminder.
+            Log.i(TAG, "geofence ${if (entered) "ENTER" else "EXIT"}: headless")
+            try {
+                BackgroundSync.geofence(context.applicationContext, entered)
+            } catch (e: Throwable) {
+                Log.w(TAG, "headless geofence failed", e)
+            }
             return
         }
         Log.i(TAG, "geofence ${if (entered) "ENTER" else "EXIT"}: delegating to Rust model")

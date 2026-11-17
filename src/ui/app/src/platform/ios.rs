@@ -42,6 +42,8 @@ pub struct WireCommandC {
     pub body: *const c_char,
     pub channel_id: *const c_char,
     pub fire_at_epoch_ms: i64,
+    /// The tab a tap opens; NULL/empty = the app's home.
+    pub screen: *const c_char,
 }
 
 /// The function table Swift registers at launch. Every entry is required
@@ -59,7 +61,9 @@ pub struct IosShimTable {
     pub notify_permission: Option<extern "C" fn(u64, *mut c_void) -> u8>,
     pub location_authorisation: Option<extern "C" fn(u64, *mut c_void) -> u8>,
     pub location_current: Option<extern "C" fn(u64, *mut c_void) -> u8>,
-    pub geofence_start: Option<extern "C" fn(f64, f64, u64, *mut c_void) -> u8>,
+    pub geofence_start: Option<extern "C" fn(f64, f64, u8, u64, *mut c_void) -> u8>,
+    /// Register + schedule the OS background task (BGTaskScheduler).
+    pub background_sync: Option<extern "C" fn() -> u8>,
     pub geofence_stop: Option<extern "C" fn() -> u8>,
     pub geofence_is_monitoring: Option<extern "C" fn() -> u8>,
     pub track: Option<extern "C" fn(*const c_char) -> u8>,
@@ -348,6 +352,7 @@ impl Platform for IosPlatform {
         let title = to_cstring(&wire.title, PlatformError::Notification)?;
         let body = to_cstring(&wire.body, PlatformError::Notification)?;
         let channel = to_cstring(&wire.channel_id, PlatformError::Notification)?;
+        let screen = to_cstring(&wire.screen, PlatformError::Notification)?;
         let c = WireCommandC {
             kind: i32::from(wire.kind),
             id: id.as_ptr(),
@@ -355,6 +360,7 @@ impl Platform for IosPlatform {
             body: body.as_ptr(),
             channel_id: channel.as_ptr(),
             fire_at_epoch_ms: wire.fire_at_epoch_ms,
+            screen: screen.as_ptr(),
         };
         if shim(&c) == 0 {
             return Err(PlatformError::Notification("notify shim failed".into()));
@@ -398,22 +404,41 @@ impl Platform for IosPlatform {
         }))
     }
 
-    fn start_geofence(&self) -> Result<(), PlatformError> {
-        // v1 parity: the coordinates are the captured company location in
-        // the core KV store; without one there is nothing to monitor and
-        // the shim is never called (REQ-PLT-03).
+    fn start_geofence(&self, trigger_on_entry: bool) -> Result<(), PlatformError> {
+        // The coordinates are the captured company location in the core KV
+        // store; without one there is nothing to monitor and the shim is never
+        // called (REQ-PLT-03).
         let kv = snackpilot_core::storage::FileKv::new(self.storage_dir.clone());
         let loc = snackpilot_core::storage::cache::load_company_location(&kv)
             .ok_or_else(|| PlatformError::Location("no company location saved".into()))?;
         let shim = shim!(self, geofence_start);
         let id = self.pending.begin();
-        if shim(loc.latitude, loc.longitude, id, std::ptr::null_mut()) == 0 {
+        let trigger = u8::from(trigger_on_entry);
+        if shim(
+            loc.latitude,
+            loc.longitude,
+            trigger,
+            id,
+            std::ptr::null_mut(),
+        ) == 0
+        {
             self.pending.cancel(id);
             return Err(PlatformError::Location(
                 "geofence_start shim rejected the request".into(),
             ));
         }
+        // The shim answers with the truth from CoreLocation: a region iOS will
+        // not monitor (no "Always", monitoring unavailable) fails here instead
+        // of being reported as armed.
         self.await_outcome(id, PlatformError::Location)?;
+        Ok(())
+    }
+
+    fn register_background_sync(&self) -> Result<(), PlatformError> {
+        let shim = shim!(self, background_sync);
+        if shim() == 0 {
+            return Err(PlatformError::System("background_sync shim failed".into()));
+        }
         Ok(())
     }
 
@@ -693,6 +718,31 @@ pub unsafe extern "C" fn snackpilot_ios_complete(request_id: u64, ok: u8, payloa
 }
 
 /// Swift: CoreLocation enter/exit edge. Returns immediately; the model call
+/// A tapped notification asks for one screen (v1 `data.screen`); the model
+/// switches the open tab. Called from the UNUserNotificationCenter delegate.
+#[no_mangle]
+pub extern "C" fn snackpilot_ios_open_screen(screen: *const c_char) {
+    if screen.is_null() {
+        return;
+    }
+    // SAFETY: the host passes a NUL-terminated C string for this call only.
+    let screen = unsafe { std::ffi::CStr::from_ptr(screen) }.to_string_lossy();
+    if let Some(model) = crate::shell_model() {
+        model.open_screen(&screen);
+    }
+}
+
+/// The BGTask handler's entry point: re-evaluate the reminders from the cached
+/// orders and run the new-menu check, then deliver whatever core decided. Safe
+/// with or without a window — it uses the shell model installed at launch.
+#[no_mangle]
+pub extern "C" fn snackpilot_ios_run_background_tick() {
+    match crate::shell_model() {
+        Some(model) => model.run_background_checks(),
+        None => log::warn!("[3.5] background tick: no model installed"),
+    }
+}
+
 /// runs on its own thread because `handle_geofence` delivers notifications
 /// back through the shim table, which must not block the location callback.
 #[unsafe(no_mangle)]
@@ -820,7 +870,7 @@ fn run_exercise(platform: &IosPlatform) {
             log::error!("[3.5] seed company location: {e:?}");
         }
     }
-    log_step("start_geofence", &platform.start_geofence());
+    log_step("start_geofence", &platform.start_geofence(false));
     match platform.is_geofence_monitoring() {
         Ok(m) => log::info!("[3.5] is_geofence_monitoring: {m}"),
         Err(e) => log::error!("[3.5] is_geofence_monitoring: {e:?}"),
@@ -1006,11 +1056,22 @@ mod tests {
         1
     }
 
-    extern "C" fn stub_geofence_start(lat: f64, lon: f64, id: u64, _ctx: *mut c_void) -> u8 {
+    extern "C" fn stub_geofence_start(
+        lat: f64,
+        lon: f64,
+        trigger: u8,
+        id: u64,
+        _ctx: *mut c_void,
+    ) -> u8 {
         let mut stub = stub();
         stub.calls.push((
             "geofence_start".into(),
-            vec![lat.to_string(), lon.to_string(), id.to_string()],
+            vec![
+                lat.to_string(),
+                lon.to_string(),
+                trigger.to_string(),
+                id.to_string(),
+            ],
         ));
         if stub.fail.take().is_some() {
             return 0;
@@ -1020,6 +1081,12 @@ mod tests {
             unsafe { snackpilot_ios_complete(id, 1, std::ptr::null()) };
         }
         1
+    }
+
+    extern "C" fn stub_background_sync() -> u8 {
+        let mut stub = stub();
+        stub.calls.push(("background_sync".into(), vec![]));
+        u8::from(stub.fail.take().is_none())
     }
 
     extern "C" fn stub_geofence_stop() -> u8 {
@@ -1085,6 +1152,7 @@ mod tests {
             location_authorisation: Some(stub_location_authorisation),
             location_current: Some(stub_location_current),
             geofence_start: Some(stub_geofence_start),
+            background_sync: Some(stub_background_sync),
             geofence_stop: Some(stub_geofence_stop),
             geofence_is_monitoring: Some(stub_geofence_is_monitoring),
             track: Some(stub_track),
@@ -1311,14 +1379,20 @@ mod tests {
         )
         .unwrap();
         let p = platform_in(dir.clone());
-        p.start_geofence().unwrap();
+        p.start_geofence(true).unwrap();
         let calls = take_calls();
         assert_eq!(methods(&calls), vec!["geofence_start"]);
         assert_eq!(calls[0].1[0], "48.2082");
         assert_eq!(calls[0].1[1], "16.3738");
+        assert_eq!(calls[0].1[2], "1", "setup asks for the initial Enter");
+
+        // The launch restore passes 0: no re-fired Enter (§3.2).
+        p.start_geofence(false).unwrap();
+        let calls = take_calls();
+        assert_eq!(calls[0].1[2], "0");
 
         let empty = platform_in(temp_dir("geofence-empty"));
-        let err = empty.start_geofence().unwrap_err();
+        let err = empty.start_geofence(true).unwrap_err();
         assert!(matches!(err, PlatformError::Location(_)), "{err:?}");
         assert!(take_calls().is_empty(), "shim must not be called");
         std::fs::remove_dir_all(&dir).ok();
@@ -1422,7 +1496,7 @@ mod tests {
             Box::new(|| p.request_notification_permission().map(|_| ()))
                 as Box<dyn Fn() -> Result<(), PlatformError>>,
             Box::new(|| p.current_location().map(|_| ())),
-            Box::new(|| p.start_geofence()),
+            Box::new(|| p.start_geofence(false)),
         ] {
             stub().fail = Some("nope".into());
             assert!(call().is_err(), "rejected shim must surface an error");

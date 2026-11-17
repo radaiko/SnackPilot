@@ -43,6 +43,7 @@ fn geofence_restore_runs_once_across_two_launches() {
     }));
     let model = AppModel::new(temp_dir("geofence"), platform.clone()).unwrap();
     model.set_company_location_from_current_position();
+    // The setup flow armed the region; two launches must leave it alone.
     let before = platform
         .calls()
         .iter()
@@ -55,7 +56,47 @@ fn geofence_restore_runs_once_across_two_launches() {
         .iter()
         .filter(|c| *c == "start_geofence")
         .count();
-    assert_eq!(after - before, 1, "geofence restore must be idempotent");
+    assert_eq!(
+        after - before,
+        0,
+        "a monitored region is not armed again by the next launch"
+    );
+    // The setup path asks for the initial Enter, a launch restore never does
+    // (§3.3/§3.2): a restore that re-fired it would push a "no order" notice at
+    // someone already at the office.
+    assert_eq!(platform.geofence_triggers(), vec![true]);
+    assert!(
+        platform
+            .calls()
+            .iter()
+            .any(|c| c == "register_background_sync"),
+        "the launch restore re-arms the background task too (§9.3)"
+    );
+}
+
+/// A region the OS is no longer monitoring — a reboot on Android, a force-stop
+/// on either host — is armed again on the next launch, without the initial
+/// Enter.
+/// @req REQ-PLT-04
+#[test]
+fn a_lost_region_is_rearmed_on_the_next_launch() {
+    let platform = Arc::new(FakePlatform::new());
+    platform.set_location(Some(snackpilot_model::LocationFix {
+        latitude: 48.2,
+        longitude: 16.4,
+    }));
+    let model = AppModel::new(temp_dir("geofence-lost"), platform.clone()).unwrap();
+    model.set_company_location_from_current_position();
+    // The device restarted: the OS holds no region any more.
+    platform.stop_geofence().unwrap();
+    let before = platform.geofence_triggers().len();
+
+    model.bootstrap();
+    assert_eq!(
+        platform.geofence_triggers()[before..].to_vec(),
+        vec![false],
+        "re-armed on launch, and silent about the initial Enter"
+    );
 }
 
 /// @req REQ-SCR-09
@@ -218,6 +259,8 @@ fn bootstrap_gates_unavailable_desktop_capabilities() {
         longitude: 16.4,
     }));
     model.set_company_location_from_current_position();
+    // A launch after a reboot: the OS holds no region, so the restore runs.
+    platform.stop_geofence().unwrap();
     let before_bootstrap = platform.calls().len();
 
     model.bootstrap();
@@ -261,6 +304,8 @@ fn bootstrap_keeps_mobile_capability_order() {
         longitude: 16.4,
     }));
     model.set_company_location_from_current_position();
+    // A launch after a reboot: the OS holds no region, so the restore runs.
+    platform.stop_geofence().unwrap();
     let before_bootstrap = platform.calls().len();
 
     model.bootstrap();

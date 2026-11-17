@@ -90,4 +90,7 @@ dependencies {
     implementation("com.github.aptabase:aptabase-kotlin:0.0.8")   // self-hosted analytics
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // Background re-evaluation of the reminders and the new-menu check
+    // (notifications-daily-reminder §2): 15-minute periodic work plus a boot run.
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
 }

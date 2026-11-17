@@ -35,10 +35,14 @@ pub struct WireCommand {
     pub body: String,
     pub channel_id: String,
     pub fire_at_epoch_ms: i64,
+    /// The tab a tap should open (`None`/empty = the app's home). v1's
+    /// `data.screen`; carried as the plain route string the core decides.
+    pub screen: String,
 }
 
 /// Marshal a core [`NotificationCommand`] into the plain-data wire form
-/// (REQ-PLT-02): the `screen` field is UI-only and does not cross the boundary.
+/// (REQ-PLT-02): the `screen` route crosses as an empty string when the
+/// command has none.
 pub fn wire_command(command: &NotificationCommand) -> WireCommand {
     match command {
         NotificationCommand::FireNow {
@@ -46,7 +50,7 @@ pub fn wire_command(command: &NotificationCommand) -> WireCommand {
             title,
             body,
             channel_id,
-            ..
+            screen,
         } => WireCommand {
             kind: 0,
             id: id.clone(),
@@ -54,6 +58,7 @@ pub fn wire_command(command: &NotificationCommand) -> WireCommand {
             body: body.clone(),
             channel_id: channel_id.clone().unwrap_or_default(),
             fire_at_epoch_ms: 0,
+            screen: screen.clone().unwrap_or_default(),
         },
         NotificationCommand::ScheduleAt {
             id,
@@ -61,7 +66,7 @@ pub fn wire_command(command: &NotificationCommand) -> WireCommand {
             body,
             channel_id,
             fire_at_epoch_ms,
-            ..
+            screen,
         } => WireCommand {
             kind: 1,
             id: id.clone(),
@@ -69,6 +74,7 @@ pub fn wire_command(command: &NotificationCommand) -> WireCommand {
             body: body.clone(),
             channel_id: channel_id.clone().unwrap_or_default(),
             fire_at_epoch_ms: *fire_at_epoch_ms,
+            screen: screen.clone().unwrap_or_default(),
         },
         NotificationCommand::CancelPending { id } => WireCommand {
             kind: 2,
@@ -77,6 +83,7 @@ pub fn wire_command(command: &NotificationCommand) -> WireCommand {
             body: String::new(),
             channel_id: String::new(),
             fire_at_epoch_ms: 0,
+            screen: String::new(),
         },
     }
 }
@@ -97,7 +104,11 @@ pub trait Bridge: Send + Sync {
         latitude: f64,
         longitude: f64,
         trigger_on_entry: bool,
+        request_id: u64,
     ) -> Result<(), String>;
+    /// Register the periodic background task (re-armed at every launch, and
+    /// again after a reboot by the boot receiver).
+    fn register_background_sync(&self) -> Result<(), String>;
     fn stop_geofence(&self) -> Result<(), String>;
     fn is_geofence_monitoring(&self) -> Result<bool, String>;
     fn track(&self, event: &str, props: &HashMap<String, String>) -> Result<(), String>;
@@ -148,6 +159,15 @@ enum Slot {
     Waiting,
     Permission(bool),
     Location(Option<LocationFix>),
+    Geofence(bool),
+}
+
+/// Whether a slot has been answered (anything but `Waiting`).
+fn settled(slot: Option<&Slot>) -> bool {
+    matches!(
+        slot,
+        Some(Slot::Permission(_)) | Some(Slot::Location(_)) | Some(Slot::Geofence(_))
+    )
 }
 
 /// Request-id registry for the two async flows (permission dialog, one-shot
@@ -198,6 +218,12 @@ impl Pending {
         self.resolve(id, Slot::Permission(granted));
     }
 
+    /// Entry point of `nativeResolveGeofence`: Play services accepted (or
+    /// refused) the region registration.
+    pub fn resolve_geofence(&'static self, id: u64, armed: bool) {
+        self.resolve(id, Slot::Geofence(armed));
+    }
+
     /// Entry point of `nativeResolveLocation`.
     pub fn resolve_location(&'static self, id: u64, latitude: f64, longitude: f64, found: bool) {
         self.resolve(
@@ -215,12 +241,11 @@ impl Pending {
         let deadline = std::time::Instant::now() + self.timeout;
         let mut slots = self.slots.lock().unwrap();
         loop {
-            let done = matches!(slots.get(&id), Some(Slot::Permission(_)))
-                || matches!(slots.get(&id), Some(Slot::Location(_)));
-            if done {
+            if settled(slots.get(&id)) {
                 return match slots.remove(&id) {
                     Some(Slot::Permission(granted)) => Ok(Slot::Permission(granted)),
                     Some(Slot::Location(fix)) => Ok(Slot::Location(fix)),
+                    Some(Slot::Geofence(armed)) => Ok(Slot::Geofence(armed)),
                     _ => Err(PlatformError::System("request vanished".into())),
                 };
             }
@@ -287,15 +312,33 @@ impl<B: Bridge> Platform for AndroidPlatform<B> {
         }
     }
 
-    fn start_geofence(&self) -> Result<(), PlatformError> {
-        // v1 parity: the coordinates are the captured company location in
-        // the core KV store, registered with an entry trigger.
+    fn start_geofence(&self, trigger_on_entry: bool) -> Result<(), PlatformError> {
+        // The coordinates are the captured company location in the core KV
+        // store. Play services answers asynchronously, so a refused
+        // registration (no background location grant, geofencing unavailable)
+        // is a typed error instead of a claimed success.
         let kv = snackpilot_core::storage::FileKv::new(std::path::PathBuf::from(&self.storage_dir));
         let loc = snackpilot_core::storage::cache::load_company_location(&kv)
             .ok_or_else(|| PlatformError::Location("no company location saved".into()))?;
+        let id = self.pending.begin();
         self.bridge
-            .start_geofence(loc.latitude, loc.longitude, true)
-            .map_err(PlatformError::Location)
+            .start_geofence(loc.latitude, loc.longitude, trigger_on_entry, id)
+            .map_err(PlatformError::Location)?;
+        match self.pending.await_slot(id)? {
+            Slot::Geofence(true) => Ok(()),
+            Slot::Geofence(false) => Err(PlatformError::Location(
+                "the system refused to monitor the company region".into(),
+            )),
+            other => Err(PlatformError::System(format!(
+                "unexpected resolve for geofence request {id}: {other:?}"
+            ))),
+        }
+    }
+
+    fn register_background_sync(&self) -> Result<(), PlatformError> {
+        self.bridge
+            .register_background_sync()
+            .map_err(PlatformError::System)
     }
 
     fn stop_geofence(&self) -> Result<(), PlatformError> {
@@ -377,6 +420,8 @@ mod tests {
         location: Mutex<Option<(f64, f64)>>,
         monitoring: Mutex<Option<bool>>,
         never_resolve: Mutex<bool>,
+        /// Whether the mock answers a geofence registration with success.
+        geofence_armed: bool,
     }
 
     impl MockBridge {
@@ -389,6 +434,7 @@ mod tests {
                 location: Mutex::new(None),
                 monitoring: Mutex::new(None),
                 never_resolve: Mutex::new(false),
+                geofence_armed: true,
             }
         }
         fn take_calls(&self) -> Vec<Call> {
@@ -472,6 +518,7 @@ mod tests {
             latitude: f64,
             longitude: f64,
             trigger_on_entry: bool,
+            request_id: u64,
         ) -> Result<(), String> {
             self.record(
                 "start_geofence",
@@ -481,6 +528,16 @@ mod tests {
                     trigger_on_entry.to_string(),
                 ],
             );
+            self.err()?;
+            // The real Kotlin side resolves through nativeResolveGeofence; the
+            // mock answers the same way, from a thread, so the platform's wait
+            // is exercised.
+            let armed = self.geofence_armed;
+            std::thread::spawn(move || test_pending().resolve_geofence(request_id, armed));
+            Ok(())
+        }
+        fn register_background_sync(&self) -> Result<(), String> {
+            self.record("register_background_sync", vec![]);
             self.err()
         }
         fn stop_geofence(&self) -> Result<(), String> {
@@ -555,6 +612,7 @@ mod tests {
                 body: "Menü wählen".into(),
                 channel_id: "order-reminders".into(),
                 fire_at_epoch_ms: 0,
+                screen: String::new(),
             }
         );
         let none = wire_command(&NotificationCommand::FireNow {
@@ -598,6 +656,7 @@ mod tests {
                 body: String::new(),
                 channel_id: String::new(),
                 fire_at_epoch_ms: 0,
+                screen: String::new(),
             }
         );
     }
@@ -718,14 +777,19 @@ mod tests {
 
         let bridge = MockBridge::new();
         let p = AndroidPlatform::new(bridge, test_pending(), dir.to_str().unwrap().to_string());
-        p.start_geofence().unwrap();
+        p.start_geofence(true).unwrap();
         let calls = p.bridge.take_calls();
         assert_eq!(calls[0].method, "start_geofence");
         assert_eq!(calls[0].args, ["48.2", "16.3", "true"]);
 
+        // The restore never asks for the initial Enter (§3.2).
+        p.start_geofence(false).unwrap();
+        let calls = p.bridge.take_calls();
+        assert_eq!(calls[0].args, ["48.2", "16.3", "false"]);
+
         // No saved location → typed Location error, no Kotlin call.
         snackpilot_core::storage::cache::clear_company_location(&kv);
-        let err = p.start_geofence().unwrap_err();
+        let err = p.start_geofence(true).unwrap_err();
         assert!(matches!(err, PlatformError::Location(_)), "{err:?}");
         assert!(p.bridge.take_calls().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
@@ -868,6 +932,11 @@ mod tests {
 
 // ---- real JNI bridge (device only) ------------------------------------------
 
+/// A tapped notification can start the process before the shell model exists;
+/// `android_main` applies its screen once the model is installed.
+#[cfg(target_os = "android")]
+pub use jni_bridge::apply_pending_screen;
+
 #[cfg(target_os = "android")]
 mod jni_bridge {
     use std::collections::HashMap;
@@ -921,7 +990,15 @@ mod jni_bridge {
         java_vm().attach_current_thread(f).map_err(|e| e.0)
     }
 
+    /// The VM of a process that started for background work: no Activity ran,
+    /// so `ndk_context` was never initialised — the WorkManager entry seeds it
+    /// from the Java thread it arrives on.
+    static HEADLESS_VM: OnceLock<JavaVM> = OnceLock::new();
+
     fn java_vm() -> &'static JavaVM {
+        if let Some(vm) = HEADLESS_VM.get() {
+            return vm;
+        }
         static VM: OnceLock<JavaVM> = OnceLock::new();
         VM.get_or_init(|| unsafe {
             let ctx = ndk_context::android_context();
@@ -1088,11 +1165,12 @@ mod jni_bridge {
             JValue::Object(&jstr(env, &cmd.body)?),
             JValue::Object(&jstr(env, &cmd.channel_id)?),
             JValue::Long(cmd.fire_at_epoch_ms),
+            JValue::Object(&jstr(env, &cmd.screen)?),
         ];
         let r = env.new_object(
             &classes().command_data,
             jni::jni_sig!(
-                "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V"
+                "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)V"
             ),
             &args,
         );
@@ -1188,18 +1266,32 @@ mod jni_bridge {
             latitude: f64,
             longitude: f64,
             trigger_on_entry: bool,
+            request_id: u64,
         ) -> Result<(), String> {
             attach(|env| {
+                let id = jstr(env, &request_id.to_string())?;
                 let args = [
                     JValue::Double(latitude),
                     JValue::Double(longitude),
                     JValue::Bool(trigger_on_entry),
+                    JValue::Object(&id),
                 ];
                 call_check(
                     env,
                     "startGeofence",
-                    jni::jni_sig!("(DDZ)Ljava/lang/String;"),
+                    jni::jni_sig!("(DDZLjava/lang/String;)Ljava/lang/String;"),
                     &args,
+                )
+            })
+        }
+
+        fn register_background_sync(&self) -> Result<(), String> {
+            attach(|env| {
+                call_check(
+                    env,
+                    "registerBackgroundSync",
+                    jni::jni_sig!("()Ljava/lang/String;"),
+                    &[],
                 )
             })
         }
@@ -1331,6 +1423,55 @@ mod jni_bridge {
             .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
     }
 
+    /// Kotlin entry point: the whole background pipeline with no UI
+    /// (WorkManager, the boot receiver). Uses the shell model when the app is
+    /// running and otherwise builds one over the same storage directory, so the
+    /// caches and the saved session are identical either way.
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_dev_radaiko_snackpilot_BackgroundSync_nativeTick<'caller>(
+        mut unowned: EnvUnowned<'caller>,
+        _class: JClass<'caller>,
+        storage_dir: JString<'caller>,
+    ) {
+        unowned
+            .with_env(|env| -> Result<(), JniErr> {
+                let dir = storage_dir.try_to_string(env);
+                let dir = checked(env, dir)?;
+                // A worker-only process has no ndk_context yet; take the VM
+                // from this thread before anything resolves a class.
+                if HEADLESS_VM.get().is_none() {
+                    let vm = env.get_java_vm();
+                    let vm = checked(env, vm)?;
+                    let _ = HEADLESS_VM.set(vm);
+                }
+                cache_class(env)?;
+                run_background_tick(dir);
+                Ok(())
+            })
+            .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+    }
+
+    fn run_background_tick(storage_dir: String) {
+        if let Some(model) = crate::shell_model() {
+            model.run_background_checks();
+            return;
+        }
+        let platform = std::sync::Arc::new(AndroidPlatform::new(
+            JniBridge,
+            pending(),
+            storage_dir.clone(),
+        ));
+        match snackpilot_model::AppModel::new(std::path::PathBuf::from(storage_dir), platform) {
+            Ok(model) => {
+                // The caches right away, so the reminder decision works from
+                // what was last seen; then the checks themselves.
+                model.bootstrap_local();
+                model.run_background_checks();
+            }
+            Err(e) => log::error!("background tick: model unavailable: {e:?}"),
+        }
+    }
+
     /// Kotlin entry point: permission decision for a request id.
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_dev_radaiko_snackpilot_PlatformBridge_nativeResolvePermission<
@@ -1347,6 +1488,67 @@ mod jni_bridge {
                 let id = checked(env, r)?;
                 if let Ok(id) = id.parse::<u64>() {
                     pending().resolve_permission(id, granted);
+                }
+                Ok(())
+            })
+            .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+    }
+
+    /// Kotlin entry point: a tapped notification asks for one screen. Queued
+    /// until the shell model exists, because a cold launch handles the intent
+    /// before `android_main` builds it.
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_dev_radaiko_snackpilot_PlatformBridge_nativeOpenScreen<'caller>(
+        mut unowned: EnvUnowned<'caller>,
+        _class: JClass<'caller>,
+        screen: JString<'caller>,
+    ) {
+        unowned
+            .with_env(|env| -> Result<(), JniErr> {
+                let screen = screen.try_to_string(env);
+                let screen = checked(env, screen)?;
+                open_screen(&screen);
+                Ok(())
+            })
+            .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+    }
+
+    /// One slot for a screen requested before the model existed.
+    static PENDING_SCREEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+    fn open_screen(screen: &str) {
+        match crate::shell_model() {
+            Some(model) => model.open_screen(screen),
+            None => *PENDING_SCREEN.lock().unwrap() = Some(screen.to_string()),
+        }
+    }
+
+    /// Applied by `android_main` once the model is installed, so a tap that
+    /// launched the app still lands on the right tab.
+    pub fn apply_pending_screen() {
+        let screen = PENDING_SCREEN.lock().unwrap().take();
+        if let (Some(screen), Some(model)) = (screen, crate::shell_model()) {
+            model.open_screen(&screen);
+        }
+    }
+
+    /// Kotlin entry point: Play services accepted (or refused) the company
+    /// region for a request id.
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_dev_radaiko_snackpilot_PlatformBridge_nativeResolveGeofence<
+        'caller,
+    >(
+        mut unowned: EnvUnowned<'caller>,
+        _class: JClass<'caller>,
+        request_id: JString<'caller>,
+        armed: bool,
+    ) {
+        unowned
+            .with_env(|env| -> Result<(), JniErr> {
+                let r = request_id.try_to_string(env);
+                let id = checked(env, r)?;
+                if let Ok(id) = id.parse::<u64>() {
+                    pending().resolve_geofence(id, armed);
                 }
                 Ok(())
             })
@@ -1523,7 +1725,7 @@ mod jni_bridge {
                 id: "evidence-cancelled".into(),
             }),
         );
-        log_step("start_geofence", &platform.start_geofence());
+        log_step("start_geofence", &platform.start_geofence(false));
         match platform.is_geofence_monitoring() {
             Ok(m) => log::info!("[3.4] is_geofence_monitoring: {m}"),
             Err(e) => log::error!("[3.4] is_geofence_monitoring: {e:?}"),

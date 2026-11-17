@@ -140,8 +140,8 @@ impl Platform for EvidencePlatform {
         self.inner.current_location()
     }
 
-    fn start_geofence(&self) -> Result<(), PlatformError> {
-        self.inner.start_geofence()
+    fn start_geofence(&self, trigger_on_entry: bool) -> Result<(), PlatformError> {
+        self.inner.start_geofence(trigger_on_entry)
     }
 
     fn stop_geofence(&self) -> Result<(), PlatformError> {
@@ -261,13 +261,21 @@ impl AppModel {
         }
         if capabilities.geofence && !self.evidence_mode() && self.state().company_location.is_some()
         {
-            // Idempotent across launches: one start per installed app.
-            let started =
-                self.kv.get("geofence_restored").ok().flatten().as_deref() == Some("true");
-            if !started {
-                let _ = self.platform.start_geofence();
-                let _ = self.kv.set("geofence_restored", "true");
+            // Re-arm whenever the region is not being monitored. iOS keeps
+            // regions across relaunches, but a reboot clears Android's alarms,
+            // and a force-stop loses both — so the monitoring check is the
+            // truth, and a stored "already restored" flag is not (it never
+            // clears, which stopped every later launch from re-arming).
+            //
+            // No initial Enter here: that is the setup path's job (§3.3), and
+            // re-firing it at launch pushed a "no order" notice at someone who
+            // was already at the office (§3.2).
+            if !self.platform.is_geofence_monitoring().unwrap_or(false) {
+                let _ = self.platform.start_geofence(false);
             }
+            // The background task dies with a reboot too; registering it again
+            // is the second half of enableNotifications() (§3, §9.3).
+            let _ = self.platform.register_background_sync();
         }
 
         // 6. Saved credentials (Ventopay first, one billing fetch), then the
@@ -311,6 +319,43 @@ impl AppModel {
     pub fn dismiss_broadcast(&self) {
         self.hub
             .update("broadcast_dismissed", |s| s.broadcast_dismissed = true);
+    }
+
+    /// The host background task's work, with no UI on screen.
+    ///
+    /// 1. Re-evaluate the reminder commands from the **cached** orders — v1's
+    ///    background run made no Gourmet request, and scraping safety still
+    ///    forbids one here (notifications-location §13.2). This is what re-arms
+    ///    the daily and cancel reminders after a reboot.
+    /// 2. The new-menu check, the one background flow that does fetch: its own
+    ///    isolated session, so it never touches the foreground cookies
+    ///    (notifications-new-menu §3.3).
+    pub fn run_background_checks(&self) {
+        for command in self.core.run_order_sync_check() {
+            let _ = self.platform.notify(command);
+        }
+        let credentials = match (
+            self.platform.get_credential("gourmet_username"),
+            self.platform.get_credential("gourmet_password"),
+        ) {
+            (Ok(Some(username)), Ok(Some(password))) => {
+                Some(snackpilot_core::domain::Credentials { username, password })
+            }
+            _ => None,
+        };
+        let core = Arc::clone(&self.core);
+        let platform = Arc::clone(&self.platform);
+        handle().block_on(async move {
+            match core.run_menu_check(credentials).await {
+                Ok(result) => {
+                    if let Some(command) = result.notification {
+                        let _ = platform.notify(command);
+                    }
+                }
+                Err(e) => crate::runtime::log("menu_check", &crate::human_error(&e)),
+            }
+        });
+        self.refresh_diagnostic_log();
     }
 
     /// Foreground return (REQ-SCR-09): refresh orders, billing and the

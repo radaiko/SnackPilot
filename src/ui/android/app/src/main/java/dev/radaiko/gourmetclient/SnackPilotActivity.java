@@ -4,6 +4,7 @@ import android.app.NativeActivity;
 import android.content.ComponentName;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ActivityInfo;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.util.Log;
@@ -81,6 +82,7 @@ public class SnackPilotActivity extends NativeActivity {
             sGeofencePump = inside -> nativeOnGeofenceEvent(inside);
         }
         super.onCreate(savedInstanceState);
+        forwardScreen(getIntent());
         String debug = getIntent() == null ? null : getIntent().getStringExtra("snackpilot.debug");
         // The activity is exported, so gate the exercise on FLAG_DEBUGGABLE:
         // a release build must never run it (it writes real credentials),
@@ -90,6 +92,27 @@ public class SnackPilotActivity extends NativeActivity {
             // Runs the whole exercise through the Rust Platform bridge (android.rs).
             Log.i("SnackPilotBridge", "debug exercise requested");
             nativeDebugExercise();
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // A second notification tap while the app is open lands here.
+        forwardScreen(intent);
+    }
+
+    /**
+     * A tapped notification carries the screen it is about (v1 `data.screen`).
+     * Rust maps the route to a tab; before the model exists the screen waits
+     * there until `android_main` installs it.
+     */
+    private void forwardScreen(Intent intent) {
+        if (!sNativeLibLoaded || intent == null) return;
+        String screen = intent.getStringExtra("snackpilot.screen");
+        if (screen != null && !screen.isEmpty()) {
+            PlatformBridge.INSTANCE.openScreen(screen);
         }
     }
 

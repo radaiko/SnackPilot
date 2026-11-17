@@ -80,6 +80,18 @@ impl AppModel {
             self.hub.update("location_reminder_time", |s| {
                 s.location_reminder_time = time
             });
+            // A "no order" notice already scheduled for the old target would
+            // still fire then. While the device is inside the region, the Enter
+            // decisions re-issue it at the configured time (same id, so this
+            // replaces the pending one).
+            if self.core.is_at_company() {
+                for command in self
+                    .core
+                    .geofence_commands(snackpilot_core::domain::GeofenceEvent::Enter)
+                {
+                    let _ = self.platform.notify(command);
+                }
+            }
         }
     }
 }

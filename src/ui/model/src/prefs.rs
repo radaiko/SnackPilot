@@ -183,7 +183,7 @@ impl AppModel {
     pub fn apply_daily_reminder(&self) {
         if !self.hub.get().daily_reminder_enabled {
             let _ = self.platform.notify(NotificationCommand::CancelPending {
-                id: "daily-order-reminder".into(),
+                id: snackpilot_core::notify::DAILY_REMINDER_ID.into(),
             });
             return;
         }

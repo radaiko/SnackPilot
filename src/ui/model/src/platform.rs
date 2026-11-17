@@ -53,9 +53,21 @@ pub trait Platform: Send + Sync {
 
     fn request_location_authorisation(&self) -> Result<bool, PlatformError>;
     fn current_location(&self) -> Result<Option<LocationFix>, PlatformError>;
-    fn start_geofence(&self) -> Result<(), PlatformError>;
+    /// Arm the single company region. `trigger_on_entry` asks the OS for the
+    /// initial Enter when the device is already inside — only the setup path
+    /// wants that (notifications-location §3.3); a launch restore must not
+    /// re-fire it (§3.2).
+    fn start_geofence(&self, trigger_on_entry: bool) -> Result<(), PlatformError>;
     fn stop_geofence(&self) -> Result<(), PlatformError>;
     fn is_geofence_monitoring(&self) -> Result<bool, PlatformError>;
+
+    /// Register (or re-register) the OS background task that re-evaluates the
+    /// reminders while the app is closed. Idempotent: the task has one id, so a
+    /// second call replaces the first. Hosts without background work accept it
+    /// as a no-op.
+    fn register_background_sync(&self) -> Result<(), PlatformError> {
+        Ok(())
+    }
 
     fn track(&self, event: &str, props: HashMap<String, String>) -> Result<(), PlatformError>;
     fn set_app_icon(&self, accent: &str) -> Result<(), PlatformError>;

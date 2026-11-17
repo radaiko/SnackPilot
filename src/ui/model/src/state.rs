@@ -51,6 +51,20 @@ impl Alert {
         }
     }
 
+    /// The coordinates were saved but the OS will not monitor the region —
+    /// almost always a missing "Always" grant, or region monitoring being
+    /// unavailable. v1 had no such path (its start call swallowed the result);
+    /// "Gespeichert" here would promise a reminder that can never arrive.
+    pub(crate) fn not_armed() -> Self {
+        Self {
+            title: "Standort-Benachrichtigung nicht aktiv".into(),
+            message: "Der Firmenstandort ist gespeichert, aber das System überwacht ihn noch \
+                      nicht. Bitte prüfe in den Einstellungen, ob SnackPilot auf den Standort \
+                      „Immer\" zugreifen darf."
+                .into(),
+        }
+    }
+
     /// Exact v1 strings (AppModel.swift:759-762).
     pub(crate) fn error() -> Self {
         Self {

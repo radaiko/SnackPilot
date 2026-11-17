@@ -49,7 +49,8 @@ private func cNotify(_ command: UnsafePointer<SnackPilotWireCommand>?) -> UInt8 
     let c = command.pointee
     NotificationService.shared.execute(CommandData(
         kind: c.kind, id: cstr(c.id), title: cstr(c.title), body: cstr(c.body),
-        channelId: cstr(c.channel_id), fireAtEpochMs: c.fire_at_epoch_ms))
+        channelId: cstr(c.channel_id), fireAtEpochMs: c.fire_at_epoch_ms,
+        screen: cstr(c.screen)))
     return 1
 }
 
@@ -64,7 +65,9 @@ private func cNotifyPermission(_ requestId: UInt64, _ ctx: UnsafeMutableRawPoint
 private func cLocationAuthorisation(_ requestId: UInt64, _ ctx: UnsafeMutableRawPointer?) -> UInt8 {
     Task {
         let status = await LocationService.shared.requestAlwaysAuthorization()
-        let granted = status == .authorizedAlways || status == .authorizedWhenInUse
+        // Region monitoring delivers in the background only with "Immer"; "Beim
+        // Verwenden" is the §7.1 alert case, not a grant.
+        let granted = status == .authorizedAlways
         complete(requestId, ok: true, payload: granted ? "true" : "false")
     }
     return 1
@@ -83,13 +86,20 @@ private func cLocationCurrent(_ requestId: UInt64, _ ctx: UnsafeMutableRawPointe
     return 1
 }
 
-private func cGeofenceStart(_ latitude: Double, _ longitude: Double,
+private func cGeofenceStart(_ latitude: Double, _ longitude: Double, _ triggerOnEntry: UInt8,
                             _ requestId: UInt64, _ ctx: UnsafeMutableRawPointer?) -> UInt8 {
-    // Setup path: synthesize the initial Enter when the device is already inside (§3.3).
-    // The already-monitored guard keeps relaunches silent (§3.2).
-    LocationService.shared.startMonitoring(latitude: latitude, longitude: longitude,
-                                            requestInitialState: true)
-    complete(requestId, ok: true)
+    // The setup path asks for the initial Enter (§3.3); a launch restore passes
+    // 0 and stays silent (§3.2).
+    let armed = LocationService.shared.startMonitoring(
+        latitude: latitude, longitude: longitude,
+        requestInitialState: triggerOnEntry != 0)
+    complete(requestId, ok: armed,
+             payload: armed ? nil : "CoreLocation will not monitor the company region")
+    return 1
+}
+
+private func cBackgroundSync() -> UInt8 {
+    BackgroundSync.schedule()
     return 1
 }
 
@@ -200,6 +210,9 @@ enum PlatformBridge {
 
         Analytics.start()
         NotificationService.shared.configure()
+        // Must be registered before the app finishes launching (App.swift calls
+        // bootstrap in didFinishLaunchingWithOptions).
+        BackgroundSync.register()
         // Touch the singleton so its delegate receives region crossings even
         // when iOS relaunches the app in the background (§3).
         LocationService.shared.onRegionEvent = { inside in
@@ -211,7 +224,7 @@ enum PlatformBridge {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         var table = SnackPilotIosShimTable(
-            size: 17,
+            size: 18,
             keychain_set: cKeychainSet,
             keychain_get: cKeychainGet,
             keychain_delete: cKeychainDelete,
@@ -220,6 +233,7 @@ enum PlatformBridge {
             location_authorisation: cLocationAuthorisation,
             location_current: cLocationCurrent,
             geofence_start: cGeofenceStart,
+            background_sync: cBackgroundSync,
             geofence_stop: cGeofenceStop,
             geofence_is_monitoring: cGeofenceIsMonitoring,
             track: cTrack,

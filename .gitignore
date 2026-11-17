@@ -18,6 +18,11 @@ src/android/local.properties
 # Host test link shims (see docs/evidence note in task 3.5)
 .devlibs/
 
+# Generated from src/ui/ios/project.yml by xcodegen
+src/ui/ios/Host/Info.plist
+src/ui/SnackPilot.xcodeproj/
+src/ui/ios/SnackPilot.xcodeproj/
+
 # Release signing (never commit)
 src/ui/android/keystore.properties
 src/ui/android/*.jks
