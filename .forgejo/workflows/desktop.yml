@@ -1,0 +1,173 @@
+name: desktop
+
+# Builds the desktop release on Forgejo and publishes it as a GitHub Release.
+#
+# macOS builds on the MacBook runner (native arm64); Windows builds natively on the
+# `windows` runner. Windows is NOT cross-compiled from Linux: gpui-pre's resource
+# build step hands llvm-rc a manifest path relative to the crate root while
+# running from the build output directory, so a Linux cross-build of this app
+# cannot work. Both artifacts are UNSIGNED: the Developer ID identity and the
+# notary profile live in a keychain a runner cannot unlock, and no Authenticode
+# certificate is configured. The release notes say so.
+#
+# Trigger: tag `desktop/vX.Y.Z` (the v1 namespace), or workflow_dispatch with the
+# version. The version must equal src/ui/ios/project.yml's MARKETING_VERSION, so a
+# tag can never ship a build that reports a different version.
+#
+# Required secret: GH_RELEASE_TOKEN — a GitHub PAT with `contents: write` on
+# radaiko/SnackPilot. Publishing is the only thing that talks to GitHub.
+
+on:
+  push:
+    tags: ["desktop/v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version X.Y.Z (must match src/ui/ios/project.yml)"
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: android
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: resolve
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-}"
+          if [ -z "$version" ]; then
+            case "$REF_NAME" in
+              desktop/v*) version="${REF_NAME#desktop/v}" ;;
+              *) echo "run from a desktop/vX.Y.Z tag or pass the version input" >&2; exit 1 ;;
+            esac
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid version '$version'" >&2; exit 1; }
+          expected="$(awk '$1 == "MARKETING_VERSION:" { gsub(/"/, "", $2); print $2; exit }' src/ui/ios/project.yml)"
+          [ "$version" = "$expected" ] || {
+            echo "tag/input version $version does not match project.yml MARKETING_VERSION $expected" >&2
+            exit 1
+          }
+          echo "building desktop $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: version
+    runs-on: macos
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/ui/target
+          key: macos-desktop-${{ hashFiles('src/ui/Cargo.lock') }}
+
+      - name: Build and pack the app (unsigned)
+        env:
+          SNACKPILOT_PRODUCT_VERSION: ${{ needs.version.outputs.version }}
+        run: bash tools/devops/package-macos-unsigned.sh
+
+      - name: Upload the macOS artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: desktop-macos
+          path: |
+            dist/macos/SnackPilot-*.zip
+            dist/macos/native-build-receipt.json
+          retention-days: 7
+
+  windows:
+    needs: version
+    # The Windows runner: Windows 11 with rustup (MSVC toolchain, Visual Studio
+    # build tools) and NSIS 3 on PATH. See tools/devops/README.md.
+    runs-on: windows
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/ui/target
+          key: windows-desktop-${{ hashFiles('src/ui/Cargo.lock') }}
+
+      - name: Build and pack the installer (unsigned)
+        shell: powershell
+        env:
+          SNACKPILOT_PRODUCT_VERSION: ${{ needs.version.outputs.version }}
+        run: powershell -ExecutionPolicy Bypass -File tools/devops/package-windows.ps1
+
+      - name: Upload the Windows artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: desktop-windows
+          path: |
+            dist/windows/SnackPilot-*.exe
+            dist/windows/SnackPilot-*.sha256
+            dist/windows/native-build-receipt.json
+          retention-days: 7
+
+  publish:
+    needs: [version, macos, windows]
+    runs-on: android
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: dist
+
+      - name: Write the release notes
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir -p dist/notes
+          cat > dist/notes/body.md <<EOF
+          Desktop build of SnackPilot $VERSION, produced by Forgejo CI from \`main\`.
+
+          **Both artifacts are UNSIGNED.**
+
+          - **macOS (Apple Silicon, macOS 26+)**: macOS blocks the first launch
+            ("developer cannot be verified"). Right-click → Open, or
+            \`xattr -dr com.apple.quarantine /Applications/SnackPilot.app\`.
+            A signed and notarized build comes from \`make package-macos\` on the Mac.
+          - **Windows (x64, Windows 11)**: SmartScreen warns until the installer has
+            reputation ("More info" → "Run anyway"). It installs per user under
+            \`%LOCALAPPDATA%\Programs\SnackPilot\`, needs no administrator and leaves
+            app data in \`%LOCALAPPDATA%\dev.radaiko.gourmetclient\`.
+
+          SHA-256 checksums ship next to the Windows installer.
+          EOF
+
+      - name: Publish on GitHub
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GITHUB_REPO: radaiko/SnackPilot
+          TAG: desktop/v${{ needs.version.outputs.version }}
+          TITLE: SnackPilot Desktop v${{ needs.version.outputs.version }}
+          BODY_FILE: dist/notes/body.md
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(dist/desktop-macos/*.zip dist/desktop-windows/*.exe dist/desktop-windows/*.sha256)
+          [ ${#assets[@]} -gt 0 ] || { echo "no artifacts to publish" >&2; exit 1; }
+          printf 'publishing: %s\n' "${assets[@]}"
+          python3 .forgejo/scripts/github_release.py "${assets[@]}"

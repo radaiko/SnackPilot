@@ -111,3 +111,44 @@ rejected notarization, failed signing/staple/Gatekeeper, changed bundle content
 and any dry-run flag all fail without a receipt. Actual signature/notary,
 install/relaunch and artifact-size/startup evidence are recorded under
 `docs/evidence/desktop-ui-redesign/1.6/`.
+
+## Desktop release pipeline (Forgejo → GitHub)
+
+`.forgejo/workflows/desktop.yml` builds the desktop app on Forgejo and publishes
+it as a GitHub Release. Trigger: the tag `desktop/vX.Y.Z` (created by
+`make ship` when Desktop is selected) or a manual run with the version. The
+version must equal `MARKETING_VERSION` in `src/ui/ios/project.yml`, so a tag can
+never ship a build that reports a different version.
+
+| Job | Runner | Produces |
+| --- | --- | --- |
+| `macos` | `macos` (MacBook) | `SnackPilot-{version}-macos-arm64.zip` via `tools/devops/package-macos-unsigned.sh` |
+| `windows` | `windows` (Windows 11) | `SnackPilot-{version}-windows-x64-setup.exe` + `.sha256` via `tools/devops/package-windows.ps1` |
+| `publish` | `android` | the GitHub Release, via `.forgejo/scripts/github_release.py` |
+
+Both artifacts are **unsigned**. CI has no Developer ID identity or notary
+profile (the Mac's login keychain cannot be unlocked from a runner session),
+and no Authenticode certificate exists. The macOS zip carries `UNSIGNED.txt`
+and the release notes state how to open the app; a signed, notarized macOS
+build still comes from `make package-macos` on the Mac.
+
+### Secrets and runners
+
+- **`GH_RELEASE_TOKEN`** (repository secret): a GitHub fine-grained PAT for
+  `radaiko/SnackPilot` with `Contents: Read and write`. Only the `publish` job
+  uses it; nothing else talks to GitHub.
+- **`windows` runner**: Windows 11, the runner installed as a service under a
+  user that has `cargo` on its PATH, plus:
+  - Rust with the `x86_64-pc-windows-msvc` target and Visual Studio Build Tools
+    (the MSVC linker; `rustup default stable-msvc`).
+  - NSIS 3 (`makensis`) on PATH — `choco install nsis` or the 3.x installer
+    from sourceforge. The job fails with a clear message if it is missing.
+- Windows is deliberately **not** cross-compiled from Linux: `gpui-pre`'s
+  resource step hands `llvm-rc` `resources/windows/gpui.manifest.xml` relative
+  to the crate root while running from the build output directory, which fails
+  for any cross-build. Do not reintroduce `cargo xwin` for this app.
+
+### Running it without a tag
+
+A manual run (`workflow_dispatch`) needs the version as input; it publishes a
+real release, so run it when you mean to ship.

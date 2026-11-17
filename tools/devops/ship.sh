@@ -32,13 +32,17 @@ validate_semver "$VERSION" || die "invalid version '$VERSION' — must be X.Y.Z"
 version_gt "$VERSION" "$last" || die "$VERSION must be strictly greater than $last"
 
 # 2. platforms
-echo "Platforms:  1) iOS   2) Android   3) both" >&2
-read -rp "Select (e.g. 1,2 or 3): " sel
-do_ios=0; do_android=0
-[[ "$sel" == *1* || "$sel" == *3* ]] && do_ios=1
-[[ "$sel" == *2* || "$sel" == *3* ]] && do_android=1
-[[ $do_ios -eq 1 || $do_android -eq 1 ]] || die "no platform selected"
-label=""; [[ $do_ios -eq 1 ]] && label="ios"; [[ $do_android -eq 1 ]] && label="${label:+$label,}android"
+echo "Platforms:  1) iOS   2) Android   3) Desktop   4) all" >&2
+read -rp "Select (e.g. 1,2 or 4): " sel
+do_ios=0; do_android=0; do_desktop=0
+[[ "$sel" == *1* || "$sel" == *4* ]] && do_ios=1
+[[ "$sel" == *2* || "$sel" == *4* ]] && do_android=1
+[[ "$sel" == *3* || "$sel" == *4* ]] && do_desktop=1
+[[ $do_ios -eq 1 || $do_android -eq 1 || $do_desktop -eq 1 ]] || die "no platform selected"
+label=""
+[[ $do_ios -eq 1 ]] && label="ios"
+[[ $do_android -eq 1 ]] && label="${label:+$label,}android"
+[[ $do_desktop -eq 1 ]] && label="${label:+$label,}desktop"
 info "shipping v$VERSION ($label)"
 
 # Fail fast if a target tag already exists, so a collision can't orphan a Release commit later.
@@ -95,6 +99,12 @@ if [[ $do_android -eq 1 ]]; then
   ok "Android artifacts: $outdir/SnackPilot-$VERSION.{aab,apk}"
 fi
 
+# 5c. Desktop artifacts: CI builds them, so this only reports the trigger.
+if [[ $do_desktop -eq 1 ]]; then
+  info "Desktop: Forgejo builds macOS + Windows from the desktop/v$VERSION tag"
+  info "         and publishes the GitHub release; nothing is built here"
+fi
+
 # 6. commit + tag + history (skip on dry-run)
 if [[ "$DRY_RUN" == "1" ]]; then
   ok "DRY RUN complete — artifacts in $outdir; no git or counter changes made"
@@ -106,6 +116,7 @@ git commit -m "Release v$VERSION ($label)"
 committed=1
 [[ $do_ios -eq 1 ]] && git tag "ios/v$VERSION"
 [[ $do_android -eq 1 ]] && git tag "android/v$VERSION"
+[[ $do_desktop -eq 1 ]] && git tag "desktop/v$VERSION"
 echo "$VERSION" >> "$HISTORY"
 ok "committed Release v$VERSION ($label) and tagged locally"
 info "artifacts in dist/. To publish the tags later: git push && git push --tags"
