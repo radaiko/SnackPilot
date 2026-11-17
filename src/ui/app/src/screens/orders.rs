@@ -26,6 +26,7 @@ use crate::components::order_item::{
 use crate::components::record_table::{detail_entry, RecordListFocus};
 use crate::components::segment_tabs::{desktop_segment_toolbar, segment_tabs, Segment};
 use crate::components::spinner::spinner;
+use crate::components::working::working_button;
 use crate::components::workspace::{
     action_strip, detail_prompt, loading_state, split_workspace_scrolled, state_message,
 };
@@ -367,8 +368,15 @@ fn selection_bar(
     let ready = batch_cancel_ready(state);
     let cancel = cancel_selected_handler(host, cx);
     let done = end_selection_handler(cx);
-    let danger = if ready {
-        mobile_action_action(
+    // While the cancel runs the button stops being a button: it greys out and
+    // sweeps, carrying its own counted label, so the tap reads as work rather
+    // than as a dead control. The phase the core reports, when it reports one,
+    // replaces the label.
+    let danger: AnyElement = match state.order_progress.as_deref() {
+        Some(phase) => {
+            working_button(phase.to_string(), theme.scale.action_height, theme).into_any_element()
+        }
+        None if ready => mobile_action_action(
             "orders-selection-cancel",
             mobile_batch_cancel_label(count),
             ButtonKind::Danger,
@@ -376,8 +384,16 @@ fn selection_bar(
             cx,
             move |_, window, cx| cancel(window, cx),
         )
-    } else {
-        mobile_action(
+        .into_any_element(),
+        None if state.busy => div()
+            .flex_1()
+            .child(working_button(
+                mobile_batch_cancel_label(count),
+                theme.scale.action_height,
+                theme,
+            ))
+            .into_any_element(),
+        None => mobile_action(
             "orders-selection-cancel",
             mobile_batch_cancel_label(count),
             ButtonKind::Danger,
@@ -385,6 +401,7 @@ fn selection_bar(
             theme,
             cx,
         )
+        .into_any_element(),
     };
     div()
         .w_full()

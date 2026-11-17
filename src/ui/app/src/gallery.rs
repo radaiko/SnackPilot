@@ -863,6 +863,12 @@ fn mobile_menus_case(width: f32, theme: &AppTheme) -> AnyElement {
         ))
         .child(list)
         .child(div().p(px(theme.scale.space_2)).child(mobile_dock(
+            DockState::Progress("Bestellung wird bestätigt...".into()),
+            dock_height_for_lines(1, theme),
+            None,
+            theme,
+        )))
+        .child(div().p(px(theme.scale.space_2)).child(mobile_dock(
             DockState::Action("Änderungen bestätigen (3)".into()),
             // The board's label is one body line; the running screen measures
             // it from the shaped label instead (fab::dock_label_lines).

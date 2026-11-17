@@ -8,7 +8,7 @@
 
 use gpui::*;
 
-use crate::components::spinner::spinner;
+use crate::components::working::working_button;
 use crate::navigation::ClickHandler;
 use crate::theme::AppTheme;
 
@@ -66,15 +66,10 @@ pub fn dock_state(
 }
 
 /// The width the dock's label can wrap in: the column minus the button's
-/// horizontal 16 px padding, and the 16 px spinner plus its 8 px gap when the
-/// row is an operation phase instead of an action.
-pub fn dock_available_width(state: &DockState, column_width: f32, theme: &AppTheme) -> f32 {
-    let lead = if state.is_action() {
-        0.
-    } else {
-        theme.scale.space_4 + theme.scale.space_2
-    };
-    (column_width - 2. * theme.scale.space_4 - lead).max(1.)
+/// horizontal 16 px padding. The progress band paints behind the text, so a
+/// phase row and an action row leave the same width.
+pub fn dock_available_width(_state: &DockState, column_width: f32, theme: &AppTheme) -> f32 {
+    (column_width - 2. * theme.scale.space_4).max(1.)
 }
 
 /// The dock's height for a measured wrapped line count (REQ-UI-15): one 24 px
@@ -139,8 +134,9 @@ pub fn dock_bottom(navigation_top: f32) -> f32 {
 
 /// The compact pending dock: one full-width 48 px primary button carrying
 /// exactly `model.fab_label()`, separated 8 px above platform navigation by
-/// the shell. During an operation the same band shows the existing phase with
-/// its quiet spinner and installs no repeat action.
+/// the shell. During an operation the same band greys out and turns into the
+/// operation itself: the existing phase stays readable inside it while a wide
+/// accent band sweeps the button, and no repeat action is installed.
 /// @req REQ-SCR-01 @req REQ-UI-15 @req REQ-UI-16
 pub fn mobile_dock(
     state: DockState,
@@ -148,7 +144,10 @@ pub fn mobile_dock(
     on_click: Option<ClickHandler>,
     theme: &AppTheme,
 ) -> Stateful<Div> {
-    let pressable = on_click.is_some() && state.is_action();
+    if !state.is_action() {
+        return working_button(state.text().to_string(), height, theme).id("menus-dock");
+    }
+    let pressable = on_click.is_some();
     let mut dock = div()
         .id("menus-dock")
         .w_full()
@@ -160,20 +159,16 @@ pub fn mobile_dock(
         .flex_wrap()
         .items_center()
         .justify_center()
-        .gap(px(theme.scale.space_2));
-    if !state.is_action() {
-        dock = dock.child(spinner(theme.on_accent, theme.scale.space_4));
-    }
-    dock = dock.child(
-        div()
-            .min_w(px(0.))
-            .text_size(px(theme.scale.body))
-            .line_height(px(theme.scale.body_line))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(theme.on_accent)
-            .text_center()
-            .child(state.text().to_string()),
-    );
+        .child(
+            div()
+                .min_w(px(0.))
+                .text_size(px(theme.scale.body))
+                .line_height(px(theme.scale.body_line))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.on_accent)
+                .text_center()
+                .child(state.text().to_string()),
+        );
     if pressable {
         dock = dock
             .tab_index(0)
@@ -181,7 +176,7 @@ pub fn mobile_dock(
             .hover(move |s| s.bg(theme.pressed(theme.accent)))
             .focus(crate::theme::desktop_focus(theme.on_accent));
     }
-    if let (Some(on_click), true) = (on_click, state.is_action()) {
+    if let Some(on_click) = on_click {
         dock = dock.on_click(move |_, window, cx| on_click(window, cx));
     }
     dock
@@ -244,8 +239,8 @@ mod tests {
             );
             assert_eq!(
                 dock_available_width(&progress, column, &theme),
-                column - theme.scale.space_4 * 2. - theme.scale.space_4 - theme.scale.space_2,
-                "the phase row loses the spinner and its gap"
+                column - theme.scale.space_4 * 2.,
+                "the progress band paints behind the phase, not beside it"
             );
         }
 
