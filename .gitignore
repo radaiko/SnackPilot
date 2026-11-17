@@ -34,3 +34,13 @@ tools/devops/.build-number
 
 # Scratch simulator captures
 .shots/
+
+# Locally installed agent skills and plugins: they live in the tool's own
+# catalogue, not in this app's history.
+.opencode/plugins/
+.opencode/skills/banner-design/
+.opencode/skills/brand/
+.opencode/skills/design/
+.opencode/skills/design-system/
+.opencode/skills/slides/
+.opencode/skills/ui-styling/
