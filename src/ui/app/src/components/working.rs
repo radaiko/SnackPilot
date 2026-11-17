@@ -17,7 +17,9 @@ const SWEEP: Duration = Duration::from_millis(1300);
 /// Share of the width the sweeping band occupies.
 const SEGMENT: f32 = 0.42;
 
-/// A band the full height of its box, sweeping left to right forever.
+/// A band the full height of its box, sweeping left to right forever. It starts
+/// and ends fully outside the button, so repeating the pass never cuts back to
+/// the left edge — the band arrives and leaves instead of jumping.
 fn sweep_band(colour: Hsla, id: &'static str) -> AnyElement {
     div()
         .absolute()
@@ -27,7 +29,8 @@ fn sweep_band(colour: Hsla, id: &'static str) -> AnyElement {
         .w(relative(SEGMENT))
         .bg(colour)
         .with_animation(id, Animation::new(SWEEP).repeat(), |el, t| {
-            el.left(relative(t * (1. - SEGMENT)))
+            el.left(relative(-SEGMENT + t * (1. + SEGMENT)))
+                .opacity((t / 0.1).min((1. - t) / 0.1).clamp(0., 1.))
         })
         .into_any_element()
 }
