@@ -269,7 +269,15 @@ fn month_release(
         cx.notify();
         return;
     };
-    let mut settle = dx;
+    // The page finish starts at the painted pixel: at a month-carousel edge
+    // that is the damped travel, so the release does not jump.
+    let mut settle = crate::components::carousel::page_travel(
+        dx,
+        newer.is_some(),
+        older.is_some(),
+        cx.reduce_motion(),
+        page_width,
+    );
     let mut switch = None;
     if let Some(model) = &s.model {
         match swipe_day(dx, newer.is_some(), older.is_some()) {

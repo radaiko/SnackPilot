@@ -609,9 +609,7 @@ pub struct AppShell {
     pub(crate) strip_aligned: Option<String>,
     /// The day strip's own gesture and settle: it owns its travel instead of
     /// the platform scroller, so a release always comes to rest on a chip.
-    pub(crate) strip_page: Carousel,
-    /// Where the strip rests: the settled offset, before the live gesture.
-    pub(crate) strip_scroll: f32,
+    pub(crate) strip: crate::components::day_navigator::StripScroll,
     /// The day carousel's gesture and page finish.
     pub(crate) days_page: Carousel,
     /// The billing month carousel's gesture and page finish: the same swipe,
@@ -695,7 +693,7 @@ impl AppShell {
         match page {
             CarouselPage::Days => &mut self.days_page,
             CarouselPage::Months => &mut self.months_page,
-            CarouselPage::Strip => &mut self.strip_page,
+            CarouselPage::Strip => &mut self.strip.page,
         }
     }
 
@@ -758,13 +756,13 @@ impl AppShell {
             .and_then(|previous| dates.iter().position(|day| day == previous));
         self.strip_aligned = state.selected_day.clone();
         let target = alignment_target(index, previous, dates.len());
-        self.strip_scroll = crate::components::day_navigator::strip_offset_for_index(
+        self.strip.base = crate::components::day_navigator::strip_offset_for_index(
             target,
             dates.len(),
             viewport,
             theme,
         );
-        self.strip_page = Carousel::default();
+        self.strip.page = Carousel::default();
     }
 
     /// Refresh menus, orders and billing in the background when the data is
@@ -867,8 +865,7 @@ impl AppShell {
             model,
             mutation_gate: MutationGate::default(),
             strip_aligned: None,
-            strip_page: Carousel::default(),
-            strip_scroll: 0.,
+            strip: crate::components::day_navigator::StripScroll::default(),
             days_page: Carousel::default(),
             months_page: Carousel::default(),
             pending_knob: false,
@@ -1648,12 +1645,18 @@ impl AppShell {
                     ),
                     MenuRowAction::Toggle => {
                         self.align_day_strip(state, page_width, theme);
+                        let days = state
+                            .menu_snapshot
+                            .as_ref()
+                            .map(|snapshot| snapshot.available_dates.len())
+                            .unwrap_or(0);
+                        let strip_offset = self.strip.painted(days, page_width, theme);
                         menus_tab(
                             state,
                             self.model.as_ref(),
                             theme,
                             self.days_page.offset(),
-                            self.strip_scroll + self.strip_page.offset(),
+                            strip_offset,
                             // The phone host reports no content width, so the
                             // page width comes from the column the shell laid
                             // out — the same number the screen is drawn at.

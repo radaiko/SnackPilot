@@ -64,20 +64,6 @@ pub fn add_travel(total: f32, dx: f32) -> f32 {
     (total + dx).clamp(-TRAVEL_MAX, TRAVEL_MAX)
 }
 
-/// The damped horizontal offset painted while the gesture runs. Reduced motion
-/// removes the travel — the day still changes on release, but the content never
-/// slides. Edge damping (30 %) is unchanged whenever travel is shown.
-pub fn swipe_offset(dx: f32, can_back: bool, can_forward: bool, reduce_motion: bool) -> f32 {
-    if reduce_motion {
-        return 0.;
-    }
-    if (dx > 0. && !can_back) || (dx < 0. && !can_forward) {
-        dx * EDGE_DAMPING
-    } else {
-        dx
-    }
-}
-
 /// The day a released gesture switches to: `-1` back, `1` forward, `None` for
 /// a short or edge-blocked drag. The 50 px switch threshold is unchanged.
 pub fn swipe_day(dx: f32, can_back: bool, can_forward: bool) -> Option<i32> {
@@ -109,8 +95,8 @@ pub fn swipe_surface(id: &'static str, content: AnyElement, handlers: SwipeHandl
 #[cfg(test)]
 mod tests {
     use super::{
-        add_travel, claims_horizontal, is_swipe_delta, swipe_day, swipe_offset, CLAIM_PX,
-        EDGE_DAMPING, SWITCH_PX, TRAVEL_MAX,
+        add_travel, claims_horizontal, is_swipe_delta, swipe_day, CLAIM_PX, EDGE_DAMPING,
+        SWITCH_PX, TRAVEL_MAX,
     };
 
     /// A thumb drag arrives as a run of scroll deltas, not as one movement:
@@ -195,13 +181,6 @@ mod tests {
             "no forward at the last day"
         );
 
-        // Edge damping 30 % while travelling; no travel under reduced motion.
-        assert_eq!(swipe_offset(100., false, true, false), 100. * 0.3);
-        assert_eq!(swipe_offset(-100., true, false, false), -100. * 0.3);
-        assert_eq!(swipe_offset(100., true, true, false), 100.);
-        for dx in [100., -100., 11.] {
-            assert_eq!(swipe_offset(dx, false, false, true), 0.);
-        }
         // Reduced motion never changes the day decision the release makes.
         assert_eq!(swipe_day(-51., true, true), Some(1));
     }

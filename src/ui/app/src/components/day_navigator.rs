@@ -12,6 +12,7 @@ use std::rc::Rc;
 use gpui::*;
 use snackpilot_model::format_day_short;
 
+use crate::components::carousel::Carousel;
 use crate::components::swipe::SwipeHandlers;
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
@@ -191,10 +192,18 @@ pub fn strip_painted(
 }
 
 /// A settled strip sits on a chip boundary, never between two, and never past
-/// either end.
+/// either end. The far end counts as a boundary of its own: the row's last step
+/// is usually shorter than a chip, and without it the final padding could never
+/// come into view, leaving the last chip clipped at the right edge.
 pub fn strip_snap(offset: f32, days: usize, viewport: f32, theme: &AppTheme) -> f32 {
     let step = strip_step(theme);
-    ((offset / step).round() * step).clamp(0., strip_max_offset(days, viewport, theme))
+    let max = strip_max_offset(days, viewport, theme);
+    let boundary = ((offset / step).round() * step).clamp(0., max);
+    if (max - offset).abs() < (boundary - offset).abs() {
+        max
+    } else {
+        boundary
+    }
 }
 
 /// What a release hands the painter: the chip the row settles on, and the
@@ -210,6 +219,82 @@ pub fn strip_release(painted: f32, days: usize, viewport: f32, theme: &AppTheme)
 /// part.
 pub fn strip_offset_for_index(index: usize, days: usize, viewport: f32, theme: &AppTheme) -> f32 {
     strip_snap(index as f32 * strip_step(theme), days, viewport, theme)
+}
+
+/// The strip's whole horizontal state: where it rests, and the gesture that
+/// moves it. Keeping both in one place is what makes the pixels continuous —
+/// a touch never resets the row to a position it was not painted at.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct StripScroll {
+    /// The settled offset the row rests at.
+    pub base: f32,
+    /// The live gesture plus the settle that is easing it to a chip.
+    pub page: Carousel,
+}
+
+impl StripScroll {
+    /// What the row is painted at, clamped to its own ends.
+    pub fn painted(&self, days: usize, viewport: f32, theme: &AppTheme) -> f32 {
+        strip_painted(
+            self.base,
+            self.page.dx,
+            self.page.settle,
+            days,
+            viewport,
+            theme,
+        )
+    }
+
+    /// A new touch: the row keeps the pixel it is painted at, so interrupting a
+    /// settle or grabbing the row mid-flight never moves it.
+    pub fn begin(&mut self, days: usize, viewport: f32, theme: &AppTheme) {
+        self.base = self.painted(days, viewport, theme);
+        self.page = Carousel::default();
+        self.page.live = true;
+    }
+
+    /// One delta of the gesture; the slop and the ends are applied when the row
+    /// is painted, not here.
+    pub fn travel(&mut self, dx: f32, dy: f32) -> bool {
+        self.page.travel(dx, dy)
+    }
+
+    /// The finger lifted: settle onto the nearest chip from the pixel the row
+    /// is on. Returns whether a settle is running.
+    pub fn release(
+        &mut self,
+        days: usize,
+        viewport: f32,
+        reduce_motion: bool,
+        theme: &AppTheme,
+    ) -> bool {
+        let Some(dx) = self.page.release() else {
+            return false;
+        };
+        let painted = strip_painted(self.base, dx, 0., days, viewport, theme);
+        let (target, settle) = strip_release(painted, days, viewport, theme);
+        self.base = target;
+        self.page.finish(settle, reduce_motion);
+        self.page.settle != 0.
+    }
+
+    /// The system took the touch: keep the pixel the row is on instead of
+    /// snapping back to where the gesture started.
+    pub fn cancel(&mut self, days: usize, viewport: f32, theme: &AppTheme) {
+        self.base = self.painted(days, viewport, theme);
+        self.page = Carousel::default();
+    }
+
+    /// One frame of the settle; returns whether more frames are needed.
+    pub fn settle_tick(&mut self) -> bool {
+        self.page.settle *= 0.68;
+        if self.page.settle.abs() < 0.5 {
+            self.page.settle = 0.;
+            false
+        } else {
+            true
+        }
+    }
 }
 
 /// The compact day strip: every available day at once, weekday over date, the
@@ -333,8 +418,10 @@ pub fn mobile_day_strip(
 mod tests {
     use super::{
         day_dot, mobile_day_strip, strip_max_offset, strip_offset_for_index, strip_painted,
-        strip_release, strip_snap, strip_travel_offset, DayDot, DayFacts, DAY_CHIP_W, STRIP_SLOP,
+        strip_release, strip_snap, strip_travel_offset, DayDot, DayFacts, StripScroll, DAY_CHIP_W,
+        STRIP_SLOP,
     };
+    use crate::components::carousel::Carousel;
     use crate::components::swipe::SwipeHandlers;
     use crate::theme::AppTheme;
     use gpui::{App, MouseUpEvent, ScrollWheelEvent, Window};
@@ -383,6 +470,57 @@ mod tests {
         assert_eq!(strip_painted(5., -25., 0., days, viewport, &theme), 0.);
     }
 
+    /// Every way a strip gesture can begin, move and end — including the one
+    /// that jumped: grabbing the row at the end, or grabbing it while it was
+    /// still settling, must not move it to another position.
+    /// @req REQ-SCR-01 @req REQ-UI-16
+    #[test]
+    fn the_strip_never_jumps_when_a_gesture_starts() {
+        let theme = AppTheme::build(false);
+        let (days, viewport) = (8, 300.);
+        let max = strip_max_offset(days, viewport, &theme);
+        assert_eq!(max, 208.);
+
+        // Drag to the far end and let the settle finish: the row's end is a
+        // rest position of its own, so the last padding can come into view.
+        let mut strip = StripScroll::default();
+        strip.begin(days, viewport, &theme);
+        strip.travel(400., 0.);
+        assert_eq!(strip.painted(days, viewport, &theme), max);
+        strip.release(days, viewport, false, &theme);
+        assert_eq!(strip.base, max);
+        while strip.settle_tick() {}
+        assert_eq!(strip.painted(days, viewport, &theme), max);
+
+        // A new grab at the end stays at the end — the row does not snap to
+        // the start, which is what the device reported.
+        strip.begin(days, viewport, &theme);
+        assert_eq!(strip.painted(days, viewport, &theme), max);
+
+        // A cancelled touch keeps the pixel the row is on.
+        strip.travel(-120., 0.);
+        let painted = strip.painted(days, viewport, &theme);
+        strip.cancel(days, viewport, &theme);
+        assert_eq!(strip.painted(days, viewport, &theme), painted);
+
+        // A grab in the middle of a settle keeps the pixel as well: the row is
+        // not pulled forward to the chip it was easing to.
+        let mut strip = StripScroll::default();
+        strip.begin(days, viewport, &theme);
+        strip.travel(95., 0.);
+        strip.release(days, viewport, false, &theme);
+        let painted = strip.painted(days, viewport, &theme);
+        strip.begin(days, viewport, &theme);
+        assert_eq!(strip.painted(days, viewport, &theme), painted);
+        // ...and dragging on from there still works, with a fresh slop of its
+        // own before the row moves.
+        strip.travel(-30., 0.);
+        assert_eq!(
+            strip.painted(days, viewport, &theme),
+            painted - (30. - STRIP_SLOP)
+        );
+    }
+
     /// The release frame does not move the row: base + settle is exactly the
     /// pixel it was released at, and the settle eases to zero so the strip
     /// lands on the chip instead of jumping there first.
@@ -398,9 +536,13 @@ mod tests {
                 painted,
                 "{painted} px must not move on the release frame"
             );
-            // Easing the settle to zero leaves the row on a chip boundary.
+            // Easing the settle to zero leaves the row on a chip boundary (or
+            // the row's end, which is a boundary of its own).
             assert_eq!(base, strip_snap(painted, days, viewport, &theme));
-            assert_eq!(base % super::strip_step(&theme), 0.);
+            let step = super::strip_step(&theme);
+            assert!(
+                base == 0. || base == strip_max_offset(days, viewport, &theme) || base % step == 0.
+            );
         }
         assert_eq!(strip_release(80., days, viewport, &theme), (60., 20.));
         assert_eq!(strip_release(100., days, viewport, &theme), (120., -20.));

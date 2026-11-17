@@ -28,7 +28,7 @@ use crate::components::record_table::{
 };
 use crate::components::refresh_bar::refresh_bar;
 use crate::components::spinner::spinner;
-use crate::components::swipe::{swipe_day, swipe_offset, swipe_surface, SwipeHandlers};
+use crate::components::swipe::{swipe_day, swipe_surface, SwipeHandlers};
 use crate::components::workspace::{
     action_strip, detail_prompt, loading_state as desktop_loading_state, section_label,
     split_workspace_scrolled, state_message,
@@ -127,13 +127,9 @@ pub fn menus_tab(
     let can_back = prev.is_some();
     let can_forward = next.is_some();
     let reduce_motion = cx.reduce_motion();
-    let travel = page_travel(
-        swipe_offset(offset, can_back, can_forward, reduce_motion),
-        can_back,
-        can_forward,
-        reduce_motion,
-        page_width,
-    );
+    // One damping step only: the row shows the damped travel at an edge and
+    // the release starts from exactly that pixel.
+    let travel = page_travel(offset, can_back, can_forward, reduce_motion, page_width);
 
     // The day carousel: the day before, the day on screen and the day after,
     // side by side in one clipped row. Dragging slides the row, so the next day
@@ -794,7 +790,10 @@ fn swipe_release(
         cx.notify();
         return;
     };
-    let mut settle = dx;
+    // Without a day switch the page finish starts from the pixel the row is
+    // painted at — at an edge that is the damped travel, not the raw drag, so
+    // the release does not jump.
+    let mut settle = page_travel(dx, can_back, can_forward, cx.reduce_motion(), page_width);
     if let Some(model) = &s.model {
         let day = swipe_day(dx, can_back, can_forward);
         log::info!("swipe: {dx} px released, day {day:?}");
@@ -855,16 +854,16 @@ fn strip_handlers(
             }
             match e.touch_phase {
                 TouchPhase::Started => {
-                    s.strip_page.begin();
+                    s.strip.begin(days, viewport, &theme);
                     strip_travel(s, dx, dy, cx);
                 }
                 // Deltas after the release are the platform's momentum tail,
                 // and a delta with no live gesture is not ours to follow: that
                 // tail is what made the row creep in one-pixel steps.
-                TouchPhase::Moved if s.strip_page.live => strip_travel(s, dx, dy, cx),
+                TouchPhase::Moved if s.strip.page.live => strip_travel(s, dx, dy, cx),
                 TouchPhase::Moved => {}
                 TouchPhase::Ended => strip_release(s, days, viewport, reduce_motion, &theme, cx),
-                TouchPhase::Cancelled => strip_reset(s, cx),
+                TouchPhase::Cancelled => strip_reset(s, days, viewport, &theme, cx),
             }
         });
     });
@@ -893,16 +892,16 @@ fn strip_wheel(
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) {
-    let max = crate::components::day_navigator::strip_max_offset(days, viewport, theme);
-    let moved = (s.strip_scroll + dx).clamp(0., max);
-    s.strip_scroll = strip_snap(moved, days, viewport, theme);
+    let painted = s.strip.painted(days, viewport, theme);
+    s.strip.base = strip_snap(painted + dx, days, viewport, theme);
+    s.strip.page = crate::components::carousel::Carousel::default();
     cx.notify();
 }
 
 fn strip_travel(s: &mut AppShell, dx: f32, dy: f32, cx: &mut Context<AppShell>) {
     // The painted offset applies the slop and the row's ends; this only
     // collects the gesture.
-    if s.strip_page.travel(dx, dy) {
+    if s.strip.travel(dx, dy) {
         cx.notify();
     }
 }
@@ -917,33 +916,21 @@ fn strip_release(
     theme: &AppTheme,
     cx: &mut Context<AppShell>,
 ) {
-    let Some(dx) = s.strip_page.release() else {
-        cx.notify();
-        return;
-    };
-    let painted = crate::components::day_navigator::strip_painted(
-        s.strip_scroll,
-        dx,
-        0.,
-        days,
-        viewport,
-        theme,
-    );
-    // Continue from the pixel the row is on: base + settle is that pixel, and
-    // the settle eases to zero, which lands it on the chip.
-    let (target, settle) =
-        crate::components::day_navigator::strip_release(painted, days, viewport, theme);
-    s.strip_scroll = target;
-    s.strip_page.finish(settle, reduce_motion);
-    if s.strip_page.settle != 0. {
+    if s.strip.release(days, viewport, reduce_motion, theme) {
         s.ease_page(CarouselPage::Strip, cx);
     }
     cx.notify();
 }
 
 /// The system took the touch: drop the gesture without settling.
-fn strip_reset(s: &mut AppShell, cx: &mut Context<AppShell>) {
-    s.strip_page.clear();
+fn strip_reset(
+    s: &mut AppShell,
+    days: usize,
+    viewport: f32,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) {
+    s.strip.cancel(days, viewport, theme);
     cx.notify();
 }
 
