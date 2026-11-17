@@ -742,10 +742,8 @@ fn desktop_chips_row(
     row
 }
 
-/// Run one billing model action on the host's thread: every desktop host
-/// dispatches off the render thread so the cached rows keep painting, the
-/// narrow window included (the rail is irrelevant), while a phone or tablet
-/// host keeps the incumbent synchronous path.
+/// Run one billing model action off the render thread, so the cached rows keep
+/// painting while it runs.
 /// Abrechnung's work is one or two network fetches. It runs on the background
 /// executor on every host: switching a month used to run inline on the phone,
 /// which froze the screen for as long as Gourmet and Ventopay took to answer.

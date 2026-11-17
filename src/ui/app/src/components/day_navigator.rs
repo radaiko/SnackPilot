@@ -215,10 +215,20 @@ pub fn strip_release(painted: f32, days: usize, viewport: f32, theme: &AppTheme)
     (target, painted - target)
 }
 
-/// The settled offset that puts chip `index` at the left edge of the visible
-/// part.
-pub fn strip_offset_for_index(index: usize, days: usize, viewport: f32, theme: &AppTheme) -> f32 {
-    strip_snap(index as f32 * strip_step(theme), days, viewport, theme)
+/// The offset that brings chip `index` fully into view with the least
+/// movement. A chip that is already visible leaves the row alone — tapping a
+/// day you can see must never scroll the strip.
+pub fn strip_reveal(base: f32, index: usize, days: usize, viewport: f32, theme: &AppTheme) -> f32 {
+    let max = strip_max_offset(days, viewport, theme);
+    let left = theme.scale.space_4 + index as f32 * strip_step(theme);
+    let right = left + DAY_CHIP_W;
+    if left < base {
+        left.clamp(0., max)
+    } else if right > base + viewport {
+        (right - viewport).clamp(0., max)
+    } else {
+        base
+    }
 }
 
 /// The strip's whole horizontal state: where it rests, and the gesture that
@@ -417,9 +427,8 @@ pub fn mobile_day_strip(
 #[cfg(test)]
 mod tests {
     use super::{
-        day_dot, mobile_day_strip, strip_max_offset, strip_offset_for_index, strip_painted,
-        strip_release, strip_snap, strip_travel_offset, DayDot, DayFacts, StripScroll, DAY_CHIP_W,
-        STRIP_SLOP,
+        day_dot, mobile_day_strip, strip_max_offset, strip_painted, strip_release, strip_reveal,
+        strip_snap, strip_travel_offset, DayDot, DayFacts, StripScroll, DAY_CHIP_W, STRIP_SLOP,
     };
     use crate::components::carousel::Carousel;
     use crate::components::swipe::SwipeHandlers;
@@ -577,11 +586,28 @@ mod tests {
         assert_eq!(max, 300.);
         assert_eq!(strip_snap(118., long, viewport, &theme), 120.);
         assert_eq!(strip_snap(500., long, viewport, &theme), max);
-        assert_eq!(strip_offset_for_index(2, long, viewport, &theme), 120.);
+        // Bringing a chip into view moves the row as little as possible.
         assert_eq!(
-            strip_offset_for_index(8, long, viewport, &theme),
+            strip_reveal(0., 2, long, viewport, &theme),
+            0.,
+            "chip 2 is already on screen: the row does not move at all"
+        );
+        assert_eq!(
+            strip_reveal(0., 4, long, viewport, &theme),
+            44.,
+            "chip 4 ends past the viewport, so the row moves just enough"
+        );
+        assert_eq!(
+            strip_reveal(44., 4, long, viewport, &theme),
+            44.,
+            "and then it stays put"
+        );
+        assert_eq!(strip_reveal(120., 0, long, viewport, &theme), 16.);
+        assert_eq!(strip_reveal(0., 0, long, viewport, &theme), 0.);
+        assert_eq!(
+            strip_reveal(max, 8, long, viewport, &theme),
             max,
-            "the last chip never scrolls past the end"
+            "the last chip is visible at the end, so nothing moves"
         );
     }
 

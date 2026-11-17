@@ -145,20 +145,6 @@ fn run_refresh(model: &AppModel, intent: RefreshIntent) {
     }
 }
 
-/// Which chip the day strip aligns to when the selection moves from
-/// `previous` to `index`. Stepping forward brings the day after the selection
-/// into view, so the row reads as a series that continues; stepping back (or
-/// landing on the last day) aims at the selection itself, because aiming at
-/// the day after a backward step slid the chosen day off the left edge.
-pub fn alignment_target(index: usize, previous: Option<usize>, len: usize) -> usize {
-    let forward = previous.is_none_or(|previous| index > previous);
-    if forward {
-        (index + 1).min(len.saturating_sub(1))
-    } else {
-        index
-    }
-}
-
 /// Whether entering `requested` must create fresh credential inputs. Re-entering
 /// the same open form, or crossing 719↔720 while it is open, keeps the one
 /// instance and its unsaved text (REQ-UI-10); leaving and returning creates a
@@ -208,26 +194,16 @@ pub(crate) fn focus_restore(
     }
 }
 
-/// Whether the shared intent boundary dispatches its blocking operation off
-/// the render thread (task 1.2 acceptance, completed in 1.5). This follows the
-/// **host**, not the rail: every desktop process counts, including a narrow
-/// desktop window that projects as `LayoutMode::Phone`; only a phone or tablet
-/// host keeps the incumbent synchronous path.
-pub(crate) fn dispatch_off_thread(host: HostKind) -> bool {
-    host == HostKind::Desktop
-}
-
-/// Run one blocking model flow on the host's thread: off-thread on a desktop
-/// host so cached content keeps painting, inline on a phone/tablet host
-/// (incumbent mobile behaviour). No extra request, no second flow.
-pub(crate) fn run_blocking(host: HostKind, cx: &mut App, action: impl FnOnce() + Send + 'static) {
-    if dispatch_off_thread(host) {
-        cx.background_executor()
-            .spawn(async move { action() })
-            .detach();
-    } else {
-        action();
-    }
+/// Run one blocking model flow off the UI thread.
+///
+/// Every host does this: inline, a submit or cancel froze the screen until the
+/// store answered, so the button that was meant to show its own progress could
+/// not even paint it. The model's flows block on its own runtime, not on the
+/// render thread, and the hub notifies the shell when each phase lands.
+pub(crate) fn run_blocking(_host: HostKind, cx: &mut App, action: impl FnOnce() + Send + 'static) {
+    cx.background_executor()
+        .spawn(async move { action() })
+        .detach();
 }
 
 /// How one Menüs row activation behaves per host (task 1.3): the phone shell
@@ -350,12 +326,10 @@ impl Drop for MutationTicket {
     }
 }
 
-/// Dispatch a refresh at the shared intent boundary (task 1.2 acceptance):
-/// on every desktop host, narrow windows included, the blocking model call
-/// moves to the background executor, so the cached content keeps painting
-/// while the existing flow runs. Nothing extra is requested — the same model
-/// methods run, and their state notifications repaint the shell. A phone or
-/// tablet host keeps the incumbent synchronous path.
+/// Dispatch a refresh at the shared intent boundary: the blocking model call
+/// moves to the background executor, so the cached content keeps painting while
+/// the existing flow runs. Nothing extra is requested — the same model methods
+/// run, and their state notifications repaint the shell.
 pub(crate) fn dispatch_refresh(
     model: &Arc<AppModel>,
     intent: RefreshIntent,
@@ -745,19 +719,12 @@ impl AppShell {
         let Some(index) = dates.iter().position(|d| d == day) else {
             return;
         };
-        // Stepping forward brings the day *after* the selection into view: the
-        // chosen day then sits clear of the edge and the series reads as one
-        // that continues. Stepping back aims at the selection itself — aiming
-        // at the day after slid the chosen day off the left edge, which is
-        // exactly where a backward swipe or tap came to rest.
-        let previous = self
-            .strip_aligned
-            .as_deref()
-            .and_then(|previous| dates.iter().position(|day| day == previous));
         self.strip_aligned = state.selected_day.clone();
-        let target = alignment_target(index, previous, dates.len());
-        self.strip.base = crate::components::day_navigator::strip_offset_for_index(
-            target,
+        // Only enough to show the day: a chip already in view does not move
+        // the row, so tapping a visible day never jumps the strip.
+        self.strip.base = crate::components::day_navigator::strip_reveal(
+            self.strip.base,
+            index,
             dates.len(),
             viewport,
             theme,
@@ -2228,13 +2195,13 @@ impl Render for AppShell {
 #[cfg(test)]
 mod tests {
     use super::{
-        alignment_target, compact_content_bottom, compact_frame, compact_shell_plan,
-        desktop_check_effect, desktop_mutation_blocked, detail_from_model, dispatch_off_thread,
-        focus_restore, keyboard_action, launch_visible, menu_row_action, model_settings_detail,
-        navigation_top, nearest_restore_cursor, obstruction_reservation, order_cancel_state,
-        order_row_effect, refresh_due, refresh_intent, safe_area, should_create_inputs, Detail,
-        FocusRestore, MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent,
-        AUTO_REFRESH, CONTENT_TOP, LAUNCH_MIN, SCROLL_END_GAP,
+        compact_content_bottom, compact_frame, compact_shell_plan, desktop_check_effect,
+        desktop_mutation_blocked, detail_from_model, focus_restore, keyboard_action,
+        launch_visible, menu_row_action, model_settings_detail, navigation_top,
+        nearest_restore_cursor, obstruction_reservation, order_cancel_state, order_row_effect,
+        refresh_due, refresh_intent, safe_area, should_create_inputs, Detail, FocusRestore,
+        MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, AUTO_REFRESH,
+        CONTENT_TOP, LAUNCH_MIN, SCROLL_END_GAP,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
     use snackpilot_model::desktop::HostKind;
@@ -2670,35 +2637,6 @@ mod tests {
             "Abrechnung refreshes itself: no manual action"
         );
         assert_eq!(refresh_intent(Tab::Settings), None);
-    }
-
-    /// Off-thread dispatch follows the host, not the rail (task 1.5): a narrow
-    /// desktop window projects as `LayoutMode::Phone` and still dispatches its
-    /// pointer, shortcut/menu and foreground paths off the render thread,
-    /// while a phone or tablet host keeps the synchronous path at every width.
-    /// @req REQ-UI-07
-    #[test]
-    fn blocking_actions_run_off_thread_on_every_desktop_window() {
-        use snackpilot_model::desktop::{layout_mode, HostKind, LayoutMode};
-
-        for width in [360., 720.] {
-            // Pointer path (submit/confirm/cancel/login), shortcut and menu
-            // path (Cmd+R, native Aktualisieren) and the foreground path all
-            // dispatch through this one predicate.
-            assert!(
-                dispatch_off_thread(HostKind::Desktop),
-                "desktop dispatches off-thread at {width}"
-            );
-            let layout = layout_mode(HostKind::Desktop, width);
-            assert_eq!(
-                layout == LayoutMode::Phone,
-                width < 720.,
-                "the rail gate would have called {width} synchronous"
-            );
-        }
-        assert!(!dispatch_off_thread(HostKind::Phone));
-        assert!(!dispatch_off_thread(HostKind::Tablet));
-        assert_eq!(layout_mode(HostKind::Phone, 720.), LayoutMode::Phone);
     }
 
     /// Selecting a Menüs row previews on every desktop layout and keeps the
@@ -3319,25 +3257,6 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
-    }
-
-    /// The strip always keeps the chosen day on screen: stepping forward also
-    /// shows the next one, stepping back shows the choice itself.
-    #[test]
-    fn the_day_strip_never_aligns_past_the_selection() {
-        // Forward: the day after the selection, capped at the last day.
-        assert_eq!(alignment_target(0, None, 6), 1);
-        assert_eq!(alignment_target(2, Some(1), 6), 3);
-        assert_eq!(
-            alignment_target(5, Some(4), 6),
-            5,
-            "the last day has none after it"
-        );
-        // Backward: the selection itself.
-        assert_eq!(alignment_target(2, Some(3), 6), 2);
-        assert_eq!(alignment_target(0, Some(1), 6), 0);
-        // A one-day week cannot align past itself either.
-        assert_eq!(alignment_target(0, None, 1), 0);
     }
 
     /// The 15-minute rule behind both triggers: nothing refreshed yet is due,

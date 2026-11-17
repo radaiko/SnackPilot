@@ -480,35 +480,28 @@ fn save_handler(
             let Some(ticket) = s.mutation_gate.claim(busy, false) else {
                 return;
             };
-            // Host-gated dispatch (task 1.5): the auth pipeline blocks on the
-            // model's runtime, so a desktop host runs it on the worker thread
-            // and shows the same alert when it lands; a phone host keeps the
-            // incumbent synchronous path.
-            if crate::app::dispatch_off_thread(state.host_kind) {
-                let model = Arc::clone(&model);
-                let result_model = Arc::clone(&model);
-                let (username, password) = (username.clone(), password.clone());
-                cx.spawn(
-                    async move |this: gpui::WeakEntity<AppShell>, cx: &mut gpui::AsyncApp| {
-                        let worker = Arc::clone(&model);
-                        let result = cx
-                            .background_executor()
-                            .spawn(async move { run_login(kind, &worker, &username, &password) })
-                            .await;
-                        drop(ticket);
-                        let _ = this.update(cx, |s, cx| {
-                            s.set_dialog(login_result(kind, &result_model, &result), cx);
-                            cx.notify();
-                        });
-                    },
-                )
-                .detach();
-                cx.notify();
-                return;
-            }
-            let result = run_login(kind, &model, &username, &password);
-            drop(ticket);
-            s.set_dialog(login_result(kind, &model, &result), cx);
+            // The auth pipeline blocks on the model's runtime, so it runs on the
+            // worker thread and shows the alert when it lands; the form stays
+            // painted (and its own progress readable) while it does.
+            let model = Arc::clone(&model);
+            let result_model = Arc::clone(&model);
+            let (username, password) = (username.clone(), password.clone());
+            cx.spawn(
+                async move |this: gpui::WeakEntity<AppShell>, cx: &mut gpui::AsyncApp| {
+                    let worker = Arc::clone(&model);
+                    let result = cx
+                        .background_executor()
+                        .spawn(async move { run_login(kind, &worker, &username, &password) })
+                        .await;
+                    drop(ticket);
+                    let _ = this.update(cx, |s, cx| {
+                        s.set_dialog(login_result(kind, &result_model, &result), cx);
+                        cx.notify();
+                    });
+                },
+            )
+            .detach();
+            cx.notify();
         });
     })
 }
