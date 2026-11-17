@@ -121,6 +121,7 @@ pub(crate) fn kb_log(line: &str) {
 pub(crate) enum RefreshIntent {
     Menus,
     Orders,
+    Billing,
 }
 
 /// Which refresh the active tab dispatches; `None` means no header action.
@@ -136,12 +137,24 @@ pub(crate) fn refresh_intent(tab: Tab) -> Option<RefreshIntent> {
     }
 }
 
+/// What a second tap on the tab that is already open refetches — the hidden
+/// refresh. It covers Abrechnung too, which has no header action because it
+/// refreshes itself on every tick and month switch; a person asking for it by
+/// hand is a different thing. Einstellungen fetches nothing, so it has none.
+pub(crate) fn force_refresh_intent(tab: Tab) -> Option<RefreshIntent> {
+    match tab {
+        Tab::Billing => Some(RefreshIntent::Billing),
+        other => refresh_intent(other),
+    }
+}
+
 /// Run one existing model refresh. These APIs block on the model's own
 /// runtime, so the desktop shell calls them off the render thread.
 fn run_refresh(model: &AppModel, intent: RefreshIntent) {
     match intent {
         RefreshIntent::Menus => model.refresh_menus(),
         RefreshIntent::Orders => model.refresh_orders(),
+        RefreshIntent::Billing => model.reload_billing(),
     }
 }
 
@@ -330,12 +343,7 @@ impl Drop for MutationTicket {
 /// moves to the background executor, so the cached content keeps painting while
 /// the existing flow runs. Nothing extra is requested — the same model methods
 /// run, and their state notifications repaint the shell.
-pub(crate) fn dispatch_refresh(
-    model: &Arc<AppModel>,
-    intent: RefreshIntent,
-    _host: HostKind,
-    cx: &mut App,
-) {
+pub(crate) fn dispatch_refresh(model: &Arc<AppModel>, intent: RefreshIntent, cx: &mut App) {
     // A refresh is a network fetch on every host. Inline, it froze the phone
     // for as long as the store took to answer, so the user saw a dead screen
     // instead of the progress the model reports.
@@ -1026,6 +1034,23 @@ impl AppShell {
 
     /// Switch tabs through the model so the active tab, stack reset and
     /// preview cleanup are one model update (REQ-UI-04).
+    /// A second tap on the open tab: refetch it in the background. The cached
+    /// content stays on screen and the slim bar shows the work, so nothing
+    /// jumps and no button is needed.
+    fn refresh_open_view(&mut self, tab: Tab, cx: &mut Context<AppShell>) {
+        let Some(intent) = force_refresh_intent(tab) else {
+            return;
+        };
+        let Some(model) = self.model.as_ref() else {
+            return;
+        };
+        // Restart the 15-minute clock: a fetch the person asked for must not
+        // be repeated by the tick minutes later.
+        self.last_refresh = Some(Instant::now());
+        let model = Arc::clone(model);
+        dispatch_refresh(&model, intent, cx);
+    }
+
     fn select_tab(&mut self, tab: Tab) {
         if let Some(model) = &self.model {
             model.select_tab(tab);
@@ -1830,10 +1855,17 @@ impl Render for AppShell {
         self.sync_dialog_focus(window, cx);
 
         let entity = cx.entity().clone();
+        let open_tab = nav.active_tab();
         let on_select: TabSelect = Rc::new(move |tab: Tab, _window: &mut Window, cx: &mut App| {
             log::info!("[4.2] tab selected: {tab:?}");
             entity.update(cx, |this, cx| {
-                this.select_tab(tab);
+                // The tab that is already open has no navigation left to do,
+                // so the tap refetches it: the hidden refresh.
+                if tab == open_tab {
+                    this.refresh_open_view(tab, cx);
+                } else {
+                    this.select_tab(tab);
+                }
                 cx.notify();
             });
         });
@@ -1992,13 +2024,12 @@ impl Render for AppShell {
             {
                 (Some(intent), Some(model)) => {
                     let model = Arc::clone(model);
-                    let host = state.host_kind;
                     let shell = cx.entity().clone();
                     Some(Rc::new(move |_w: &mut Window, cx: &mut App| {
                         // Restart the 15-minute clock: a fetch the user asked
                         // for must not be repeated by the tick minutes later.
                         let _ = shell.update(cx, |s, _| s.last_refresh = Some(Instant::now()));
-                        dispatch_refresh(&model, intent, host, cx);
+                        dispatch_refresh(&model, intent, cx);
                     }) as ClickHandler)
                 }
                 _ => None,
@@ -2196,8 +2227,8 @@ impl Render for AppShell {
 mod tests {
     use super::{
         compact_content_bottom, compact_frame, compact_shell_plan, desktop_check_effect,
-        desktop_mutation_blocked, detail_from_model, focus_restore, keyboard_action,
-        launch_visible, menu_row_action, model_settings_detail, navigation_top,
+        desktop_mutation_blocked, detail_from_model, focus_restore, force_refresh_intent,
+        keyboard_action, launch_visible, menu_row_action, model_settings_detail, navigation_top,
         nearest_restore_cursor, obstruction_reservation, order_cancel_state, order_row_effect,
         refresh_due, refresh_intent, safe_area, should_create_inputs, Detail, FocusRestore,
         MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, AUTO_REFRESH,
@@ -2634,9 +2665,26 @@ mod tests {
         assert_eq!(
             refresh_intent(Tab::Billing),
             None,
-            "Abrechnung refreshes itself: no manual action"
+            "Abrechnung refreshes itself: no header action"
         );
         assert_eq!(refresh_intent(Tab::Settings), None);
+
+        // The hidden refresh — a second tap on the open tab — covers every
+        // view that fetches anything, Abrechnung included.
+        assert_eq!(force_refresh_intent(Tab::Menus), Some(RefreshIntent::Menus));
+        assert_eq!(
+            force_refresh_intent(Tab::Orders),
+            Some(RefreshIntent::Orders)
+        );
+        assert_eq!(
+            force_refresh_intent(Tab::Billing),
+            Some(RefreshIntent::Billing)
+        );
+        assert_eq!(
+            force_refresh_intent(Tab::Settings),
+            None,
+            "Einstellungen fetches nothing"
+        );
     }
 
     /// Selecting a Menüs row previews on every desktop layout and keeps the
