@@ -82,6 +82,7 @@ pub fn menus_tab(
                 selected.as_deref(),
                 &today_key(),
                 strip_offset,
+                state.host_kind == HostKind::Desktop,
                 theme,
                 day_select_handler(cx),
                 strip_handlers(
@@ -838,7 +839,12 @@ fn strip_handlers(
     let shell = cx.entity().clone();
     let scrolled_theme = theme.clone();
     let scrolled = Rc::new(move |e: &ScrollWheelEvent, _: &mut Window, cx: &mut App| {
-        let (dx, dy) = crate::components::swipe::drag_delta(e);
+        // A finger or wheel moving right shows earlier chips: the row travels
+        // the other way, exactly as a native scroll would.
+        let (dx, dy) = {
+            let (dx, dy) = crate::components::swipe::drag_delta(e);
+            (-dx, dy)
+        };
         let theme = scrolled_theme.clone();
         shell.update(cx, |s, cx| {
             if wheel_only {
@@ -850,14 +856,12 @@ fn strip_handlers(
             match e.touch_phase {
                 TouchPhase::Started => {
                     s.strip_page.begin();
-                    strip_travel(s, dx, dy, days, viewport, &theme, cx);
+                    strip_travel(s, dx, dy, cx);
                 }
                 // Deltas after the release are the platform's momentum tail,
                 // and a delta with no live gesture is not ours to follow: that
                 // tail is what made the row creep in one-pixel steps.
-                TouchPhase::Moved if s.strip_page.live => {
-                    strip_travel(s, dx, dy, days, viewport, &theme, cx)
-                }
+                TouchPhase::Moved if s.strip_page.live => strip_travel(s, dx, dy, cx),
                 TouchPhase::Moved => {}
                 TouchPhase::Ended => strip_release(s, days, viewport, reduce_motion, &theme, cx),
                 TouchPhase::Cancelled => strip_reset(s, cx),
@@ -895,22 +899,12 @@ fn strip_wheel(
     cx.notify();
 }
 
-fn strip_travel(
-    s: &mut AppShell,
-    dx: f32,
-    dy: f32,
-    days: usize,
-    viewport: f32,
-    theme: &AppTheme,
-    cx: &mut Context<AppShell>,
-) {
-    if !s.strip_page.travel(dx, dy) {
-        return;
+fn strip_travel(s: &mut AppShell, dx: f32, dy: f32, cx: &mut Context<AppShell>) {
+    // The painted offset applies the slop and the row's ends; this only
+    // collects the gesture.
+    if s.strip_page.travel(dx, dy) {
+        cx.notify();
     }
-    // The row stops at its own ends instead of dragging into empty space.
-    let max = crate::components::day_navigator::strip_max_offset(days, viewport, theme);
-    s.strip_page.dx = (s.strip_scroll + s.strip_page.dx).clamp(0., max) - s.strip_scroll;
-    cx.notify();
 }
 
 /// The finger lifted: settle the row onto the nearest chip boundary, starting
@@ -927,7 +921,14 @@ fn strip_release(
         cx.notify();
         return;
     };
-    let painted = s.strip_scroll + dx;
+    let painted = crate::components::day_navigator::strip_painted(
+        s.strip_scroll,
+        dx,
+        0.,
+        days,
+        viewport,
+        theme,
+    );
     let target = strip_snap(painted, days, viewport, theme);
     s.strip_scroll = target;
     s.strip_page.finish(target - painted, reduce_motion);

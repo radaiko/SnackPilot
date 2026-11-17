@@ -141,6 +141,11 @@ pub type DaySelectHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 /// sideways rather than wrapped.
 pub const DAY_CHIP_W: f32 = 56.;
 
+/// How far a finger must travel before the strip treats the gesture as a
+/// swipe. A sloppy tap moves two or three pixels; below this the row stays
+/// put and the chip under the finger still gets its tap.
+pub const STRIP_SLOP: f32 = 20.;
+
 /// One chip plus the gap after it: the step a settled strip lands on.
 pub fn strip_step(theme: &AppTheme) -> f32 {
     DAY_CHIP_W + theme.scale.space_1
@@ -159,6 +164,30 @@ pub fn strip_content_width(days: usize, theme: &AppTheme) -> f32 {
 /// How far the strip may travel: the part of the row that does not fit.
 pub fn strip_max_offset(days: usize, viewport: f32, theme: &AppTheme) -> f32 {
     (strip_content_width(days, theme) - viewport).max(0.)
+}
+
+/// What a live gesture moves the row by: nothing until the finger passes the
+/// slop, then the travel beyond it, so the row starts from where it stood
+/// instead of jumping by the slop.
+pub fn strip_travel_offset(raw: f32) -> f32 {
+    if raw.abs() <= STRIP_SLOP {
+        0.
+    } else {
+        raw - STRIP_SLOP * raw.signum()
+    }
+}
+
+/// What the strip is painted at: the settled offset, the gesture's travel
+/// (past the slop) and any running settle, clamped to the row's own ends.
+pub fn strip_painted(
+    base: f32,
+    raw: f32,
+    settle: f32,
+    days: usize,
+    viewport: f32,
+    theme: &AppTheme,
+) -> f32 {
+    (base + strip_travel_offset(raw) + settle).clamp(0., strip_max_offset(days, viewport, theme))
 }
 
 /// A settled strip sits on a chip boundary, never between two, and never past
@@ -192,6 +221,7 @@ pub fn mobile_day_strip(
     selected: Option<&str>,
     today: &str,
     offset: f32,
+    hover: bool,
     theme: &AppTheme,
     on_select: DaySelectHandler,
     handlers: SwipeHandlers,
@@ -245,7 +275,6 @@ pub fn mobile_day_strip(
             .tab_index(0)
             .cursor_pointer()
             .focus(crate::theme::desktop_focus(theme.accent))
-            .hover(move |s| s.bg(theme.pressed(theme.background)))
             .on_click(move |_, window, cx| on_tap(&key, window, cx))
             .child(
                 div()
@@ -264,6 +293,11 @@ pub fn mobile_day_strip(
                     .child(SharedString::from(snackpilot_model::format_day_number(day))),
             )
             .child(dot);
+        // Hover is a pointer cue. A phone paints it where the finger landed,
+        // which read as the wrong chip being highlighted during a drag.
+        if hover {
+            chip = chip.hover(move |s| s.bg(theme.pressed(theme.background)));
+        }
         if is_selected {
             chip = chip.bg(theme.accent_surface);
         }
@@ -289,8 +323,8 @@ pub fn mobile_day_strip(
 #[cfg(test)]
 mod tests {
     use super::{
-        day_dot, mobile_day_strip, strip_max_offset, strip_offset_for_index, strip_snap, DayDot,
-        DayFacts, DAY_CHIP_W,
+        day_dot, mobile_day_strip, strip_max_offset, strip_offset_for_index, strip_painted,
+        strip_snap, strip_travel_offset, DayDot, DayFacts, DAY_CHIP_W, STRIP_SLOP,
     };
     use crate::components::swipe::SwipeHandlers;
     use crate::theme::AppTheme;
@@ -304,6 +338,40 @@ mod tests {
             .into_iter()
             .map(str::to_string)
             .collect()
+    }
+
+    /// A touch that moves a few pixels is still a touch: the row does not
+    /// begin to travel until the finger has passed 20 px, and then starts from
+    /// where it stood, so nothing jumps by the slop.
+    /// @req REQ-SCR-01 @req REQ-UI-16
+    #[test]
+    fn a_sloppy_touch_does_not_drag_the_strip() {
+        let theme = AppTheme::build(false);
+        let (days, viewport) = (6, 358.);
+        assert_eq!(STRIP_SLOP, 20.);
+        assert_eq!(strip_travel_offset(0.), 0.);
+        assert_eq!(strip_travel_offset(12.), 0.);
+        assert_eq!(strip_travel_offset(-19.), 0.);
+        assert_eq!(strip_travel_offset(20.), 0.);
+        assert_eq!(strip_travel_offset(25.), 5.);
+        assert_eq!(strip_travel_offset(-25.), -5.);
+
+        // Painted: base + travel past the slop + settle, clamped to the row.
+        // Positive travel scrolls the row forward (towards later days).
+        assert_eq!(strip_painted(0., 12., 0., days, viewport, &theme), 0.);
+        assert_eq!(strip_painted(0., 25., 0., days, viewport, &theme), 5.);
+        assert_eq!(
+            strip_painted(0., 200., 0., days, viewport, &theme),
+            30.,
+            "a long drag stops at the row's end"
+        );
+        assert_eq!(strip_painted(30., 25., 0., days, viewport, &theme), 30.);
+        assert_eq!(
+            strip_painted(30., -25., 0., days, viewport, &theme),
+            25.,
+            "dragging back uncovers the row from its end"
+        );
+        assert_eq!(strip_painted(5., -25., 0., days, viewport, &theme), 0.);
     }
 
     /// The strip settles onto whole chips, never between two, and never past
@@ -397,6 +465,7 @@ mod tests {
             Some("2026-11-18"),
             "2026-11-16",
             0.,
+            false,
             &theme,
             handler,
             SwipeHandlers {
