@@ -12,6 +12,7 @@ use std::rc::Rc;
 use gpui::*;
 use snackpilot_model::format_day_short;
 
+use crate::components::swipe::SwipeHandlers;
 use crate::navigation::ClickHandler;
 use crate::theme::{self, AppTheme};
 
@@ -140,34 +141,68 @@ pub type DaySelectHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 /// sideways rather than wrapped.
 pub const DAY_CHIP_W: f32 = 56.;
 
+/// One chip plus the gap after it: the step a settled strip lands on.
+pub fn strip_step(theme: &AppTheme) -> f32 {
+    DAY_CHIP_W + theme.scale.space_1
+}
+
+/// The strip's whole content width at `days` chips, its own side padding
+/// included.
+pub fn strip_content_width(days: usize, theme: &AppTheme) -> f32 {
+    if days == 0 {
+        return 0.;
+    }
+    let m = &theme.scale;
+    m.space_4 * 2. + days as f32 * DAY_CHIP_W + (days - 1) as f32 * m.space_1
+}
+
+/// How far the strip may travel: the part of the row that does not fit.
+pub fn strip_max_offset(days: usize, viewport: f32, theme: &AppTheme) -> f32 {
+    (strip_content_width(days, theme) - viewport).max(0.)
+}
+
+/// A settled strip sits on a chip boundary, never between two, and never past
+/// either end.
+pub fn strip_snap(offset: f32, days: usize, viewport: f32, theme: &AppTheme) -> f32 {
+    let step = strip_step(theme);
+    ((offset / step).round() * step).clamp(0., strip_max_offset(days, viewport, theme))
+}
+
+/// The settled offset that puts chip `index` at the left edge of the visible
+/// part.
+pub fn strip_offset_for_index(index: usize, days: usize, viewport: f32, theme: &AppTheme) -> f32 {
+    strip_snap(index as f32 * strip_step(theme), days, viewport, theme)
+}
+
 /// The compact day strip: every available day at once, weekday over date, the
 /// selected one on an accent tint. A dot says what the day carries — filled
 /// accent for a placed order, hollow accent for marked dishes, a quiet grey
 /// dot for a day that was never opened. Today's date wears the accent. Tapping
-/// a chip selects that day; the strip itself is swiped sideways, and the day
-/// in view is always scrolled back into the visible part.
+/// a chip selects that day; the strip itself is swiped sideways.
+///
+/// The strip owns its travel instead of handing it to the platform scroller:
+/// a slow release used to keep the row creeping for a second in one- and
+/// two-pixel steps, and it could come to rest between two chips. The gesture
+/// reports to the shell, which paints `offset` and settles it onto a chip
+/// boundary, so a release always comes to rest on a day.
 /// @req REQ-SCR-01 @req REQ-UI-15 @req REQ-UI-16
 pub fn mobile_day_strip(
     dates: &[String],
     facts: &[DayFacts],
     selected: Option<&str>,
     today: &str,
-    scroll: &ScrollHandle,
+    offset: f32,
     theme: &AppTheme,
     on_select: DaySelectHandler,
+    handlers: SwipeHandlers,
 ) -> AnyElement {
     let m = &theme.scale;
     let mut strip = div()
         .id("day-strip")
-        .w_full()
         .flex()
         .gap(px(m.space_1))
         .px(px(m.space_4))
-        .py(px(m.space_2))
-        .overflow_x_scroll()
-        .track_scroll(scroll)
-        .border_b_1()
-        .border_color(theme.border);
+        .py(px(m.space_2));
 
     for (index, day) in dates.iter().enumerate() {
         let is_selected = Some(day.as_str()) == selected;
@@ -238,13 +273,28 @@ pub fn mobile_day_strip(
     // sits flush against the screen edge.
     strip = strip.child(div().w(px(m.space_4)).flex_shrink_0());
 
-    strip.into_any_element()
+    let (scrolled, up) = (handlers.scrolled, handlers.up);
+    div()
+        .id("day-strip-swipe")
+        .w_full()
+        .overflow_hidden()
+        .border_b_1()
+        .border_color(theme.border)
+        .on_scroll_wheel(move |e, w, cx| scrolled(e, w, cx))
+        .on_mouse_up(MouseButton::Left, move |e, w, cx| up(e, w, cx))
+        .child(div().w_full().ml(px(-offset)).child(strip))
+        .into_any_element()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{day_dot, mobile_day_strip, DayDot, DayFacts, DAY_CHIP_W};
+    use super::{
+        day_dot, mobile_day_strip, strip_max_offset, strip_offset_for_index, strip_snap, DayDot,
+        DayFacts, DAY_CHIP_W,
+    };
+    use crate::components::swipe::SwipeHandlers;
     use crate::theme::AppTheme;
+    use gpui::{App, MouseUpEvent, ScrollWheelEvent, Window};
     use snackpilot_model::tokens;
     use std::cell::Cell;
     use std::rc::Rc;
@@ -254,6 +304,43 @@ mod tests {
             .into_iter()
             .map(str::to_string)
             .collect()
+    }
+
+    /// The strip settles onto whole chips, never between two, and never past
+    /// either end. A slow release used to leave the platform scroller creeping
+    /// in one- and two-pixel steps; the app owns the travel now, and a release
+    /// always lands on a day.
+    /// @req REQ-SCR-01 @req REQ-UI-16
+    #[test]
+    fn the_strip_settles_on_whole_chips() {
+        let theme = AppTheme::build(false);
+        let viewport = 358.;
+        let days = 6;
+        // 16 + 6·56 + 5·4 + 16 = 388 content, so 30 px of travel at most.
+        assert_eq!(super::strip_content_width(days, &theme), 388.);
+        assert_eq!(strip_max_offset(days, viewport, &theme), 30.);
+        assert_eq!(strip_max_offset(3, viewport, &theme), 0.);
+
+        // The step is one chip plus its gap, and a released offset snaps to it.
+        assert_eq!(super::strip_step(&theme), 60.);
+        assert_eq!(strip_snap(0., days, viewport, &theme), 0.);
+        assert_eq!(strip_snap(8., days, viewport, &theme), 0.);
+        assert_eq!(strip_snap(40., days, viewport, &theme), 30.);
+        assert_eq!(strip_snap(-30., days, viewport, &theme), 0.);
+
+        // A wider strip: chips at 60 px steps, clamped at the end.
+        let long = 9;
+        let viewport = 268.;
+        let max = strip_max_offset(long, viewport, &theme);
+        assert_eq!(max, 300.);
+        assert_eq!(strip_snap(118., long, viewport, &theme), 120.);
+        assert_eq!(strip_snap(500., long, viewport, &theme), max);
+        assert_eq!(strip_offset_for_index(2, long, viewport, &theme), 120.);
+        assert_eq!(
+            strip_offset_for_index(8, long, viewport, &theme),
+            max,
+            "the last chip never scrolls past the end"
+        );
     }
 
     /// The compact day strip (REQ-SCR-01/REQ-UI-16): every available day at
@@ -309,9 +396,13 @@ mod tests {
             &facts,
             Some("2026-11-18"),
             "2026-11-16",
-            &gpui::ScrollHandle::new(),
+            0.,
             &theme,
             handler,
+            SwipeHandlers {
+                scrolled: Rc::new(|_: &gpui::ScrollWheelEvent, _: &mut Window, _: &mut App| {}),
+                up: Rc::new(|_: &gpui::MouseUpEvent, _: &mut Window, _: &mut App| {}),
+            },
         );
         assert_eq!(
             activations.get(),

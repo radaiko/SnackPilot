@@ -439,6 +439,7 @@ pub(crate) fn compact_content_bottom(plan: &CompactShellPlan) -> f32 {
 pub(crate) enum CarouselPage {
     Days,
     Months,
+    Strip,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -606,6 +607,11 @@ pub struct AppShell {
     /// when this differs from the selection: aligning on every frame pulled
     /// the row back under the finger that was swiping it.
     pub(crate) strip_aligned: Option<String>,
+    /// The day strip's own gesture and settle: it owns its travel instead of
+    /// the platform scroller, so a release always comes to rest on a chip.
+    pub(crate) strip_page: Carousel,
+    /// Where the strip rests: the settled offset, before the live gesture.
+    pub(crate) strip_scroll: f32,
     /// The day carousel's gesture and page finish.
     pub(crate) days_page: Carousel,
     /// The billing month carousel's gesture and page finish: the same swipe,
@@ -621,9 +627,6 @@ pub struct AppShell {
     /// One handle per scrollable tab list, kept here so the shell can scroll
     /// and measure them.
     pub(crate) menus_scroll: ScrollHandle,
-    /// The day strip scrolls sideways on its own; kept here so the selected
-    /// day can be brought back into view.
-    pub(crate) menus_days_scroll: ScrollHandle,
     pub(crate) orders_scroll: ScrollHandle,
     pub(crate) billing_scroll: ScrollHandle,
     /// Which pushed settings screen is shown.
@@ -692,6 +695,7 @@ impl AppShell {
         match page {
             CarouselPage::Days => &mut self.days_page,
             CarouselPage::Months => &mut self.months_page,
+            CarouselPage::Strip => &mut self.strip_page,
         }
     }
 
@@ -726,7 +730,7 @@ impl AppShell {
     /// Bring the day strip to the selected day when the selection moved, and
     /// only then. Aligning on every frame made the strip unswipeable: the row
     /// snapped back to the selected day under the finger.
-    fn align_day_strip(&mut self, state: &State) {
+    fn align_day_strip(&mut self, state: &State, viewport: f32, theme: &AppTheme) {
         if self.strip_aligned == state.selected_day {
             return;
         }
@@ -743,12 +747,6 @@ impl AppShell {
         let Some(index) = dates.iter().position(|d| d == day) else {
             return;
         };
-        // A scroll request made before the strip has been laid out is consumed
-        // without effect. Its measured overflow is what proves it can move, so
-        // an unmeasured strip stays unaligned and is tried again next frame.
-        if self.menus_days_scroll.max_offset().x <= px(0.) {
-            return;
-        }
         // Stepping forward brings the day *after* the selection into view: the
         // chosen day then sits clear of the edge and the series reads as one
         // that continues. Stepping back aims at the selection itself — aiming
@@ -759,8 +757,14 @@ impl AppShell {
             .as_deref()
             .and_then(|previous| dates.iter().position(|day| day == previous));
         self.strip_aligned = state.selected_day.clone();
-        self.menus_days_scroll
-            .scroll_to_item(alignment_target(index, previous, dates.len()));
+        let target = alignment_target(index, previous, dates.len());
+        self.strip_scroll = crate::components::day_navigator::strip_offset_for_index(
+            target,
+            dates.len(),
+            viewport,
+            theme,
+        );
+        self.strip_page = Carousel::default();
     }
 
     /// Refresh menus, orders and billing in the background when the data is
@@ -863,12 +867,13 @@ impl AppShell {
             model,
             mutation_gate: MutationGate::default(),
             strip_aligned: None,
+            strip_page: Carousel::default(),
+            strip_scroll: 0.,
             days_page: Carousel::default(),
             months_page: Carousel::default(),
             pending_knob: false,
             last_refresh: None,
             menus_scroll: ScrollHandle::new(),
-            menus_days_scroll: ScrollHandle::new(),
             orders_scroll: ScrollHandle::new(),
             billing_scroll: ScrollHandle::new(),
             detail: Detail::Settings,
@@ -1642,18 +1647,18 @@ impl AppShell {
                         cx,
                     ),
                     MenuRowAction::Toggle => {
-                        self.align_day_strip(state);
+                        self.align_day_strip(state, page_width, theme);
                         menus_tab(
                             state,
                             self.model.as_ref(),
                             theme,
                             self.days_page.offset(),
+                            self.strip_scroll + self.strip_page.offset(),
                             // The phone host reports no content width, so the
                             // page width comes from the column the shell laid
                             // out — the same number the screen is drawn at.
                             page_width,
                             &self.menus_scroll,
-                            &self.menus_days_scroll,
                             cx,
                         )
                     }

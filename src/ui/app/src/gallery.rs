@@ -857,9 +857,13 @@ fn mobile_menus_case(width: f32, theme: &AppTheme) -> AnyElement {
             ],
             Some("2026-11-17"),
             "2026-11-16",
-            &gpui_kit::ScrollHandle::new(),
+            0.,
             theme,
             Rc::new(|_: &str, _: &mut Window, _: &mut App| {}),
+            crate::components::swipe::SwipeHandlers {
+                scrolled: Rc::new(|_: &gpui::ScrollWheelEvent, _: &mut Window, _: &mut App| {}),
+                up: Rc::new(|_: &gpui::MouseUpEvent, _: &mut Window, _: &mut App| {}),
+            },
         ))
         .child(list)
         .child(div().p(px(theme.scale.space_2)).child(mobile_dock(
