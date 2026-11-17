@@ -160,7 +160,11 @@ pub fn billing_tab(
             .min_h(px(0.))
             .flex()
             .flex_col()
-            .overflow_y_scroll();
+            .overflow_y_scroll()
+            // The month gesture and this list see the same touch. Locking the
+            // list to the gesture's dominant axis means a sideways swipe can
+            // never scroll it up or down.
+            .restrict_scroll_to_axis();
         if let Some(scroll) = tracked {
             list = list.track_scroll(scroll);
         }

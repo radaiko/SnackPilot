@@ -402,7 +402,12 @@ fn menu_list(
         .flex()
         .flex_col()
         .pt(px(theme.scale.space_4))
-        .overflow_y_scroll();
+        .overflow_y_scroll()
+        // The page gesture and this list see the same touch. Locking the list
+        // to the gesture's dominant axis means a sideways swipe can never
+        // scroll it up or down: the page moves, the list stays exactly where
+        // it was.
+        .restrict_scroll_to_axis();
     if let Some(scroll) = scroll {
         list = list.track_scroll(scroll);
     }
