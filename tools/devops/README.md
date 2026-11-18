@@ -126,11 +126,31 @@ never ship a build that reports a different version.
 | `windows` | `windows` (Windows 11) | `SnackPilot-{version}-windows-x64-setup.exe` + `.sha256` via `tools/devops/package-windows.ps1` |
 | `publish` | `android` | the GitHub Release, via `.forgejo/scripts/github_release.py` |
 
-Both artifacts are **unsigned**. CI has no Developer ID identity or notary
-profile (the Mac's login keychain cannot be unlocked from a runner session),
-and no Authenticode certificate exists. The macOS zip carries `UNSIGNED.txt`
-and the release notes state how to open the app; a signed, notarized macOS
-build still comes from `make package-macos` on the Mac.
+The macOS artifact is signed, notarized and stapled **as soon as the five
+signing secrets exist** (below); until then the job falls back to
+`package-macos-unsigned.sh` and the zip carries `UNSIGNED.txt`. The release
+notes read the trust state from `native-build-receipt.json`, so they never claim
+a signature the run did not produce. The Windows installer is always unsigned:
+no Authenticode certificate exists.
+
+### Signing secrets (macOS)
+
+`tools/devops/ci-signing.sh` builds a throwaway keychain from these, so the
+private key never sits on the runner:
+
+| Secret | Value |
+| --- | --- |
+| `SNACKPILOT_DEV_ID_P12` | base64 of the exported `Developer ID Application` identity |
+| `SNACKPILOT_DEV_ID_P12_PASSWORD` | its export password |
+| `SNACKPILOT_ASC_KEY` | base64 of an App Store Connect API key (`.p8`) |
+| `SNACKPILOT_ASC_KEY_ID` | that key's Key ID |
+| `SNACKPILOT_ASC_ISSUER_ID` | the issuer UUID from App Store Connect |
+
+The identity cannot be exported from an SSH session (`SecKeychainItemExport:
+User interaction is not allowed`), so the `.p12` is exported once in Keychain
+Access on the Mac and stored here. The API key is made in App Store Connect →
+Users and Access → Integrations → App Store Connect API, with the **Developer**
+role; notarization needs nothing more.
 
 ### Secrets and runners
 

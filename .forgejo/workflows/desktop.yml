@@ -75,7 +75,31 @@ jobs:
             src/ui/target
           key: macos-desktop-${{ hashFiles('src/ui/Cargo.lock') }}
 
-      - name: Build and pack the app (unsigned)
+      # Signing needs three things that live in the Mac's login keychain and in
+      # App Store Connect: the Developer ID .p12, its password, and an App Store
+      # Connect API key. Once those five secrets exist this job produces a
+      # signed, notarized and stapled build; without them it falls back to the
+      # unsigned artifact so the pipeline still ships.
+      - name: Set up codesigning and notarization
+        if: ${{ secrets.SNACKPILOT_DEV_ID_P12 != '' }}
+        env:
+          SNACKPILOT_DEV_ID_P12: ${{ secrets.SNACKPILOT_DEV_ID_P12 }}
+          SNACKPILOT_DEV_ID_P12_PASSWORD: ${{ secrets.SNACKPILOT_DEV_ID_P12_PASSWORD }}
+          SNACKPILOT_ASC_KEY: ${{ secrets.SNACKPILOT_ASC_KEY }}
+          SNACKPILOT_ASC_KEY_ID: ${{ secrets.SNACKPILOT_ASC_KEY_ID }}
+          SNACKPILOT_ASC_ISSUER_ID: ${{ secrets.SNACKPILOT_ASC_ISSUER_ID }}
+        run: bash tools/devops/ci-signing.sh
+
+      - name: Build, sign, notarize and pack the app
+        if: ${{ secrets.SNACKPILOT_DEV_ID_P12 != '' }}
+        env:
+          SNACKPILOT_PRODUCT_VERSION: ${{ needs.version.outputs.version }}
+          # The identity's common name; codesign matches it in the keychain.
+          SNACKPILOT_SIGNING_IDENTITY: "Developer ID Application: Aiko Radlingmayr (555V4MNLK3)"
+        run: bash tools/devops/package-macos.sh
+
+      - name: Build and pack the app (unsigned fallback)
+        if: ${{ secrets.SNACKPILOT_DEV_ID_P12 == '' }}
         env:
           SNACKPILOT_PRODUCT_VERSION: ${{ needs.version.outputs.version }}
         run: bash tools/devops/package-macos-unsigned.sh
@@ -139,23 +163,29 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
+          set -euo pipefail
+          # The macOS job writes the trust state into its receipt; the notes must
+          # not claim either way on assumption.
+          receipt=dist/desktop-macos/native-build-receipt.json
+          trust="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['trust_state'])" "$receipt")"
+          if [ "$trust" = "developer-id-notarized-stapled" ]; then
+            mac="**macOS (Apple Silicon, macOS 26+)**: signed with a Developer ID, notarized by Apple and stapled — it opens with a normal double-click."
+          else
+            mac="**macOS (Apple Silicon, macOS 26+)**: UNSIGNED. macOS blocks the first launch (\"developer cannot be verified\"). Right-click → Open, or \`xattr -dr com.apple.quarantine /Applications/SnackPilot.app\`."
+          fi
           mkdir -p dist/notes
           cat > dist/notes/body.md <<EOF
           Desktop build of SnackPilot $VERSION, produced by Forgejo CI from \`main\`.
 
-          **Both artifacts are UNSIGNED.**
-
-          - **macOS (Apple Silicon, macOS 26+)**: macOS blocks the first launch
-            ("developer cannot be verified"). Right-click → Open, or
-            \`xattr -dr com.apple.quarantine /Applications/SnackPilot.app\`.
-            A signed and notarized build comes from \`make package-macos\` on the Mac.
-          - **Windows (x64, Windows 11)**: SmartScreen warns until the installer has
-            reputation ("More info" → "Run anyway"). It installs per user under
+          - $mac
+          - **Windows (x64, Windows 11)**: UNSIGNED. SmartScreen warns until the installer has
+            reputation (\"More info\" → \"Run anyway\"). It installs per user under
             \`%LOCALAPPDATA%\Programs\SnackPilot\`, needs no administrator and leaves
             app data in \`%LOCALAPPDATA%\dev.radaiko.gourmetclient\`.
 
           SHA-256 checksums ship next to the Windows installer.
           EOF
+          echo "notes: macOS trust state $trust"
 
       - name: Publish on GitHub
         env:
