@@ -104,7 +104,11 @@ jobs:
             # package-macos.sh's contract is the verified .app plus the receipt
             # (docs/requirements/08); the download is the workflow's job. ditto
             # keeps the bundle's symlinks and resource forks intact.
-            ditto -c -k --keepParent dist/macos/SnackPilot.app \
+            # --sequesterRsrc keeps extended attributes out of the bundle's own
+            # paths; without it an unzipping tool materialises `._*` files next
+            # to the sealed resources and codesign then reports "a sealed
+            # resource is missing or invalid".
+            ditto -c -k --sequesterRsrc --keepParent dist/macos/SnackPilot.app \
                 "dist/macos/SnackPilot-${SNACKPILOT_PRODUCT_VERSION}-macos-arm64.zip"
             ls -l dist/macos
           else
