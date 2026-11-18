@@ -49,9 +49,13 @@ jobs:
           xcrun simctl spawn "$udid" log show --last 2m --predicate "subsystem CONTAINS '$bundle'" > build/ci/smoke/app.log || true
           (cd "$(dirname "$app")" && zip -qry "$OLDPWD/build/ci/smoke/SnackPilot.app.zip" "$(basename "$app")")
 
+      # main only, one-day retention: the smoke bundle is a debugging aid, not a
+      # distributable. A pull request still runs the smoke test; its output stays
+      # in the job log.
       - name: Upload app, screenshot and log
-        if: always()
+        if: always() && github.ref == 'refs/heads/main'
         uses: https://data.forgejo.org/forgejo/upload-artifact@v4
         with:
           name: ios-simulator
           path: src/ui/ios/build/ci/smoke/
+          retention-days: 1

@@ -43,16 +43,19 @@ jobs:
         working-directory: src/ui/android
 
       # Lint is a real gate now: it reports 0 errors and 22 warnings, and a new
-      # error fails the job. The report is uploaded either way.
+      # error fails the job.
       - name: Lint
         run: ./gradlew :app:lintDebug --no-daemon
         working-directory: src/ui/android
 
-      - name: Upload APK and lint report
-        if: always()
+      # Only the lint report is kept. The debug APK is not a distributable and is
+      # a few hundred MB per run, which the nightly forgejo dump cannot absorb, so
+      # it is built for the check and thrown away. Retention stays at one day
+      # because the report only matters until the next run.
+      - name: Upload the lint report
+        if: always() && github.ref == 'refs/heads/main'
         uses: https://data.forgejo.org/forgejo/upload-artifact@v4
         with:
-          name: android-debug
-          path: |
-            src/ui/android/app/build/outputs/apk/debug/*.apk
-            src/ui/android/app/build/reports/lint-results-debug.html
+          name: android-lint
+          path: src/ui/android/app/build/reports/lint-results-debug.html
+          retention-days: 1
