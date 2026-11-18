@@ -101,6 +101,12 @@ jobs:
             . "$env_file"
             set +a
             bash tools/devops/package-macos.sh
+            # package-macos.sh's contract is the verified .app plus the receipt
+            # (docs/requirements/08); the download is the workflow's job. ditto
+            # keeps the bundle's symlinks and resource forks intact.
+            ditto -c -k --keepParent dist/macos/SnackPilot.app \
+                "dist/macos/SnackPilot-${SNACKPILOT_PRODUCT_VERSION}-macos-arm64.zip"
+            ls -l dist/macos
           else
             echo "::warning::no signing material configured: publishing an unsigned build"
             bash tools/devops/package-macos-unsigned.sh
@@ -199,7 +205,14 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(dist/desktop-macos/*.zip dist/desktop-windows/*.exe dist/desktop-windows/*.sha256)
-          [ ${#assets[@]} -gt 0 ] || { echo "no artifacts to publish" >&2; exit 1; }
+          # Each pattern must match: nullglob used to drop a missing macOS ZIP
+          # silently, so a run published a signed-build release with no signed
+          # build in it.
+          assets=()
+          for pattern in dist/desktop-macos/*.zip dist/desktop-windows/*.exe dist/desktop-windows/*.sha256; do
+            matches=($pattern)
+            [ ${#matches[@]} -gt 0 ] || { echo "missing artifact for $pattern" >&2; exit 1; }
+            assets+=("${matches[@]}")
+          done
           printf 'publishing: %s\n' "${assets[@]}"
           python3 .forgejo/scripts/github_release.py "${assets[@]}"
