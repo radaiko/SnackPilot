@@ -44,35 +44,59 @@ cleanup() {
 }
 trap cleanup EXIT
 
+step() {
+    # Runs one command and names it on failure, without echoing its arguments
+    # (some carry the keychain password).
+    local desc="$1"; shift
+    local out
+    if ! out=$("$@" 2>&1); then
+        printf '%s\n' "$out" >&2
+        die "$desc failed"
+    fi
+}
+
 info "creating a temporary keychain"
-security create-keychain -p "$PASSWORD" "$KEYCHAIN"
-# The keychain must be in the user's search list before the other `security`
-# calls can address it; without this `set-keychain-settings` fails with
-# "SecItemCopyMatching: The specified item could not be found in the keychain".
-EXISTING_KEYCHAINS="$(security list-keychains -d user | tr -d '"' | tr -s ' ' ' ')"
-# shellcheck disable=SC2086
-security list-keychains -d user -s "$KEYCHAIN" $EXISTING_KEYCHAINS
-security set-keychain-settings -lut 3600 "$KEYCHAIN"
-security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
-# Codesign must be able to read the key with no login session (no dialog).
-security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PASSWORD" "$KEYCHAIN" >/dev/null
+step "create-keychain" security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+
+# The runner is a LaunchDaemon user with no login keychain, so the calls that
+# only tune the session are best-effort; the ones that carry the identity are
+# not.
+security default-keychain -s "$KEYCHAIN" >/dev/null 2>&1 || true
+security set-keychain-settings -lut 3600 "$KEYCHAIN" >/dev/null 2>&1 \
+    || info "note: no login keychain here, so settings were not applied"
+EXISTING_KEYCHAINS="$(security list-keychains -d user 2>/dev/null | tr -d '"' | tr -s ' ' ' ' || true)"
+if [ -n "$EXISTING_KEYCHAINS" ]; then
+    # shellcheck disable=SC2086
+    security list-keychains -d user -s "$KEYCHAIN" $EXISTING_KEYCHAINS >/dev/null 2>&1 \
+        || info "note: could not extend the keychain search list"
+else
+    security list-keychains -d user -s "$KEYCHAIN" >/dev/null 2>&1 \
+        || info "note: could not set the keychain search list"
+fi
+
+step "unlock-keychain" security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
 
 info "importing the Developer ID identity"
 printf '%s' "$SNACKPILOT_DEV_ID_P12" | base64 --decode > "$P12"
-security import "$P12" -k "$KEYCHAIN" -P "$SNACKPILOT_DEV_ID_P12_PASSWORD" \
-    -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+# -A as well as -T: this keychain exists for one job and is deleted with it, and
+# a daemon session has no dialog to answer an access prompt with.
+step "import identity" security import "$P12" -k "$KEYCHAIN" -P "$SNACKPILOT_DEV_ID_P12_PASSWORD" \
+    -T /usr/bin/codesign -T /usr/bin/security -A
 rm -f "$P12"
 
-identity_count="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -c 'Developer ID Application' || true)"
+identity_count="$(security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep -c 'Developer ID Application' || true)"
 [ "$identity_count" -ge 1 ] || die "the imported .p12 holds no Developer ID Application identity"
 info "identity available: $identity_count"
 
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PASSWORD" "$KEYCHAIN" >/dev/null 2>&1 \
+    || info "note: partition list not set; the -A import still lets codesign read the key"
+
 info "storing the notary credentials as profile snackpilot-ci"
 printf '%s' "$SNACKPILOT_ASC_KEY" | base64 --decode > "$ASC_KEY"
-xcrun notarytool store-credentials snackpilot-ci \
+step "notarytool store-credentials" xcrun notarytool store-credentials snackpilot-ci \
     --key "$ASC_KEY" \
     --key-id "$SNACKPILOT_ASC_KEY_ID" \
-    --issuer "$SNACKPILOT_ASC_ISSUER_ID" >/dev/null
+    --issuer "$SNACKPILOT_ASC_ISSUER_ID"
 rm -f "$ASC_KEY"
 
 if [ -n "${GITHUB_ENV:-}" ]; then
