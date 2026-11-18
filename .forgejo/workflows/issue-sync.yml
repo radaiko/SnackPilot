@@ -7,6 +7,13 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
+# One sync at a time. A run that hangs is cancelled by the next tick instead of
+# holding a runner slot: the job is idempotent, so losing one mid-flight costs
+# nothing.
+concurrency:
+  group: issue-sync
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: node

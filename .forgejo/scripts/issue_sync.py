@@ -15,6 +15,13 @@ FORGEJO_API = os.environ["FORGEJO_API"].rstrip("/")
 FORGEJO_REPO = os.environ["FORGEJO_REPO"]
 FORGEJO_TOKEN = os.environ["FORGEJO_TOKEN"]
 GITHUB_REPO = os.environ["GITHUB_REPO"]
+# Page sizes and the hard stop for pagination. A list endpoint that ignores
+# `page` (or answers a page past the end with the previous one instead of an
+# empty list) turns an unbounded loop into a job that never finishes — that is
+# what wedged the android runner for 40 minutes on 2026-11-18.
+GITHUB_PAGE = 100
+FORGEJO_PAGE = 50
+MAX_PAGES = 200
 ISSUE_MARKER = re.compile(r"<!-- github-issue:(\d+) -->")
 COMMENT_MARKER = re.compile(r"<!-- github-comment:(\d+) -->")
 
@@ -32,13 +39,15 @@ def call(url, method="GET", body=None, headers=None):
 
 def github(path):
     items, page = [], 1
-    while True:
-        batch = call(f"{GITHUB_API}/repos/{GITHUB_REPO}/{path}{'&' if '?' in path else '?'}per_page=100&page={page}",
+    while page <= MAX_PAGES:
+        batch = call(f"{GITHUB_API}/repos/{GITHUB_REPO}/{path}{'&' if '?' in path else '?'}"
+                     f"per_page={GITHUB_PAGE}&page={page}",
                      headers={"User-Agent": "issue-sync", "Accept": "application/vnd.github+json"})
         items += batch
-        if len(batch) < 100:
+        if len(batch) < GITHUB_PAGE:
             return items
         page += 1
+    raise SystemExit(f"github({path!r}): more than {MAX_PAGES} pages")
 
 
 def forgejo(path, method="GET", body=None):
@@ -47,14 +56,23 @@ def forgejo(path, method="GET", body=None):
 
 
 def forgejo_all(path):
-    items, page = [], 1
-    while True:
-        sep = "&" if "?" in path else "?"
-        batch = forgejo(f"{path}{sep}limit=50&page={page}")
-        items += batch
-        if not batch:
+    """Every page of a paginated Forgejo list.
+
+    Stops on three signals, not one: a short page is the last page, a page that
+    brings no id already collected means the server is repeating itself, and
+    MAX_PAGES fails loudly instead of looping forever.
+    """
+    items, seen, page = [], set(), 1
+    sep = "&" if "?" in path else "?"
+    while page <= MAX_PAGES:
+        batch = forgejo(f"{path}{sep}limit={FORGEJO_PAGE}&page={page}")
+        fresh = [entry for entry in batch if entry.get("id") not in seen]
+        seen.update(entry.get("id") for entry in fresh)
+        items += fresh
+        if len(batch) < FORGEJO_PAGE or not fresh:
             return items
         page += 1
+    raise SystemExit(f"forgejo_all({path!r}): more than {MAX_PAGES} pages")
 
 
 def issue_body(issue):

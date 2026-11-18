@@ -10,6 +10,12 @@ on:
     paths: ["src/core/**", "src/ui/**", ".forgejo/workflows/android.yml"]
   workflow_dispatch:
 
+# A newer push replaces the run in flight: this is the longest job (a full Rust
+# NDK build plus Gradle), and a superseded run only wastes a runner slot.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: android
@@ -36,9 +42,9 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon
         working-directory: src/ui/android
 
-      # The app has known lint errors from before CI existed. Remove continue-on-error once they are fixed.
+      # Lint is a real gate now: it reports 0 errors and 22 warnings, and a new
+      # error fails the job. The report is uploaded either way.
       - name: Lint
-        continue-on-error: true
         run: ./gradlew :app:lintDebug --no-daemon
         working-directory: src/ui/android
 
