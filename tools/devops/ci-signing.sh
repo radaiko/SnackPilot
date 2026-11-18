@@ -15,8 +15,9 @@
 #   SNACKPILOT_ASC_KEY_ID          the key's Key ID
 #   SNACKPILOT_ASC_ISSUER_ID       the issuer UUID from App Store Connect
 #
-# Exports SNACKPILOT_NOTARY_PROFILE=snackpilot-ci into $GITHUB_ENV, so the
-# packaging step can run tools/devops/package-macos.sh unchanged.
+# Writes SNACKPILOT_NOTARY_KEY / _KEY_ID / _ISSUER to $SNACKPILOT_ENV_FILE (and
+# to $GITHUB_ENV when set), so tools/devops/package-macos.sh can notarize with
+# the key.
 #
 # An App Store Connect API key is used rather than an Apple ID + app-specific
 # password: it is revocable on its own, carries no account credential, and does
@@ -98,9 +99,20 @@ info "preparing the notary key"
 printf '%s' "$SNACKPILOT_ASC_KEY" | base64 --decode > "$ASC_KEY"
 chmod 600 "$ASC_KEY"
 
-if [ -n "${GITHUB_ENV:-}" ]; then
-    echo "SNACKPILOT_NOTARY_KEY=$ASC_KEY" >> "$GITHUB_ENV"
-    echo "SNACKPILOT_NOTARY_KEY_ID=$SNACKPILOT_ASC_KEY_ID" >> "$GITHUB_ENV"
-    echo "SNACKPILOT_NOTARY_ISSUER=$SNACKPILOT_ASC_ISSUER_ID" >> "$GITHUB_ENV"
+# Written to a file as well: a step that calls this script and then packages in
+# the same shell cannot see $GITHUB_ENV, which only applies to later steps.
+ENV_FILE="${SNACKPILOT_ENV_FILE:-}"
+if [ -z "$ENV_FILE" ]; then
+    ENV_FILE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/snackpilot-ci.env"
 fi
+{
+    echo "SNACKPILOT_NOTARY_KEY=$ASC_KEY"
+    echo "SNACKPILOT_NOTARY_KEY_ID=$SNACKPILOT_ASC_KEY_ID"
+    echo "SNACKPILOT_NOTARY_ISSUER=$SNACKPILOT_ASC_ISSUER_ID"
+} > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+if [ -n "${GITHUB_ENV:-}" ]; then
+    cat "$ENV_FILE" >> "$GITHUB_ENV"
+fi
+info "environment written to $ENV_FILE"
 info "ready: identity imported, notary key prepared"

@@ -92,7 +92,14 @@ jobs:
           set -euo pipefail
           if [ -n "${SNACKPILOT_DEV_ID_P12:-}" ]; then
             echo "signing material present: signing, notarizing and stapling"
-            bash tools/devops/ci-signing.sh
+            env_file="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/snackpilot-ci.env"
+            SNACKPILOT_ENV_FILE="$env_file" bash tools/devops/ci-signing.sh
+            # This step packages in the same shell, so $GITHUB_ENV (which only
+            # reaches later steps) is not enough: read the file back.
+            set -a
+            # shellcheck disable=SC1090
+            . "$env_file"
+            set +a
             bash tools/devops/package-macos.sh
           else
             echo "::warning::no signing material configured: publishing an unsigned build"
