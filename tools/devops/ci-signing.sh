@@ -36,7 +36,7 @@ WORK="$(mktemp -d)"
 KEYCHAIN="$WORK/signing.keychain-db"
 PASSWORD="$(openssl rand -hex 24)"
 P12="$WORK/identity.p12"
-ASC_KEY="$WORK/AuthKey.p8"
+ASC_KEY="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/snackpilot-notary-$(openssl rand -hex 6).p8"
 
 cleanup() {
     security delete-keychain "$KEYCHAIN" 2>/dev/null || true
@@ -91,15 +91,16 @@ info "identity available: $identity_count"
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PASSWORD" "$KEYCHAIN" >/dev/null 2>&1 \
     || info "note: partition list not set; the -A import still lets codesign read the key"
 
-info "storing the notary credentials as profile snackpilot-ci"
+# notarytool can store a profile, but that needs the *default* keychain, which a
+# LaunchDaemon user does not have ("keychainLocked(default)"). Passing the key
+# straight to the submission avoids the keychain altogether.
+info "preparing the notary key"
 printf '%s' "$SNACKPILOT_ASC_KEY" | base64 --decode > "$ASC_KEY"
-step "notarytool store-credentials" xcrun notarytool store-credentials snackpilot-ci \
-    --key "$ASC_KEY" \
-    --key-id "$SNACKPILOT_ASC_KEY_ID" \
-    --issuer "$SNACKPILOT_ASC_ISSUER_ID"
-rm -f "$ASC_KEY"
+chmod 600 "$ASC_KEY"
 
 if [ -n "${GITHUB_ENV:-}" ]; then
-    echo "SNACKPILOT_NOTARY_PROFILE=snackpilot-ci" >> "$GITHUB_ENV"
+    echo "SNACKPILOT_NOTARY_KEY=$ASC_KEY" >> "$GITHUB_ENV"
+    echo "SNACKPILOT_NOTARY_KEY_ID=$SNACKPILOT_ASC_KEY_ID" >> "$GITHUB_ENV"
+    echo "SNACKPILOT_NOTARY_ISSUER=$SNACKPILOT_ASC_ISSUER_ID" >> "$GITHUB_ENV"
 fi
-info "ready: identity imported, notary profile snackpilot-ci stored"
+info "ready: identity imported, notary key prepared"

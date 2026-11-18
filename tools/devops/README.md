@@ -146,6 +146,12 @@ private key never sits on the runner:
 | `SNACKPILOT_ASC_KEY_ID` | that key's Key ID |
 | `SNACKPILOT_ASC_ISSUER_ID` | the issuer UUID from App Store Connect |
 
+`ci-signing.sh` passes the key straight to `notarytool submit` instead of
+storing a keychain profile: the runner is a LaunchDaemon user with no default
+keychain, so `notarytool store-credentials` fails there with
+`keychainLocked(default)`. `package-macos.sh` accepts either form — a profile
+locally, the key trio in CI.
+
 The identity cannot be exported from an SSH session (`SecKeychainItemExport:
 User interaction is not allowed`), so the `.p12` is exported once in Keychain
 Access on the Mac and stored here. The API key is made in App Store Connect →

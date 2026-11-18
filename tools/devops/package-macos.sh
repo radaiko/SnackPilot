@@ -6,7 +6,12 @@
 #
 # The release identity and notary profile are external configuration:
 #   SNACKPILOT_SIGNING_IDENTITY  Developer ID Application identity (required)
-#   SNACKPILOT_NOTARY_PROFILE    existing notarytool keychain profile (required)
+#   SNACKPILOT_NOTARY_PROFILE    existing notarytool keychain profile
+#   …or, instead of a profile, an App Store Connect API key (CI has no login
+#   keychain to store a profile in):
+#     SNACKPILOT_NOTARY_KEY        path to the AuthKey_*.p8
+#     SNACKPILOT_NOTARY_KEY_ID     its Key ID
+#     SNACKPILOT_NOTARY_ISSUER     the issuer UUID
 # Optional:
 #   SNACKPILOT_PACKAGE_OUT       output directory (default dist/macos)
 #   SNACKPILOT_PRODUCT_VERSION   shared version override (default project.yml)
@@ -103,8 +108,21 @@ require_tools cargo codesign xcrun ditto spctl lipo otool file shasum find stat
 
 IDENTITY="${SNACKPILOT_SIGNING_IDENTITY:-}"
 PROFILE="${SNACKPILOT_NOTARY_PROFILE:-}"
+KEY="${SNACKPILOT_NOTARY_KEY:-}"
 [ -n "$IDENTITY" ] || die "SNACKPILOT_SIGNING_IDENTITY is not configured; refusing an unsigned release"
-[ -n "$PROFILE" ] || die "SNACKPILOT_NOTARY_PROFILE is not configured; refusing an un-notarized release"
+NOTARY_ARGS=()
+if [ -n "$KEY" ]; then
+    [ -f "$KEY" ] || die "SNACKPILOT_NOTARY_KEY points at no file: $KEY"
+    [ -n "${SNACKPILOT_NOTARY_KEY_ID:-}" ] || die "SNACKPILOT_NOTARY_KEY_ID is not configured"
+    [ -n "${SNACKPILOT_NOTARY_ISSUER:-}" ] || die "SNACKPILOT_NOTARY_ISSUER is not configured"
+    NOTARY_ARGS=(--key "$KEY" --key-id "$SNACKPILOT_NOTARY_KEY_ID" --issuer "$SNACKPILOT_NOTARY_ISSUER")
+    NOTARY_LABEL="App Store Connect API key ${SNACKPILOT_NOTARY_KEY_ID}"
+elif [ -n "$PROFILE" ]; then
+    NOTARY_ARGS=(--keychain-profile "$PROFILE")
+    NOTARY_LABEL="keychain profile $PROFILE"
+else
+    die "neither SNACKPILOT_NOTARY_PROFILE nor SNACKPILOT_NOTARY_KEY is configured; refusing an un-notarized release"
+fi
 case "$IDENTITY" in
     -|*adhoc*|*ad-hoc*|*AdHoc*) die "ad-hoc signing is not a release identity" ;;
 esac
@@ -136,7 +154,7 @@ done
 
 info "release $version ($build), target $TARGET, minimum macOS $MIN_MACOS"
 info "identity: $IDENTITY"
-info "notary profile: $PROFILE"
+info "notary: $NOTARY_LABEL"
 info "output: $OUT_DIR"
 
 # --- build and assemble -----------------------------------------------------
@@ -236,7 +254,7 @@ fi
 
 info "submitting the temporary ZIP to the notary service"
 ditto -c -k --keepParent "$APP" "$NOTARY_ZIP"
-notary_output="$(xcrun notarytool submit "$NOTARY_ZIP" --keychain-profile "$PROFILE" --wait 2>&1)" \
+notary_output="$(xcrun notarytool submit "$NOTARY_ZIP" "${NOTARY_ARGS[@]}" --wait 2>&1)" \
     || { printf '%s\n' "$notary_output" >&2; die "notarization submission failed"; }
 printf '%s\n' "$notary_output"
 grep -q 'status: Accepted' <<<"$notary_output" \
