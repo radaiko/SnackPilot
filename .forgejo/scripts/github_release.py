@@ -83,7 +83,16 @@ def main():
         )
         print(f"github: created {release['html_url']}")
     else:
-        print(f"github: release for {tag} exists ({release['html_url']}), replacing assets")
+        # A re-run must also refresh the notes: the trust state in them comes
+        # from the build, so a signed run replacing an unsigned one has to say
+        # so. Assets are replaced below by name.
+        if body:
+            release = call(
+                f"{API}/repos/{repo}/releases/{release['id']}",
+                method="PATCH",
+                body={"name": title, "body": body},
+            )
+        print(f"github: release for {tag} exists ({release['html_url']}), notes and assets updated")
 
     existing = {asset["name"]: asset for asset in release.get("assets", [])}
     for path in assets:
