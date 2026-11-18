@@ -106,6 +106,9 @@ if [ -z "$ENV_FILE" ]; then
     ENV_FILE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/snackpilot-ci.env"
 fi
 {
+    # codesign searches the keychain search list, which a daemon user does not
+    # have; point it at the temporary keychain explicitly.
+    echo "SNACKPILOT_SIGNING_KEYCHAIN=$KEYCHAIN"
     echo "SNACKPILOT_NOTARY_KEY=$ASC_KEY"
     echo "SNACKPILOT_NOTARY_KEY_ID=$SNACKPILOT_ASC_KEY_ID"
     echo "SNACKPILOT_NOTARY_ISSUER=$SNACKPILOT_ASC_ISSUER_ID"

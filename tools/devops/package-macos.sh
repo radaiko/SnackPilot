@@ -12,6 +12,9 @@
 #     SNACKPILOT_NOTARY_KEY        path to the AuthKey_*.p8
 #     SNACKPILOT_NOTARY_KEY_ID     its Key ID
 #     SNACKPILOT_NOTARY_ISSUER     the issuer UUID
+#   SNACKPILOT_SIGNING_KEYCHAIN   optional: the keychain holding the identity.
+#                                 CI sets it because a daemon session has no
+#                                 keychain search list for codesign to use.
 # Optional:
 #   SNACKPILOT_PACKAGE_OUT       output directory (default dist/macos)
 #   SNACKPILOT_PRODUCT_VERSION   shared version override (default project.yml)
@@ -107,6 +110,12 @@ require_tools() {
 require_tools cargo codesign xcrun ditto spctl lipo otool file shasum find stat
 
 IDENTITY="${SNACKPILOT_SIGNING_IDENTITY:-}"
+SIGNING_KEYCHAIN="${SNACKPILOT_SIGNING_KEYCHAIN:-}"
+KEYCHAIN_ARG=()
+if [ -n "$SIGNING_KEYCHAIN" ]; then
+    [ -f "$SIGNING_KEYCHAIN" ] || die "SNACKPILOT_SIGNING_KEYCHAIN points at no file: $SIGNING_KEYCHAIN"
+    KEYCHAIN_ARG=(--keychain "$SIGNING_KEYCHAIN")
+fi
 PROFILE="${SNACKPILOT_NOTARY_PROFILE:-}"
 KEY="${SNACKPILOT_NOTARY_KEY:-}"
 [ -n "$IDENTITY" ] || die "SNACKPILOT_SIGNING_IDENTITY is not configured; refusing an unsigned release"
@@ -233,12 +242,12 @@ minos="$(otool -l "$APP/Contents/MacOS/$EXECUTABLE" | awk '/LC_BUILD_VERSION/{fo
 info "signing nested code"
 while IFS= read -r nested; do
     [ -n "$nested" ] || continue
-    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$nested"
+    codesign --force --options runtime --timestamp --sign "$IDENTITY" "${KEYCHAIN_ARG[@]}" "$nested"
 done < <(find "$APP/Contents/MacOS" "$APP/Contents/Frameworks" -type f \
     \( -name '*.dylib' -o -name '*.so' \) 2>/dev/null | LC_ALL=C sort)
 
 info "signing the app"
-codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+codesign --force --options runtime --timestamp --sign "$IDENTITY" "${KEYCHAIN_ARG[@]}" "$APP"
 
 signing_info="$(codesign -dv --verbose=4 "$APP" 2>&1)" \
     || die "cannot inspect the app signature"
