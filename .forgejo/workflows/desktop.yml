@@ -75,38 +75,30 @@ jobs:
             src/ui/target
           key: macos-desktop-${{ hashFiles('src/ui/Cargo.lock') }}
 
-      # Signing needs three things that live in the Mac's login keychain and in
-      # App Store Connect: the Developer ID .p12, its password, and an App Store
-      # Connect API key. Once those five secrets exist this job produces a
-      # signed, notarized and stapled build; without them it falls back to the
-      # unsigned artifact so the pipeline still ships.
-      - name: Set up codesigning and notarization
-        if: ${{ secrets.SNACKPILOT_DEV_ID_P12 != '' }}
+      # The secrets decide at run time, not in an `if`: Forgejo does not expose
+      # secrets to workflow expressions, so a conditional on them silently
+      # selected the unsigned path even with all five set. The shell sees them
+      # as environment variables, which always works.
+      - name: Build, pack, and sign when the material is present
         env:
+          SNACKPILOT_PRODUCT_VERSION: ${{ needs.version.outputs.version }}
+          SNACKPILOT_SIGNING_IDENTITY: "Developer ID Application: Aiko Radlingmayr (555V4MNLK3)"
           SNACKPILOT_DEV_ID_P12: ${{ secrets.SNACKPILOT_DEV_ID_P12 }}
           SNACKPILOT_DEV_ID_P12_PASSWORD: ${{ secrets.SNACKPILOT_DEV_ID_P12_PASSWORD }}
           SNACKPILOT_ASC_KEY: ${{ secrets.SNACKPILOT_ASC_KEY }}
           SNACKPILOT_ASC_KEY_ID: ${{ secrets.SNACKPILOT_ASC_KEY_ID }}
           SNACKPILOT_ASC_ISSUER_ID: ${{ secrets.SNACKPILOT_ASC_ISSUER_ID }}
-        run: bash tools/devops/ci-signing.sh
+        run: |
+          set -euo pipefail
+          if [ -n "${SNACKPILOT_DEV_ID_P12:-}" ]; then
+            echo "signing material present: signing, notarizing and stapling"
+            bash tools/devops/ci-signing.sh
+            bash tools/devops/package-macos.sh
+          else
+            echo "::warning::no signing material configured: publishing an unsigned build"
+            bash tools/devops/package-macos-unsigned.sh
+          fi
 
-      - name: Build, sign, notarize and pack the app
-        if: ${{ secrets.SNACKPILOT_DEV_ID_P12 != '' }}
-        env:
-          SNACKPILOT_PRODUCT_VERSION: ${{ needs.version.outputs.version }}
-          # The identity's common name; codesign matches it in the keychain.
-          SNACKPILOT_SIGNING_IDENTITY: "Developer ID Application: Aiko Radlingmayr (555V4MNLK3)"
-        run: bash tools/devops/package-macos.sh
-
-      - name: Build and pack the app (unsigned fallback)
-        if: ${{ secrets.SNACKPILOT_DEV_ID_P12 == '' }}
-        env:
-          SNACKPILOT_PRODUCT_VERSION: ${{ needs.version.outputs.version }}
-        run: bash tools/devops/package-macos-unsigned.sh
-
-      # Release builds are distributable, so they keep a longer retention than the
-      # debug uploads; the copy lives here only until the GitHub release is cut in
-      # the publish job, so a few days is enough to keep a re-run possible.
       - name: Upload the macOS artifact
         uses: actions/upload-artifact@v3
         with:
