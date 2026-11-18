@@ -34,13 +34,17 @@ info() { echo "ci-signing: $*"; }
 : "${SNACKPILOT_ASC_ISSUER_ID:?the API issuer id is not configured}"
 
 WORK="$(mktemp -d)"
-KEYCHAIN="$WORK/signing.keychain-db"
+# Outside WORK: the EXIT trap removes WORK, and the keychain has to outlive this
+# script — package-macos.sh signs with it afterwards.
+KEYCHAIN="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/snackpilot-signing-$(openssl rand -hex 4).keychain-db"
 PASSWORD="$(openssl rand -hex 24)"
 P12="$WORK/identity.p12"
 ASC_KEY="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/snackpilot-notary-$(openssl rand -hex 6).p8"
 
+# The keychain is deliberately not deleted here: it is used by the packaging
+# step after this script returns, and the runner wipes its temp directory when
+# the job ends.
 cleanup() {
-    security delete-keychain "$KEYCHAIN" 2>/dev/null || true
     rm -rf "$WORK"
 }
 trap cleanup EXIT
