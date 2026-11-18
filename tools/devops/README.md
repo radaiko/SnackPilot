@@ -148,6 +148,18 @@ build still comes from `make package-macos` on the Mac.
   to the crate root while running from the build output directory, which fails
   for any cross-build. Do not reintroduce `cargo xwin` for this app.
 
+### When a job sits at "no task"
+
+A job whose dependencies are green but that never gets a task is usually queue
+starvation, not a workflow fault. The recurring `issue-sync` workflow has been
+observed to run forever (`forgejo_all()` in `.forgejo/scripts/issue_sync.py`
+increments `page` and only stops on an empty page, while this Forgejo keeps
+answering), and each stuck instance holds a runner slot. Check for a long-running
+`issue-sync` task first; the runners only accept new work once it is freed.
+Forgejo's API has no cancel route for a run, and the `ci` runner is
+outbound-only behind nftables, so the stuck job can only be cancelled in the web
+UI.
+
 ### Running it without a tag
 
 A manual run (`workflow_dispatch`) needs the version as input; it publishes a
