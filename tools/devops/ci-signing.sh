@@ -46,6 +46,12 @@ trap cleanup EXIT
 
 info "creating a temporary keychain"
 security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+# The keychain must be in the user's search list before the other `security`
+# calls can address it; without this `set-keychain-settings` fails with
+# "SecItemCopyMatching: The specified item could not be found in the keychain".
+EXISTING_KEYCHAINS="$(security list-keychains -d user | tr -d '"' | tr -s ' ' ' ')"
+# shellcheck disable=SC2086
+security list-keychains -d user -s "$KEYCHAIN" $EXISTING_KEYCHAINS
 security set-keychain-settings -lut 3600 "$KEYCHAIN"
 security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
 # Codesign must be able to read the key with no login session (no dialog).
@@ -60,8 +66,6 @@ rm -f "$P12"
 identity_count="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -c 'Developer ID Application' || true)"
 [ "$identity_count" -ge 1 ] || die "the imported .p12 holds no Developer ID Application identity"
 info "identity available: $identity_count"
-
-security list-keychains -d user -s "$KEYCHAIN" >/dev/null
 
 info "storing the notary credentials as profile snackpilot-ci"
 printf '%s' "$SNACKPILOT_ASC_KEY" | base64 --decode > "$ASC_KEY"
