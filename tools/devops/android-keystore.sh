@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
 require_tool keytool "comes with a JDK"
-KS="$REPO_ROOT/src/ui/android/snackpilot-release.jks"
+KS="$REPO_ROOT/src/ui/android/app/snackpilot-release.jks"
 PROPS="$REPO_ROOT/src/ui/android/keystore.properties"
 ALIAS="snackpilot"
 
@@ -20,7 +20,7 @@ keytool -genkeypair -v \
 chmod 600 "$KS"
 
 cat > "$PROPS" <<EOF
-storeFile=$KS
+storeFile=snackpilot-release.jks
 storePassword=$pass
 keyAlias=$ALIAS
 keyPassword=$pass

@@ -41,15 +41,16 @@ Both rerun the platform `bootstrap.sh` only when `src/core/src` changed since th
 ## Release (local)
 - `make package-macos` — build, sign, notarize, staple and verify the macOS
   release `SnackPilot.app` (see **macOS release** below). Mac host only.
-- `make ios-archive` — build a signed release archive (auto-incrementing build number, team auto-detected from the keychain) and open it in **Xcode Organizer**. Then: *Distribute App → App Store Connect → Upload* → the build lands in **TestFlight**. `IOS_TEAM=<id>` overrides the team; `ORGANIZER_OPEN=0` skips opening Organizer (CI/tests). Organizer re-signs to the App Store *distribution* identity at the Distribute step.
-- `make android-keystore` — one-time: generate the signed-release keystore. Back up `src/ui/android/snackpilot-release.jks` + `keystore.properties`.
+- `make ios-archive` — build a signed release archive, export `dist/SnackPilot-<version>.ipa` with App Store signing, and (with `ORGANIZER_OPEN=1`) also open **Xcode Organizer**. Upload the `.ipa` with `xcrun altool --upload-app -f dist/SnackPilot-<version>.ipa -t ios --apiKey <id> --apiIssuer <issuer>`, or drop it on Transporter; the build then lands in **TestFlight**. Build numbers auto-increment and never go below `project.yml`'s `CURRENT_PROJECT_VERSION`; `IOS_TEAM=<id>` overrides the team.
+- `make android-keystore` — one-time: generate the signed-release keystore. Back up `src/ui/android/app/snackpilot-release.jks` + `src/ui/android/keystore.properties`.
 - `make ship` — one command for the next release of both platforms. Prompts for a new semver
   (must be > the last) + platforms, bumps `Cargo.toml` / `project.yml` / `build.gradle.kts` + the
   shared build number (iOS `CURRENT_PROJECT_VERSION` / Android `versionCode`, auto-incrementing),
   then:
-  - **iOS** → archives a signed build into Xcode Archives and opens **Organizer** (Distribute App →
-    App Store Connect → Upload → TestFlight) — same path as `make ios-archive`.
-  - **Android** → signed `dist/SnackPilot-X.Y.Z.aab` + `.apk` (upload the AAB to Play).
+  - **iOS** → archives a signed build and exports `dist/SnackPilot-X.Y.Z.ipa` (App Store
+    signing) — same path as `make ios-archive`; upload that `.ipa`.
+  - **Android** → signed `dist/SnackPilot-X.Y.Z.aab` + `.apk`, built from a **release**
+    Rust core (upload the AAB to Play).
   - Commits `Release vX.Y.Z (label)` and tags `ios/vX.Y.Z` / `android/vX.Y.Z` locally (no push —
     prints the push command).
   - `DRY_RUN=1 make ship` — validate + build to a temp dir, no git/file/counter changes, no Organizer.

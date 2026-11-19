@@ -74,24 +74,28 @@ fi
 # 5a. iOS artifact
 if [[ $do_ios -eq 1 ]]; then
   require_tool xcodebuild "install Xcode"
-  # Archive a signed release build; upload happens via Xcode Organizer → App Store Connect.
+  # Signed archive + exported App Store .ipa; the upload itself stays a separate step.
   if [[ "$DRY_RUN" == "1" ]]; then
     archive="$(build_ios_archive "$buildno" "$outdir")"
     ok "iOS archive (dry-run): $archive"
   else
     archive="$(build_ios_archive "$buildno")"
     ok "iOS archive build $buildno: $archive"
-    info "opening Xcode Organizer → Distribute App → App Store Connect → Upload → TestFlight"
-    open "$archive"
+    ipa="$(export_ios_ipa "$archive" "$outdir" "SnackPilot-$VERSION")"
+    ok "iOS ipa: $ipa"
+    info "Upload: xcrun altool --upload-app -f '$ipa' -t ios --apiKey <id> --apiIssuer <issuer>"
   fi
 fi
 
 # 5b. Android artifact
 if [[ $do_android -eq 1 ]]; then
   [[ -f "src/ui/android/keystore.properties" ]] || err "no keystore.properties — artifacts will be UNSIGNED (run: make android-keystore)"
-  # Rebuild the core .so/bindings if stale (incl. the version bump above) — gradle alone reuses the
-  # prebuilt jniLibs, so without this the shipped app reports a stale core version.
-  bootstrap_if_stale tools/devops/ui-android-build.sh "$REPO_ROOT/src/ui/android/app/src/main/jniLibs/arm64-v8a/libsnackpilot_app.so"
+  # Rebuild the core .so/bindings in release mode (incl. the version bump above) — gradle alone
+  # reuses the prebuilt jniLibs, so without this the shipped app reports a stale core version.
+  # Always: a debug-profile .so in a store build is many times larger and slower, and the
+  # staleness stamp cannot tell the two profiles apart.
+  info "Android: rebuilding the Rust core in release mode"
+  ( cd "$REPO_ROOT" && tools/devops/ui-android-build.sh --release )
   info "Android: bundleRelease + assembleRelease"
   ( cd src/ui/android && ./gradlew :app:bundleRelease :app:assembleRelease )
   cp src/ui/android/app/build/outputs/bundle/release/app-release.aab "$outdir/SnackPilot-$VERSION.aab"

@@ -45,7 +45,7 @@ mac-sync: ## Rsync this worktree to the Mac (~/vm-sync/SnackPilot-gpui) for Mac-
 ios-run: ## Build + install + launch on an iOS simulator (DEVICE= to override)
 	@bash $(DEVOPS)/run-ios.sh
 
-ios-archive: ## Build a signed release archive + open Xcode Organizer (App Store/TestFlight upload)
+ios-archive: ## Build a signed release archive + export dist/SnackPilot-<version>.ipa (App Store)
 	@bash $(DEVOPS)/archive-ios.sh
 
 package-macos: ## Build, sign, notarize, staple + verify the macOS release .app (Mac host; identity/profile from env)

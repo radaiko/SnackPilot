@@ -114,9 +114,13 @@ detect_ios_team() {
 
 # Next monotonic build number: increment the gitignored counter and echo it. Shared by ship
 # + ios-archive so every build gets a unique, strictly-increasing CFBundleVersion/versionCode.
+# Starts from whichever is higher, the counter or project.yml, so a hand-bumped release
+# (which sets CURRENT_PROJECT_VERSION directly) cannot be followed by a lower build number.
 next_build_number() {
-  local f="$REPO_ROOT/tools/devops/.build-number" n=0
+  local f="$REPO_ROOT/tools/devops/.build-number" n=0 m=0
   [[ -f "$f" ]] && n="$(cat "$f")"
+  m="$(grep -m1 'CURRENT_PROJECT_VERSION:' "$REPO_ROOT/src/ui/ios/project.yml" | sed -E 's/.*"([0-9]+)".*/\1/')"
+  [[ "${m:-0}" -gt "$n" ]] && n="$m"
   n=$((n + 1))
   echo "$n" > "$f"
   echo "$n"
@@ -146,4 +150,36 @@ build_ios_archive() {
     -archivePath "$archive" -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="$buildno" archive >&2
   echo "$archive"
+}
+
+# export_ios_ipa ARCHIVE OUTDIR [NAME] → export an App Store .ipa from the archive and echo its
+# path (logging on stderr). Automatic signing re-signs the archive and regenerates the Store
+# profile when the distribution certificate changed, so no Organizer click is needed.
+export_ios_ipa() {
+  local archive=$1 outdir=$2 name="${3:-SnackPilot}"
+  local team; team="${IOS_TEAM:-$(detect_ios_team)}"
+  [[ -n "$team" ]] || die "no Apple team in keychain — set IOS_TEAM=<teamid>"
+  mkdir -p "$outdir"
+  local tmp plist; tmp="$(mktemp -d)"
+  plist="$tmp/ExportOptions.plist"
+  cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>signingStyle</key><string>automatic</string>
+  <key>teamID</key><string>$team</string>
+  <key>uploadSymbols</key><true/>
+  <key>destination</key><string>export</string>
+  <key>manageAppVersionAndBuildNumber</key><false/>
+</dict></plist>
+PLIST
+  info "iOS: exporting .ipa with App Store signing"
+  xcodebuild -exportArchive -archivePath "$archive" -exportPath "$tmp/out" \
+    -exportOptionsPlist "$plist" -allowProvisioningUpdates >&2
+  local ipa; ipa="$(find "$tmp/out" -maxdepth 1 -name '*.ipa' | head -1)"
+  [[ -n "$ipa" ]] || { rm -rf "$tmp"; die "export reported success but produced no .ipa"; }
+  mv "$ipa" "$outdir/$name.ipa"
+  rm -rf "$tmp"
+  echo "$outdir/$name.ipa"
 }

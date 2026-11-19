@@ -64,12 +64,16 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.radaiko.gourmetclient
         PRODUCT_NAME: SnackPilot
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "2.2.0"
-        CURRENT_PROJECT_VERSION: "42"
+        MARKETING_VERSION: "2.2.1"
+        CURRENT_PROJECT_VERSION: "43"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: "YES"
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-emerald AppIcon-berry AppIcon-golden AppIcon-ocean"
-        CODE_SIGN_STYLE: Manual
+        # Automatic signing, so `make ios-archive` is signed here instead of
+        # needing an Organizer click: Xcode picks the team profile for a device
+        # build and regenerates it at export when the certificate changed.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "555V4MNLK3"
         # Ad-hoc signing is simulator-only and is what fixes the keychain:
         # an unsigned binary gets SecItemAdd -34018 (errSecMissingEntitlement)
         # on the simulator; the ad-hoc signature alone is enough. No
@@ -77,11 +81,9 @@ targets:
         # the profile-gated keys (application-identifier,
         # keychain-access-groups) under ad-hoc signing with no team, so the
         # file would be dead weight (verified on the Mac: the generated
-        # .xcent comes out an empty dict). Device builds keep signing off;
-        # release signing with a real profile is the human/devops flow.
+        # .xcent comes out an empty dict).
         "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": "YES"
         "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
-        "CODE_SIGNING_ALLOWED[sdk=iphoneos*]": "NO"
         SWIFT_OBJC_BRIDGING_HEADER: "Host/PlatformShims.h"
         CLANG_ENABLE_MODULES: YES
         CLANG_ENABLE_OBJC_ARC: YES
