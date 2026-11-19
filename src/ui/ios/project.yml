@@ -88,10 +88,14 @@ targets:
         CLANG_ENABLE_MODULES: YES
         CLANG_ENABLE_OBJC_ARC: YES
         ENABLE_BITCODE: NO
-        # Statically link the Rust library: no debug-dylib executor, no dead-strip.
+        # Statically link the Rust library: no debug-dylib executor.
         ENABLE_DEBUG_DYLIB: NO
         OTHER_LINK_BINARY_WITH_LIBRARIES_SECTION_TYPE: static
-        DEAD_CODE_STRIPPING: NO
+        # Dead stripping removes unreachable Rust/dependency code, which is what keeps
+        # App Store validation honest: core-graphics compiles the SPI call
+        # CGContextSetFontSmoothingStyle into a CGU we load, so without stripping the app
+        # imports a non-public symbol (ITMS-90338) even though nothing calls it.
+        DEAD_CODE_STRIPPING: YES
         # Info.plist is generated from the `info:` block below: the background
         # modes and the BGTask identifier are arrays, which INFOPLIST_KEY_*
         # cannot express.

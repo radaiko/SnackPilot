@@ -29,7 +29,7 @@ esac
 # are generated on the Mac and must survive. --exclude (not --filter -p) so the Mac's
 # openrsync (protocol 29) accepts the rules.
 PROTECTED=(.git target build DerivedData dist '*.xcodeproj' .gradle node_modules \
-  src/ui/android/app/src/main/jniLibs \
+  src/ui/android/app/src/main/jniLibs tools/devops/.build-number .ship-history \
   src/ui/android/keystore.properties 'src/ui/android/*.jks' 'src/ui/android/app/*.jks')
 filters=()
 for p in "${PROTECTED[@]}"; do filters+=(--exclude="$p"); done
