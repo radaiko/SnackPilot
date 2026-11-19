@@ -60,5 +60,8 @@ android-run: ## Build + install + launch on an Android emulator/device
 android-keystore: ## One-time: generate the Android release keystore
 	@bash $(DEVOPS)/android-keystore.sh
 
+android-upload: ## Upload dist/store/*.aab to Play (TRACK=alpha, SNACKPILOT_PLAY_SA=<json>)
+	@bash $(DEVOPS)/play-upload.sh "$(or $(AAB),$(shell ls dist/store/*.aab 2>/dev/null | tail -1))" "$(or $(TRACK),alpha)"
+
 ship: ## Interactive release: bump version, build artifacts, commit + tag (DRY_RUN=1)
 	@bash $(DEVOPS)/ship.sh
