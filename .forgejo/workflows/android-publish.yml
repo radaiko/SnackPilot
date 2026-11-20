@@ -1,0 +1,95 @@
+name: android-publish
+
+# Builds the signed release bundle on an android/v* tag and puts it on the Play
+# alpha track. `make ship` still builds the same artifacts locally; this is the
+# unattended path for a tagged release, and it is why the keystore and the Play
+# service account live in repository secrets.
+
+on:
+  push:
+    tags: ["android/v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build only, skip the Play upload"
+        type: boolean
+        default: false
+
+# One publish at a time: two uploads racing would fight over the same edit.
+concurrency:
+  group: android-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: android
+    timeout-minutes: 60
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo and Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            src/core/target
+            src/ui/target
+          key: android-publish-${{ hashFiles('src/core/Cargo.lock', 'src/ui/Cargo.lock', 'src/ui/android/gradle/**', 'src/ui/android/**/*.gradle.kts') }}
+
+      # Gradle looks for keystore.properties in src/ui/android and resolves storeFile
+      # against the app module, so the key belongs in src/ui/android/app.
+      - name: Restore the upload keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.SNACKPILOT_ANDROID_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.SNACKPILOT_ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SNACKPILOT_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SNACKPILOT_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$KEYSTORE_B64" ] || { echo "no keystore secret — refusing an unsigned release"; exit 1; }
+          printf '%s' "$KEYSTORE_B64" | openssl base64 -d -A > src/ui/android/app/upload-keystore.jks
+          printf 'storeFile=upload-keystore.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > src/ui/android/keystore.properties
+          chmod 600 src/ui/android/app/upload-keystore.jks src/ui/android/keystore.properties
+
+      - name: Build the Rust core for the Android targets
+        run: tools/devops/ui-android-build.sh --release
+
+      - name: Build the release bundle
+        run: ./gradlew :app:bundleRelease --no-daemon
+        working-directory: src/ui/android
+
+      - name: Show what is about to be published
+        run: |
+          AAB=src/ui/android/app/build/outputs/bundle/release/app-release.aab
+          ls -l "$AAB"
+          unzip -l "$AAB" | grep -c 'META-INF/.*\.RSA' >/dev/null \
+            || { echo "bundle is not signed — refusing to upload"; exit 1; }
+
+      - name: Upload to the Play alpha track
+        if: ${{ !inputs.dry_run }}
+        env:
+          PLAY_SA_B64: ${{ secrets.SNACKPILOT_PLAY_SA_JSON }}
+        run: |
+          set -euo pipefail
+          [ -n "$PLAY_SA_B64" ] || { echo "no Play service account secret"; exit 1; }
+          SA="$(mktemp)"; trap 'rm -f "$SA"' EXIT
+          printf '%s' "$PLAY_SA_B64" | openssl base64 -d -A > "$SA"
+          chmod 600 "$SA"
+          SNACKPILOT_PLAY_SA="$SA" tools/devops/play-upload.sh \
+            src/ui/android/app/build/outputs/bundle/release/app-release.aab alpha
+
+      - name: Keep the bundle and drop the key material
+        if: always()
+        run: |
+          rm -f src/ui/android/app/upload-keystore.jks src/ui/android/keystore.properties
+
+      - name: Upload the bundle
+        if: always()
+        uses: https://data.forgejo.org/forgejo/upload-artifact@v4
+        with:
+          name: android-release
+          path: src/ui/android/app/build/outputs/bundle/release/*.aab
