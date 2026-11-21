@@ -83,7 +83,7 @@ domain: architectural
   - check: `make check`; additionally the Mac desktop workflow `cargo build --locked -p snackpilot-app --bin snackpilot-desktop` and `cargo test --locked -p snackpilot-app --lib`
   - proof: ui workflow for the model projection (1.3), app-crate test output, screenshots and action trace in `docs/evidence/desktop-auto-update/1.5/`, the `docs/privacy.html` diff
 
-- [ ] 1.6 Release workflow: sign and publish the manifests
+- [x] 1.6 Release workflow: sign and publish the manifests
   - tier: normal
   - host: Linux
   - files: `tools/devops/make-update-manifest.sh` (new), `tools/devops/test-update-manifest.sh` (new), `Makefile` (one line in `test-lib` only), `.forgejo/workflows/desktop.yml` (one new step in `publish` and the extra `assets` patterns only), `tools/devops/README.md` (manifest, key generation, rotation limit), `docs/fixtures/update/openssl-manifest.json` (new), `docs/fixtures/update/openssl-manifest.json.sig` (new), `docs/fixtures/update/openssl-public-key.hex` (new), `src/core/tests/fixtures/update/openssl-manifest.json` (new, byte-identical), `src/core/tests/fixtures/update/openssl-manifest.json.sig` (new, byte-identical), `src/core/tests/fixtures/update/openssl-public-key.hex` (new, byte-identical), `src/core/tests/update.rs`
