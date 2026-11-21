@@ -11,6 +11,10 @@ use snackpilot_core::update::{
 
 const WINDOWS_MANIFEST: &str = include_str!("fixtures/update/manifest-windows-x64.json");
 const MACOS_MANIFEST: &str = include_str!("fixtures/update/manifest-macos-arm64.json");
+/// One real run of `tools/devops/make-update-manifest.sh` with a throwaway key.
+const OPENSSL_MANIFEST: &str = include_str!("fixtures/update/openssl-manifest.json");
+const OPENSSL_SIGNATURE: &str = include_str!("fixtures/update/openssl-manifest.json.sig");
+const OPENSSL_PUBLIC_KEY: &str = include_str!("fixtures/update/openssl-public-key.hex");
 
 fn test_key() -> SigningKey {
     SigningKey::from_bytes(&[7u8; 32])
@@ -57,6 +61,55 @@ fn verify_accepts_signed_manifest() {
     assert_eq!(macos.platform, "macos");
     assert_eq!(macos.architecture, "arm64");
     assert_eq!(macos.minimum_os, "26.0");
+}
+
+// @req REQ-UPD-03 @req REQ-UPD-18
+#[test]
+fn openssl_signed_fixture_verifies_with_the_rust_verifier() {
+    let hex = OPENSSL_PUBLIC_KEY.trim();
+    assert_eq!(hex.len(), 64, "public key is 64 hex chars");
+    let mut key = [0u8; 32];
+    for (i, byte) in key.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).expect("hex public key");
+    }
+
+    let manifest = verify_manifest(OPENSSL_MANIFEST.as_bytes(), OPENSSL_SIGNATURE, &key)
+        .expect("the script's signature must verify with its public key");
+    assert_eq!(manifest.schema, SCHEMA);
+    assert_eq!(manifest.platform, "windows");
+    assert_eq!(manifest.architecture, "x64");
+    assert_eq!(manifest.version, "2.3.0");
+    assert_eq!(manifest.tag, "desktop/v2.3.0");
+    assert_eq!(manifest.minimum_os, "10.0.22000");
+    assert_eq!(manifest.artifact, "SnackPilot-2.3.0-windows-x64-setup.exe");
+    assert_eq!(
+        manifest.notes_url,
+        "https://github.com/radaiko/SnackPilot/releases/tag/desktop/v2.3.0"
+    );
+
+    // The script's file is ASCII, one compact line plus a newline.
+    assert!(OPENSSL_MANIFEST.is_ascii());
+    assert!(OPENSSL_MANIFEST.ends_with("}\n"));
+    assert_eq!(OPENSSL_MANIFEST.lines().count(), 1);
+    let sig = OPENSSL_SIGNATURE.trim();
+    assert_eq!(sig.len(), 128);
+    assert_eq!(sig, sig.to_lowercase());
+
+    // One byte off either part is rejected exactly as in production.
+    let mut flipped = OPENSSL_MANIFEST.as_bytes().to_vec();
+    flipped[10] ^= 0x01;
+    assert_eq!(
+        verify_manifest(&flipped, OPENSSL_SIGNATURE, &key),
+        Err(UpdateError::SignatureInvalid)
+    );
+    assert_eq!(
+        verify_manifest(
+            OPENSSL_MANIFEST.as_bytes(),
+            OPENSSL_SIGNATURE,
+            &test_public_key()
+        ),
+        Err(UpdateError::SignatureInvalid)
+    );
 }
 
 // @req REQ-UPD-03

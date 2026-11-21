@@ -199,6 +199,20 @@ jobs:
           EOF
           echo "notes: macOS trust state $trust"
 
+      # The secret decides in the shell, not in `if:`: Forgejo does not expose
+      # secrets to expressions. The script reads it from the environment, writes
+      # it to a mode-600 mktemp file and removes that on every exit path, so it
+      # never appears in the log.
+      - name: Sign the update manifests
+        env:
+          SNACKPILOT_UPDATE_SIGNING_KEY: ${{ secrets.SNACKPILOT_UPDATE_SIGNING_KEY }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash tools/devops/make-update-manifest.sh "$VERSION" \
+              dist/desktop-macos dist/desktop-windows dist/notes/body.md dist/update
+          ls -l dist/update
+
       - name: Publish on GitHub
         env:
           GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
@@ -208,15 +222,22 @@ jobs:
           BODY_FILE: dist/notes/body.md
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          # Each pattern must match: nullglob used to drop a missing macOS ZIP
-          # silently, so a run published a signed-build release with no signed
-          # build in it.
-          assets=()
-          for pattern in dist/desktop-macos/*.zip dist/desktop-windows/*.exe dist/desktop-windows/*.sha256; do
-            matches=($pattern)
-            [ ${#matches[@]} -gt 0 ] || { echo "missing artifact for $pattern" >&2; exit 1; }
-            assets+=("${matches[@]}")
-          done
-          printf 'publishing: %s\n' "${assets[@]}"
-          python3 .forgejo/scripts/github_release.py "${assets[@]}"
+          # Every asset is named explicitly and proved to exist before anything
+          # is published. A glob used to be dropped silently by nullglob, so a
+          # run published a signed-build release with no signed build in it.
+          assets="$(
+            printf '%s\n' "dist/desktop-macos/SnackPilot-${TAG#desktop/v}-macos-arm64.zip" \
+              "dist/desktop-windows/SnackPilot-${TAG#desktop/v}-windows-x64-setup.exe" \
+              "dist/desktop-windows/SnackPilot-${TAG#desktop/v}-windows-x64-setup.exe.sha256" \
+              "dist/update/SnackPilot-manifest-windows-x64.json" \
+              "dist/update/SnackPilot-manifest-windows-x64.json.sig"
+            if [ "$(python3 -c "import json,sys; print(json.load(open(sys.argv[1], encoding='utf-8-sig'))['trust_state'])" dist/desktop-macos/native-build-receipt.json)" = developer-id-notarized-stapled ]; then
+              printf '%s\n' "dist/update/SnackPilot-manifest-macos-arm64.json" \
+                "dist/update/SnackPilot-manifest-macos-arm64.json.sig"
+            fi
+          )"
+          while IFS= read -r asset; do
+            [ -f "$asset" ] || { echo "missing artifact: $asset" >&2; exit 1; }
+          done <<< "$assets"
+          printf 'publishing: %s\n' "$assets"
+          python3 .forgejo/scripts/github_release.py $assets
