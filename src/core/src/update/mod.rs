@@ -4,10 +4,16 @@
 //! Every failure is an [`UpdateError`]; [`UpdateError::user_message`] is the
 //! only text a person sees, and it carries no URL, hash or key.
 
+pub mod discover;
+pub mod download;
+pub mod fake;
 pub mod key;
 pub mod manifest;
 pub mod version;
 
+pub use discover::{discover, Candidate, Discovery, HostTarget, DOWNLOAD_PREFIX, RELEASES_URL};
+pub use download::{download_verified, Downloader, ReqwestDownloader};
+pub use fake::{FakeDownloadCall, FakeDownloader};
 pub use key::UPDATE_PUBLIC_KEY;
 pub use manifest::{verify_manifest, Manifest, SCHEMA};
 pub use version::{parse_desktop_tag, Version};
