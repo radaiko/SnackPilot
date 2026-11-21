@@ -15,7 +15,7 @@ fn main() {
 }
 
 fn compare_dirs(a: &Path, b: &Path) -> Result<(), String> {
-    for sub in ["gourmet", "ventopay"] {
+    for sub in ["gourmet", "ventopay", "update"] {
         let (da, db) = (a.join(sub), b.join(sub));
         let mut names: Vec<_> = std::fs::read_dir(&da)
             .map_err(|e| format!("read {}: {e}", da.display()))?
