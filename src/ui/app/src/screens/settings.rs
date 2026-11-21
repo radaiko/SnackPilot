@@ -36,8 +36,24 @@ pub(crate) fn datenschutz_message(desktop: bool) -> String {
     }
 }
 
-/// The Einstellungen root screen.
-pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>) -> AnyElement {
+/// The desktop Datenschutz body, with the GitHub sentence only where the
+/// updater is live (REQ-UPD-20); mobile stays [`datenschutz_message`].
+pub(crate) fn desktop_datenschutz_message(model: Option<&Arc<AppModel>>) -> String {
+    let sentence = model
+        .filter(|model| model.update_supported())
+        .map(|_| crate::desktop::UPDATE_PRIVACY_SENTENCE);
+    crate::screens::updates::desktop_datenschutz_text(sentence)
+}
+
+/// The Einstellungen root screen — also the narrow (<720) desktop settings
+/// list, which is this same pushed screen.
+/// @req REQ-UPD-14
+pub fn settings_tab(
+    state: &State,
+    model: Option<&Arc<AppModel>>,
+    theme: &AppTheme,
+    cx: &mut Context<AppShell>,
+) -> AnyElement {
     let gourmet_hint = match &state.user_info {
         Some(user) if state.gourmet_authenticated => {
             format!("Angemeldet als {}", user.username)
@@ -86,6 +102,18 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
             Detail::Notifications,
         ),
     ];
+    // The narrow (<720) desktop settings list is this one, so the Updates row
+    // uses the same gate as the wide master (REQ-UPD-14). A phone host never
+    // reports update support, so its list is unchanged.
+    let updates_row = model.filter(|model| model.update_supported()).map(|model| {
+        (
+            "settings-updates",
+            IconName::RefreshCw,
+            "Updates",
+            model.update_view().row_hint,
+            Detail::Updates,
+        )
+    });
 
     let mut list = div()
         .id("settings-list")
@@ -108,7 +136,8 @@ pub fn settings_tab(state: &State, theme: &AppTheme, cx: &mut Context<AppShell>)
 
     // Flat rows are one column: a hairline separates neighbours, never a box.
     let mut rule = false;
-    for (index, (id, icon, title, hint, detail)) in rows.into_iter().enumerate() {
+    for (index, (id, icon, title, hint, detail)) in rows.into_iter().chain(updates_row).enumerate()
+    {
         // §3.4: Benachrichtigungen only where the platform supports them.
         if detail == Detail::Notifications
             && cfg!(not(any(target_os = "ios", target_os = "android")))
@@ -235,7 +264,6 @@ pub fn desktop_settings_tab(
             SettingsDetail::Notifications,
         ),
     ];
-
     let visible: Vec<_> = rows
         .into_iter()
         .filter(|(_, _, _, _, kind)| {
@@ -282,9 +310,25 @@ pub fn desktop_settings_tab(
             }
         });
 
-    for (index, (id, title, hint, detail, kind)) in visible.into_iter().enumerate() {
+    // "Updates" only where the updater is live (REQ-UPD-14), at the end of the
+    // master list; its hint is the model's own projection, so the row never
+    // invents a version. It is opened like every row, through `open_detail`.
+    let updates_row = model.filter(|model| model.update_supported()).map(|model| {
+        (
+            "settings-updates",
+            "Updates",
+            model.update_view().row_hint,
+            Detail::Updates,
+            SettingsDetail::Advanced,
+        )
+    });
+    for (index, (id, title, hint, detail, kind)) in
+        visible.into_iter().chain(updates_row).enumerate()
+    {
         let entity = cx.entity().clone();
-        let handle = rows_focus[index].clone();
+        // Four rows and their handles; a longer list (with Updates) borrows
+        // the last handle, so the master keeps its four-handle arrow map.
+        let handle = rows_focus[index.min(rows_focus.len() - 1)].clone();
         let row_handle = handle.clone();
         let handler = Rc::new(move |window: &mut Window, cx: &mut App| {
             row_handle.focus(window, cx);
@@ -304,12 +348,14 @@ pub fn desktop_settings_tab(
     }
 
     let privacy_entity = cx.entity().clone();
+    let privacy_model = model.cloned();
     let privacy = Rc::new(move |_: &mut Window, cx: &mut App| {
+        let message = desktop_datenschutz_message(privacy_model.as_ref());
         let _ = privacy_entity.update(cx, |this, cx| {
             this.set_dialog(
                 crate::components::dialog::Dialog::Alert {
                     title: "Datenschutz".into(),
-                    message: Some(crate::desktop::privacy_message().into()),
+                    message: Some(message.into()),
                 },
                 cx,
             );
@@ -342,7 +388,8 @@ pub fn desktop_settings_tab(
         Some(SettingsDetail::Security) => Some(Detail::LoginAutomaten),
         Some(SettingsDetail::Data) => Some(Detail::Appearance),
         Some(SettingsDetail::Notifications) => Some(Detail::Notifications),
-        None | Some(SettingsDetail::Advanced) => None,
+        Some(SettingsDetail::Advanced) => Some(Detail::Updates),
+        None => None,
     };
     let pane = match detail {
         Some(Detail::LoginKantine) | Some(Detail::LoginAutomaten) => {
@@ -380,6 +427,9 @@ pub fn desktop_settings_tab(
         ),
         Some(Detail::Notifications) => {
             crate::screens::notifications::notifications_screen(state, model, theme, Some(pad), cx)
+        }
+        Some(Detail::Updates) => {
+            crate::screens::updates::updates_screen(model, theme, Some(pad), cx)
         }
         _ => empty,
     };
@@ -425,7 +475,53 @@ pub(crate) fn placeholder_detail(
 
 #[cfg(test)]
 mod tests {
-    use super::{datenschutz_message, NOTIFICATIONS_HINT};
+    use super::{datenschutz_message, desktop_datenschutz_message, NOTIFICATIONS_HINT};
+    use snackpilot_model::{AppModel, FakePlatform, Platform};
+    use std::sync::Arc;
+
+    /// A model that reports a Windows updater host (or none) over the offline
+    /// fake platform.
+    fn model(tag: &str, supported: bool) -> Arc<AppModel> {
+        let platform = Arc::new(FakePlatform::new());
+        if supported {
+            platform.set_update_host(Some(super::super::updates::test_host()));
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "snackpilot-settings-updates-{tag}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        Arc::new(AppModel::new(dir, platform as Arc<dyn Platform>).unwrap())
+    }
+
+    /// A supported desktop names GitHub in Datenschutz; an unsupported host
+    /// does not, and the mobile body is byte-identical to before (REQ-UPD-20).
+    /// @req REQ-UPD-20
+    #[test]
+    fn datenschutz_mentions_github_check_only_when_supported() {
+        let supported = model("supported", true);
+        assert!(supported.update_supported());
+        let text = desktop_datenschutz_message(Some(&supported));
+        assert!(text.contains(
+            "Beim Start und alle 24 Stunden fragt die App bei GitHub an, ob eine neue Version vorliegt. Das lässt sich unter Updates abschalten."
+        ));
+        let unsupported = model("unsupported", false);
+        assert!(!unsupported.update_supported());
+        let plain = desktop_datenschutz_message(Some(&unsupported));
+        assert_eq!(plain, crate::desktop::privacy_message());
+        assert!(!plain.contains("GitHub"));
+    }
+
+    /// Mobile keeps the approved paragraph byte for byte (REQ-UPD-20).
+    /// @req REQ-UPD-20
+    #[test]
+    fn mobile_datenschutz_text_unchanged() {
+        assert_eq!(
+            datenschutz_message(false),
+            crate::desktop::PRIVACY_PARAGRAPH.to_string()
+        );
+        assert!(!datenschutz_message(false).contains("GitHub"));
+    }
 
     /// The compact Benachrichtigungen row hint stays on one line so that row
     /// keeps the same card height as every other settings row.
