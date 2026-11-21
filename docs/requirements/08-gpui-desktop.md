@@ -108,7 +108,9 @@ and its `.sig`) from the newest `desktop/vX.Y.Z` GitHub release. It checks on
 launch and every 24 hours while "Automatisch nach Updates suchen" is on (persisted,
 default on), and on "Jetzt prüfen". A candidate is accepted only after the Ed25519
 signature over the manifest verifies and, for the downloaded artifact, the SHA-256
-matches; on macOS the bundle is then also checked with
+matches. Each manifest names and hashes the file that is published — the macOS
+zip and the Windows installer, not the `.app` named by the macOS receipt; on macOS
+the bundle is then also checked with
 `codesign --verify --deep --strict` (team `555V4MNLK3`), a validated stapled
 ticket and `spctl --assess`.
 

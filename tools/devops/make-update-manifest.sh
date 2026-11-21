@@ -5,7 +5,9 @@
 #
 # Writes <out-dir>/SnackPilot-manifest-<platform>-<arch>.json (schema 1, compact,
 # sorted keys, ASCII, trailing newline) and the same name plus `.sig`, an Ed25519
-# signature in lowercase hex. The private key is read from
+# signature in lowercase hex. Each manifest names and hashes the file that is
+# published: the macOS job's zip (the receipt names the `.app` it was packed from,
+# with a bundle-content checksum) and the Windows installer. The private key is read from
 # SNACKPILOT_UPDATE_SIGNING_KEY (PKCS#8 PEM) and never printed, logged or left on
 # disk. A missing key, or a platform whose receipt and artifact do not agree,
 # fails the run. A macOS receipt whose trust state is not
@@ -45,7 +47,7 @@ mkdir -p "$out_dir"
 manifest_for() { # platform arch(dir) minimum_os dir trust_expected
     python3 - "$version" "$notes_file" "$@" <<'PY'
 import hashlib, json, os, sys
-version, notes_file, platform, arch, directory, minimum_os, trust_expected = sys.argv[1:8]
+version, notes_file, platform, arch, directory, minimum_os, trust_expected, published = sys.argv[1:9]
 if not os.path.isdir(directory):
     sys.exit(f"missing {platform} directory: {directory}")
 receipt_path = os.path.join(directory, "native-build-receipt.json")
@@ -60,18 +62,26 @@ if trust != trust_expected:
     sys.exit(f"{platform} receipt trust_state is {trust!r}, expected {trust_expected!r}")
 if receipt.get("version") != version:
     sys.exit(f"{platform} receipt is for version {receipt.get('version')!r}, not {version!r}")
-named = os.path.basename(str(receipt.get("artifact_path") or ""))
-if not named:
-    sys.exit(f"{platform} receipt names no artifact")
-artifact = os.path.join(directory, named)
-if not os.path.isfile(artifact):
-    sys.exit(f"missing {platform} artifact {artifact}")
+if published:
+    # The macOS receipt names the verified `SnackPilot.app` and carries the
+    # bundle-content checksum (docs/requirements/08), but what is published, and
+    # what the app downloads, is the zip the macOS job packs from it.
+    artifact = os.path.join(directory, published)
+    if not os.path.isfile(artifact):
+        sys.exit(f"missing {platform} artifact {artifact}")
+else:
+    named = os.path.basename(str(receipt.get("artifact_path") or ""))
+    if not named:
+        sys.exit(f"{platform} receipt names no artifact")
+    artifact = os.path.join(directory, named)
+    if not os.path.isfile(artifact):
+        sys.exit(f"missing {platform} artifact {artifact}")
 digest = hashlib.sha256()
 with open(artifact, "rb") as f:
     for block in iter(lambda: f.read(1 << 20), b""):
         digest.update(block)
 sha = digest.hexdigest()
-if not (receipt.get("checksum") or "").lower() in ("", sha):
+if not published and not (receipt.get("checksum") or "").lower() in ("", sha):
     sys.exit(f"{platform} artifact does not match the receipt checksum")
 with open(notes_file, encoding="utf-8-sig") as f:
     notes = f.read()
@@ -110,9 +120,12 @@ sign() { # manifest
     say "signed $(basename "$manifest")"
 }
 
-write_one() { # platform arch minimum_os dir trust_expected
+write_one() { # platform arch minimum_os dir trust_expected [published_artifact_name]
     local manifest="$out_dir/SnackPilot-manifest-$1-$2.json"
-    manifest_for "$1" "$2" "$4" "$3" "$5" > "$manifest" || die "no $1 manifest"
+    # Written aside first, so a refused artifact leaves no empty manifest behind.
+    manifest_for "$1" "$2" "$4" "$3" "$5" "${6:-}" > "$manifest.tmp" \
+        || { rm -f "$manifest.tmp"; die "no $1 manifest"; }
+    mv "$manifest.tmp" "$manifest"
     sign "$manifest"
 }
 
@@ -120,7 +133,8 @@ macos_trust="$(python3 -c 'import json,sys
 with open(sys.argv[1], encoding="utf-8-sig") as f:
     print(json.load(f).get("trust_state"))' "$macos_dir/native-build-receipt.json" 2>/dev/null || true)"
 if [ "$macos_trust" = developer-id-notarized-stapled ]; then
-    write_one macos arm64 26.0 "$macos_dir" developer-id-notarized-stapled
+    write_one macos arm64 26.0 "$macos_dir" developer-id-notarized-stapled \
+        "SnackPilot-$version-macos-arm64.zip"
 else
     say "::warning::the macOS build reports trust_state '${macos_trust:-none}': it cannot be verified, no macOS manifest"
 fi

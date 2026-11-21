@@ -40,14 +40,19 @@ make_tree() { # root [macos_trust_state]
     printf 'macos zip payload\n' > "$root/desktop-macos/SnackPilot-$version-macos-arm64.zip"
     printf 'windows installer payload\n' > "$root/desktop-windows/SnackPilot-$version-windows-x64-setup.exe"
     printf 'Desktop build of SnackPilot.\n' > "$root/notes/body.md"
+    # The real receipt names the verified `.app` and comes from
+    # package-macos.sh, not the packed zip: its checksum is the bundle-content
+    # manifest, so the manifest must be built from the zip regardless.
     cat > "$root/desktop-macos/native-build-receipt.json" <<EOF
 {
   "platform": "macos",
   "architecture": "aarch64",
   "version": "$version",
   "build": "43",
-  "artifact_path": "$root/desktop-macos/SnackPilot-$version-macos-arm64.zip",
-  "trust_state": "$trust"
+  "artifact_path": "$root/../macos/SnackPilot.app",
+  "trust_state": "$trust",
+  "checksum_scheme": "sha256-bundle-manifest-v1",
+  "checksum": "0000000000000000000000000000000000000000000000000000000000000000"
 }
 EOF
     cat > "$root/desktop-windows/native-build-receipt.json" <<EOF
@@ -116,6 +121,7 @@ manifest_fields() {
     [ "$(field "$win" tag)" = "desktop/v$version" ] || return 1
     [ "$(field "$win" notes_url)" = "https://github.com/radaiko/SnackPilot/releases/tag/desktop/v$version" ] || return 1
     [ "$(field "$win" notes)" = "Desktop build of SnackPilot." ] || return 1
+    [ "$(field "$mac" artifact)" = "SnackPilot-$version-macos-arm64.zip" ] || return 1
     [ "$(field "$mac" platform)" = macos ] || return 1
     [ "$(field "$mac" architecture)" = arm64 ] || return 1
     [ "$(field "$mac" minimum_os)" = "26.0" ] || return 1
@@ -169,6 +175,21 @@ if run_script "$root3" "$out3" SNACKPILOT_UPDATE_SIGNING_KEY="$THROWAWAY_KEY" > 
     pass "unsigned_macos_receipt_skips_macos_manifest"
 else
     fail "unsigned_macos_receipt_skips_macos_manifest"
+fi
+
+# The macOS manifest hashes the published zip, not what the receipt names: the
+# receipt's `SnackPilot.app` is never in the publish job's `dist/`, and a
+# receipt-named artifact here is exactly what broke the first real release.
+# @req REQ-UPD-18
+root_zip="$tmp/dist-nozip"; out_zip="$tmp/update-nozip"
+make_tree "$root_zip"
+rm -f "$root_zip/desktop-macos/SnackPilot-$version-macos-arm64.zip"
+if run_script "$root_zip" "$out_zip" SNACKPILOT_UPDATE_SIGNING_KEY="$THROWAWAY_KEY" > "$tmp/nozip.log" 2>&1; then
+    fail "missing_published_macos_zip_fails_closed"
+elif [ -z "$(find "$out_zip" -type f 2>/dev/null)" ] && grep -qi "macos" "$tmp/nozip.log"; then
+    pass "missing_published_macos_zip_fails_closed"
+else
+    fail "missing_published_macos_zip_fails_closed"
 fi
 
 # @req REQ-UPD-18
