@@ -1,0 +1,195 @@
+[
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.4.1/SnackPilot-2.4.1-macos-arm64.zip",
+        "name": "SnackPilot-2.4.1-macos-arm64.zip",
+        "size": 1
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.4.1/SnackPilot-2.4.1-windows-x64-setup.exe",
+        "name": "SnackPilot-2.4.1-windows-x64-setup.exe",
+        "size": 1
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.4.1/SnackPilot-2.4.1-windows-x64-setup.exe.sha256",
+        "name": "SnackPilot-2.4.1-windows-x64-setup.exe.sha256",
+        "size": 1
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/desktop/v2.4.1",
+    "prerelease": false,
+    "tag_name": "desktop/v2.4.1"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.1.0/SnackPilot-2.1.0-macos-arm64.zip",
+        "name": "SnackPilot-2.1.0-macos-arm64.zip",
+        "size": 10813164
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.1.0/SnackPilot-2.1.0-windows-x64-setup.exe",
+        "name": "SnackPilot-2.1.0-windows-x64-setup.exe",
+        "size": 7644462
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.1.0/SnackPilot-2.1.0-windows-x64-setup.exe.sha256",
+        "name": "SnackPilot-2.1.0-windows-x64-setup.exe.sha256",
+        "size": 104
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/desktop/v2.1.0",
+    "prerelease": false,
+    "tag_name": "desktop/v2.1.0"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v1.4.2/dev.radaiko.snackpilot-osx-Setup.pkg",
+        "name": "dev.radaiko.snackpilot-osx-Setup.pkg",
+        "size": 1
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v1.4.2/dev.radaiko.snackpilot-win-Setup.exe",
+        "name": "dev.radaiko.snackpilot-win-Setup.exe",
+        "size": 1
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/desktop/v1.4.2",
+    "prerelease": true,
+    "tag_name": "desktop/v1.4.2"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/ios/v2.0.5/SnackPilot.ipa",
+        "name": "SnackPilot.ipa",
+        "size": 1
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/ios/v2.0.5",
+    "prerelease": false,
+    "tag_name": "ios/v2.0.5"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/android/v2.0.5/SnackPilot.apk",
+        "name": "SnackPilot.apk",
+        "size": 1
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/android/v2.0.5",
+    "prerelease": false,
+    "tag_name": "android/v2.0.5"
+  },
+  {
+    "assets": [],
+    "draft": true,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/desktop/v2.2.0",
+    "prerelease": false,
+    "tag_name": "desktop/v2.2.0"
+  },
+  {
+    "assets": [],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/desktop/v2.1.1",
+    "prerelease": true,
+    "tag_name": "desktop/v2.1.1"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.3.0/SnackPilot-manifest-macos-arm64.json",
+        "name": "SnackPilot-manifest-macos-arm64.json",
+        "size": 1
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.3.0/SnackPilot-manifest-windows-x64.json",
+        "name": "SnackPilot-manifest-windows-x64.json",
+        "size": 1
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.3.0/SnackPilot-manifest-macos-arm64.json.sig",
+        "name": "SnackPilot-manifest-macos-arm64.json.sig",
+        "size": 1
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.3.0/SnackPilot-manifest-windows-x64.json.sig",
+        "name": "SnackPilot-manifest-windows-x64.json.sig",
+        "size": 1
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.3.0/SnackPilot-2.3.0-macos-arm64.zip",
+        "name": "SnackPilot-2.3.0-macos-arm64.zip",
+        "size": 1
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.3.0/SnackPilot-2.3.0-windows-x64-setup.exe",
+        "name": "SnackPilot-2.3.0-windows-x64-setup.exe",
+        "size": 1
+      },
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.3.0/SnackPilot-2.3.0-windows-x64-setup.exe.sha256",
+        "name": "SnackPilot-2.3.0-windows-x64-setup.exe.sha256",
+        "size": 1
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/desktop/v2.3.0",
+    "prerelease": false,
+    "tag_name": "desktop/v2.3.0"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/v2.0.5/SnackPilot.ipa",
+        "name": "SnackPilot.ipa",
+        "size": 1
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/v2.0.5",
+    "prerelease": false,
+    "tag_name": "v2.0.5"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/desktop/0.0.9/SnackPilot-0.0.9-windows-x64-setup.exe",
+        "name": "SnackPilot-0.0.9-windows-x64-setup.exe",
+        "size": 1
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/desktop/0.0.9",
+    "prerelease": false,
+    "tag_name": "desktop/0.0.9"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/radaiko/SnackPilot/releases/download/macos/v3.0.0/SnackPilot-3.0.0-macos-arm64.zip",
+        "name": "SnackPilot-3.0.0-macos-arm64.zip",
+        "size": 1
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/macos/v3.0.0",
+    "prerelease": false,
+    "tag_name": "macos/v3.0.0"
+  },
+  {
+    "assets": [],
+    "draft": false,
+    "html_url": "https://github.com/radaiko/SnackPilot/releases/tag/badge/latest",
+    "prerelease": false,
+    "tag_name": "badge/latest"
+  }
+]
