@@ -20,6 +20,7 @@ mod runtime;
 mod session;
 mod state;
 pub mod tokens;
+pub mod update;
 
 pub use billing::{BillingEntry, BillingLine, BillingTotals, EntrySource};
 pub use errors::{human_error, is_demo_user};
@@ -33,7 +34,8 @@ pub use menus::{
 };
 pub use orders::unconfirmed_banner_text;
 pub use platform::{
-    Capabilities, LocationFix, Platform, PlatformAnalytics, PlatformError, SupportEmail,
+    Capabilities, HandoffOutcome, LocationFix, Platform, PlatformAnalytics, PlatformError,
+    SupportEmail, UpdateHostInfo, VerifiedUpdate,
 };
 pub use prefs::{REMINDER_PICKER_DEFAULT_HOUR, REMINDER_PICKER_DEFAULT_MINUTE};
 pub use runtime::{block_on_model, log, metrics};
@@ -44,4 +46,8 @@ pub use session::AppModel;
 pub use state::{
     Alert, BillingSource, ErrorText, LaunchStage, ReminderTime, State, StateHub, Subscriber,
     ThemePreference,
+};
+pub use update::{
+    ProductionUpdateServices, Retry, UpdateAction, UpdateFailure, UpdateServices, UpdateState,
+    UpdateTrigger, UpdateView, VerifiedManifest,
 };

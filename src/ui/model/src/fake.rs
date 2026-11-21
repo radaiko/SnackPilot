@@ -1,9 +1,13 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use snackpilot_core::notify::NotificationCommand;
 
-use crate::platform::{Capabilities, LocationFix, Platform, PlatformError, SupportEmail};
+use crate::platform::{
+    Capabilities, HandoffOutcome, LocationFix, Platform, PlatformError, SupportEmail,
+    UpdateHostInfo, VerifiedUpdate,
+};
 
 /// Test double that records every call and keeps credentials in memory, one
 /// single value per slot (REQ-PLT-01). Call names look like
@@ -27,6 +31,17 @@ pub struct FakePlatform {
     // §7.1/§7.2 alert branches.
     deny_location: Mutex<bool>,
     deny_notification: Mutex<bool>,
+    /// Remaining calls a method fails through [`FakePlatform::fail_next`].
+    fail_counts: Mutex<HashMap<String, usize>>,
+    // Update support is off unless a test names a host (REQ-UPD-13).
+    update_host: Mutex<Option<UpdateHostInfo>>,
+    update_staging: Mutex<Option<PathBuf>>,
+    /// What `verify_update_artifact` answers, and what the verified update says.
+    update_verified: Mutex<Option<VerifiedUpdate>>,
+    update_handoff: Mutex<Option<HandoffOutcome>>,
+    /// The `version` of every `update_staging_dir` call, in order.
+    staged_versions: Mutex<Vec<String>>,
+    handed_off: Mutex<Vec<VerifiedUpdate>>,
 }
 
 impl FakePlatform {
@@ -85,7 +100,54 @@ impl FakePlatform {
         *self.deny_notification.lock().unwrap() = !granted;
     }
 
+    /// Make the next `count` calls of `method` fail, then succeed again.
+    pub fn fail_next(&self, method: &str, count: usize) {
+        self.fail_counts
+            .lock()
+            .unwrap()
+            .insert(method.to_string(), count);
+    }
+
+    /// Report `info` as a desktop host the updater supports (REQ-UPD-13).
+    pub fn set_update_host(&self, info: Option<UpdateHostInfo>) {
+        *self.update_host.lock().unwrap() = info;
+    }
+
+    /// The directory `update_staging_dir` answers with.
+    pub fn set_update_staging(&self, dir: Option<PathBuf>) {
+        *self.update_staging.lock().unwrap() = dir;
+    }
+
+    /// A verification still in flight answers with this; it is used once, so a
+    /// later download really verifies again. `None` fails like an untrusted bundle.
+    pub fn set_update_verified(&self, verified: Option<VerifiedUpdate>) {
+        *self.update_verified.lock().unwrap() = verified;
+    }
+
+    /// What a successful handoff reports (REQ-UPD-07).
+    pub fn set_update_handoff(&self, outcome: HandoffOutcome) {
+        *self.update_handoff.lock().unwrap() = Some(outcome);
+    }
+
+    /// The versions whose staging directory was asked for, in order.
+    pub fn staged_versions(&self) -> Vec<String> {
+        self.staged_versions.lock().unwrap().clone()
+    }
+
+    /// Every update handed off to this host, in order.
+    pub fn handed_off(&self) -> Vec<VerifiedUpdate> {
+        self.handed_off.lock().unwrap().clone()
+    }
+
     fn check(&self, method: &str) -> Result<(), PlatformError> {
+        let mut counts = self.fail_counts.lock().unwrap();
+        for (name, remaining) in counts.iter_mut() {
+            if method.starts_with(name.as_str()) && *remaining > 0 {
+                *remaining -= 1;
+                return Err(PlatformError::System(format!("{method} failed")));
+            }
+        }
+        drop(counts);
         if self
             .failing
             .lock()
@@ -203,5 +265,52 @@ impl Platform for FakePlatform {
 
     fn capabilities(&self) -> Capabilities {
         self.capabilities
+    }
+
+    fn update_target(&self) -> Option<UpdateHostInfo> {
+        self.record("update_target");
+        self.update_host.lock().unwrap().clone()
+    }
+
+    fn update_staging_dir(&self, version: &str) -> Result<PathBuf, PlatformError> {
+        self.record(&format!("update_staging_dir({version})"));
+        self.check("update_staging_dir")?;
+        self.staged_versions
+            .lock()
+            .unwrap()
+            .push(version.to_string());
+        self.update_staging
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| PlatformError::System("unsupported".into()))
+    }
+
+    fn verify_update_artifact(
+        &self,
+        artifact: &std::path::Path,
+        manifest: &crate::update::VerifiedManifest,
+    ) -> Result<VerifiedUpdate, PlatformError> {
+        self.record(&format!("verify_update_artifact({})", artifact.display()));
+        self.check("verify_update_artifact")?;
+        let _ = manifest;
+        self.update_verified
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| PlatformError::System("untrusted bundle".into()))
+    }
+
+    fn hand_off_update(&self, update: &VerifiedUpdate) -> Result<HandoffOutcome, PlatformError> {
+        self.record(&format!("hand_off_update({})", update.version));
+        self.check("hand_off_update")?;
+        let outcome = *self
+            .update_handoff
+            .lock()
+            .unwrap()
+            .as_ref()
+            .ok_or_else(|| PlatformError::System("handoff failed".into()))?;
+        self.handed_off.lock().unwrap().push(update.clone());
+        Ok(outcome)
     }
 }

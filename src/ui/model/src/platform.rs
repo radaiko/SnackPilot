@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use snackpilot_core::notify::NotificationCommand;
+
+use crate::update::VerifiedManifest;
 
 /// Why a [`Platform`] call failed.
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -35,6 +38,42 @@ pub struct SupportEmail {
     pub to: String,
     pub subject: String,
     pub body: String,
+}
+
+/// The running desktop host as the updater sees it (design D6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateHostInfo {
+    /// `macos` or `windows`.
+    pub platform: &'static str,
+    /// `arm64` or `x64`.
+    pub architecture: &'static str,
+    /// The OS version when known; `None` never blocks an update.
+    pub os_version: Option<String>,
+    /// The installed version, e.g. `2.2.0`.
+    pub installed_version: String,
+    /// The installed build, e.g. `41`.
+    pub installed_build: String,
+}
+
+/// A staged update the host has verified and may hand off (REQ-UPD-05/06).
+/// The model only ever names it; the files belong to the host's staging directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedUpdate {
+    /// The version the update installs, e.g. `2.3.0`.
+    pub version: String,
+    /// The staged, integrity-checked artifact.
+    pub artifact: PathBuf,
+    /// What the host prepared from the artifact (the extracted bundle on macOS).
+    pub prepared: Option<PathBuf>,
+}
+
+/// What a successful handoff did: the model's wording follows (REQ-UPD-07/08/09).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandoffOutcome {
+    /// The installer runs and the app must quit.
+    QuitRequested,
+    /// The bundle is revealed in Finder; the app keeps running.
+    Revealed,
 }
 
 /// The host bridge, per design D4: the model never touches iOS or Android
@@ -75,6 +114,34 @@ pub trait Platform: Send + Sync {
     fn compose_email(&self, email: SupportEmail) -> Result<(), PlatformError>;
 
     fn capabilities(&self) -> Capabilities;
+
+    // ---- desktop update hooks (design D6) ----
+    // The default bodies keep every mobile bridge and a host without update
+    // support compiling and silent: no update traffic ever leaves them.
+    /// `Some` only on macOS arm64 and Windows x64. Never reads the network.
+    fn update_target(&self) -> Option<UpdateHostInfo> {
+        None
+    }
+
+    /// A fresh, empty directory for one update's files.
+    fn update_staging_dir(&self, _version: &str) -> Result<PathBuf, PlatformError> {
+        Err(PlatformError::System("unsupported".into()))
+    }
+
+    /// The platform step between hash success and `Ready` (macOS bundle trust);
+    /// Windows needs none. The host deletes its staging directory on failure.
+    fn verify_update_artifact(
+        &self,
+        _artifact: &Path,
+        _manifest: &VerifiedManifest,
+    ) -> Result<VerifiedUpdate, PlatformError> {
+        Err(PlatformError::System("unsupported".into()))
+    }
+
+    /// Starts the installer or reveals the bundle (REQ-UPD-08/09).
+    fn hand_off_update(&self, _update: &VerifiedUpdate) -> Result<HandoffOutcome, PlatformError> {
+        Err(PlatformError::System("unsupported".into()))
+    }
 }
 
 /// Forwards core analytics to [`Platform::track`]; a failing platform never

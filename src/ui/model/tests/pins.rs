@@ -98,3 +98,27 @@ fn model_manifest_lists_no_http_client() {
         );
     }
 }
+
+// @req REQ-UI-08
+#[test]
+fn app_manifest_lists_no_http_client() {
+    // The app crate renders and hosts; core's update services are reached
+    // through the model, so the app never links an HTTP client (design D1).
+    let manifest = read(&ui_root().join("app/Cargo.toml"));
+    let names = dependency_names(&manifest);
+    for forbidden in [
+        "reqwest",
+        "hyper",
+        "hyper-util",
+        "hyper-tls",
+        "ureq",
+        "awc",
+        "surf",
+        "isahc",
+    ] {
+        assert!(
+            !names.iter().any(|n| n == forbidden),
+            "snackpilot-app must not depend on HTTP client crate {forbidden} (REQ-UI-08)"
+        );
+    }
+}

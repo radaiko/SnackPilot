@@ -18,6 +18,7 @@ use crate::errors::{human_error, is_demo_user};
 use crate::platform::{Platform, PlatformAnalytics, PlatformError};
 use crate::runtime::{handle, log};
 use crate::state::{Alert, ErrorText, State, StateHub, Subscriber};
+use crate::update::{ProductionUpdateServices, UpdateServices};
 
 /// The single model instance the UI binds to (Swift `AppModel`).
 pub struct AppModel {
@@ -32,6 +33,12 @@ pub struct AppModel {
     /// (which reloads the session and orders) cannot recurse back into another
     /// restore.
     restoring_session: std::sync::atomic::AtomicBool,
+    /// What the updater talks to besides the host (design D1); injected so a
+    /// test scripts discovery and downloads without a network.
+    pub(crate) update_services: Arc<dyn UpdateServices>,
+    /// The update operation guard (REQ-UPD-10), held by one check, download or
+    /// handoff from start to finish; the spawned task owns a handle too.
+    pub(crate) update_op: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AppModel {
@@ -39,6 +46,17 @@ impl AppModel {
     /// `Platform::track` (design D4). `storage_dir` holds the core
     /// caches; the UI thread is never a tokio worker (`runtime`).
     pub fn new(storage_dir: PathBuf, platform: Arc<dyn Platform>) -> Result<Self, PlatformError> {
+        Self::with_updates(storage_dir, platform, Arc::new(ProductionUpdateServices))
+    }
+
+    /// [`Self::new`] with injected update services (design D1), so a test
+    /// scripts discovery and downloads without a network. Builds the same
+    /// state and reads the same preferences; it makes no update request either.
+    pub fn with_updates(
+        storage_dir: PathBuf,
+        platform: Arc<dyn Platform>,
+        update_services: Arc<dyn UpdateServices>,
+    ) -> Result<Self, PlatformError> {
         let core = SnackPilotCore::new(
             CoreConfig {
                 storage_dir: storage_dir.to_string_lossy().into_owned(),
@@ -53,6 +71,8 @@ impl AppModel {
             kv: FileKv::new(storage_dir),
             last_notifications: Mutex::new(Vec::new()),
             restoring_session: std::sync::atomic::AtomicBool::new(false),
+            update_services,
+            update_op: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         // Swift init parity: restore preferences, reminder settings, the saved
         // company location and the log view state at startup. None of these
