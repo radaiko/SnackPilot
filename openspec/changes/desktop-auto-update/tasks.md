@@ -72,7 +72,7 @@ domain: architectural
   - check: `make check`; additionally `cargo test --locked -p snackpilot-app --lib` on the Mac, and the native evidence above
   - proof: app-crate test output from the Mac, native evidence index in `docs/evidence/desktop-auto-update/1.4/`
 
-- [ ] 1.5 Updates detail in Einstellungen, launch and hourly tick wiring, privacy sentences
+- [x] 1.5 Updates detail in Einstellungen, launch and hourly tick wiring, privacy sentences
   - tier: normal
   - host: Linux; Mac desktop; Windows desktop
   - files: `src/ui/app/src/screens/updates.rs` (new), `src/ui/app/src/screens/mod.rs`, `src/ui/app/src/screens/settings.rs`, `src/ui/app/src/app.rs` (`Detail::Updates` mapping, the call after bootstrap, the hourly tick, quit on `QuitRequested`, button handlers only), `src/ui/app/src/gallery.rs` (offline debug scenarios for each state only), `src/ui/app/src/desktop/mod.rs` (the one Datenschutz sentence only), `docs/privacy.html` (one added paragraph, plus the one contradicting clause in it), `docs/evidence/desktop-auto-update/1.5/**`
