@@ -94,7 +94,7 @@ domain: architectural
   - check: `make check`
   - proof: shell and core test output; `git diff` shows exactly one new workflow step; the handoff states that the first real signed release still needs the human's secret (P2) and records the observed `browser_download_url` shape if a release existed.
 
-- [ ] 1.7 Amend `docs/requirements/08-gpui-desktop.md` for the published artifacts and the updater
+- [x] 1.7 Amend `docs/requirements/08-gpui-desktop.md` for the published artifacts and the updater
   - tier: normal
   - host: Linux
   - approval: human decision B (explicit approval to edit a protected requirement file inside this change)
