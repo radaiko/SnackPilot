@@ -238,6 +238,10 @@ pub struct State {
     pub modal_open: bool,
     /// Identity of the command currently claimed; released by its flow.
     pub claimed_command: Option<String>,
+
+    // ---- desktop-auto-update task 1.3: the updater ----
+    /// Update state snapshot (design D5); `Default` is `Idle`.
+    pub update: crate::update::UpdateState,
 }
 
 impl State {
