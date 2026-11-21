@@ -50,7 +50,7 @@ domain: architectural
   - check: `make check`
   - proof: core workflow; request-sequence test output; `git diff --name-only` shows `src/core/tests/wire_audit.rs`, `src/core/src/gourmet/**`, `src/core/src/ventopay/**`, `src/core/src/http/**` untouched.
 
-- [ ] 1.3 Model: update state machine, cadence, persisted settings, German copy projection and platform hooks
+- [x] 1.3 Model: update state machine, cadence, persisted settings, German copy projection and platform hooks
   - tier: hard
   - host: Linux
   - files: `src/ui/model/src/update.rs` (new), `src/ui/model/src/platform.rs` (new `Platform` hooks with default bodies, `UpdateHostInfo`, `VerifiedUpdate`, `HandoffOutcome` only), `src/ui/model/src/fake.rs` (`FakePlatform` update support only), `src/ui/model/src/state.rs` (`State.update` snapshot only), `src/ui/model/src/session.rs` (injectable update services and the operation guard only), `src/ui/model/src/lib.rs` (exports only), `src/ui/model/tests/update.rs` (new), `src/ui/model/tests/pins.rs` (add the app-crate no-HTTP-client pin only)
