@@ -208,6 +208,10 @@ pub fn about_message(version: &str, build: &str) -> String {
 /// summary.
 pub const PRIVACY_PARAGRAPH: &str = "Diese App erfasst anonyme Nutzungsstatistiken zur Verbesserung der Benutzererfahrung. Die Analyse erfolgt über eine selbst gehostete Aptabase-Instanz — ohne Nutzer- oder Geräte-IDs und ohne appübergreifendes Tracking. Es werden keine persönlichen Daten, Passwörter, Menüauswahl oder Abrechnungsdaten erfasst.";
 
+/// The desktop Datenschutz sentence about the updater's GitHub request
+/// (REQ-UPD-20): appended only where the updater is live, never on mobile.
+pub const UPDATE_PRIVACY_SENTENCE: &str = "Beim Start und alle 24 Stunden fragt die App bei GitHub an, ob eine neue Version vorliegt. Das lässt sich unter Updates abschalten.";
+
 /// The Datenschutz summary: the approved Aptabase paragraph plus the truthful
 /// desktop-only sentence, which differs only in the platform name.
 pub fn privacy_message() -> String {

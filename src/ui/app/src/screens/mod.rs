@@ -8,3 +8,4 @@ pub mod menus;
 pub mod notifications;
 pub mod orders;
 pub mod settings;
+pub mod updates;

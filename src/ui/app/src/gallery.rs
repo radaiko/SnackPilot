@@ -30,6 +30,7 @@ use crate::screens::billing::{
     mobile_month_row, mobile_source_row, mobile_summary_surface, MonthSelect, SourceSelect,
 };
 use crate::screens::orders::confirm_banner;
+use crate::screens::updates::{gallery_model, updates_screen, GALLERY_STATES};
 use crate::theme::AppTheme;
 
 /// Which half of the gallery to show. Both stacked is the default; the debug
@@ -45,7 +46,8 @@ pub enum Section {
 /// text field per appearance).
 pub struct GalleryRoot {
     which: Section,
-    /// 2 = desktop shell, 3 = mobile boards, 4-6 = one mobile screen each.
+    /// 2 = desktop shell, 3 = mobile boards, 4-6 = one mobile screen each,
+    /// 7 = the Updates detail's offline scenarios (design D7).
     page: usize,
     /// Five independent desktop field states per appearance, so the desktop
     /// page can paint rest/hover/focus/disabled/selected in one frame.
@@ -67,6 +69,7 @@ impl GalleryRoot {
             Some("menus") | Some("4") => 4,
             Some("orders") | Some("5") => 5,
             Some("billing") | Some("6") => 6,
+            Some("updates") | Some("7") => 7,
             _ => 3,
         };
         Self {
@@ -1088,6 +1091,129 @@ fn mobile_billing_case(width: f32, theme: &AppTheme) -> AnyElement {
         .into_any_element()
 }
 
+/// One Updates detail scenario at one width: the real detail pane inside the
+/// model's geometry, so the board shows exactly what the app lays out. Every
+/// model here is evidence-mode, so no button reaches the network.
+fn updates_case(
+    name: &str,
+    width: f32,
+    theme: &AppTheme,
+    cx: &mut Context<GalleryRoot>,
+) -> AnyElement {
+    let Some(model) = gallery_model(name) else {
+        return div().into_any_element();
+    };
+    let geometry = desktop_geometry(HostKind::Desktop, width);
+    let master = div()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .h(px(snackpilot_model::desktop::ROW_HEIGHT))
+                .px(px(theme.scale.space_3))
+                .flex()
+                .items_center()
+                .bg(theme.surface_alt)
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(theme.scale.body))
+                        .line_height(px(theme.scale.body_line))
+                        .font_semibold()
+                        .text_color(theme.accent)
+                        .child("Updates"),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme.scale.meta))
+                        .line_height(px(theme.scale.meta_line))
+                        .text_color(theme.text_secondary)
+                        .child(model.update_view().row_hint),
+                ),
+        )
+        .child(
+            div()
+                .h(px(snackpilot_model::desktop::ROW_HEIGHT))
+                .px(px(theme.scale.space_3))
+                .flex()
+                .items_center()
+                .child(
+                    div()
+                        .text_size(px(theme.scale.body))
+                        .line_height(px(theme.scale.body_line))
+                        .text_color(theme.text_secondary)
+                        .child("Datenschutz"),
+                ),
+        );
+    // The screen's handlers only ever call the model, so the board renders
+    // them over an empty shell bound to the same model.
+    let shell = cx.new(|cx| crate::app::AppShell::new(Some(model.clone()), cx));
+    let detail = shell.update(cx, |_, cx| {
+        updates_screen(Some(&model), theme, Some(24.), cx)
+    });
+    div()
+        .w(px(width))
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .h(px(420.))
+        .overflow_hidden()
+        .bg(theme.surface)
+        .border_1()
+        .border_color(theme.border)
+        .child(workspace::split_workspace(
+            master.into_any_element(),
+            detail,
+            &geometry,
+            theme,
+        ))
+        .into_any_element()
+}
+
+/// The Updates detail's offline scenarios (design D7): every row of the state
+/// table at 360, 720 and 1280 logical px, so the captures show the wrapping
+/// and the disabled buttons at each width.
+fn updates_scenarios(theme: &AppTheme, cx: &mut Context<GalleryRoot>) -> AnyElement {
+    let mut col = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(px(theme.scale.space_3))
+        .p(px(theme.scale.space_4))
+        .bg(theme.background)
+        .child(
+            div()
+                .text_size(px(theme.scale.headline))
+                .line_height(px(theme.scale.headline_line))
+                .font_semibold()
+                .text_color(theme.text_primary)
+                .child(if theme.dark {
+                    "Updates · Dunkel"
+                } else {
+                    "Updates · Hell"
+                }),
+        );
+    for name in GALLERY_STATES {
+        col = col.child(
+            div().flex().flex_col().gap(px(theme.scale.space_2)).child(
+                div()
+                    .text_size(px(theme.scale.meta))
+                    .line_height(px(theme.scale.meta_line))
+                    .font_semibold()
+                    .text_color(theme.text_secondary)
+                    .child(*name),
+            ),
+        );
+        for width in [360., 720., 1280.] {
+            col = col.child(desktop_shell_frame(
+                width,
+                updates_case(name, width, theme, cx),
+            ));
+        }
+    }
+    col.into_any_element()
+}
+
 impl Render for GalleryRoot {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut col = div().size_full().flex().flex_col().overflow_y_scrollbar();
@@ -1105,6 +1231,10 @@ impl Render for GalleryRoot {
                         .child(desktop_section(true, &self.control_fields[1], cx))
                 }
             },
+            7 => {
+                let theme = AppTheme::build(matches!(self.which, Section::Dark));
+                col = col.child(updates_scenarios(&theme, cx));
+            }
             4 | 5 | 6 => {
                 let theme = AppTheme::build(matches!(self.which, Section::Dark));
                 let width = 328.;

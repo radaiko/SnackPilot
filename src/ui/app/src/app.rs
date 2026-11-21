@@ -58,6 +58,7 @@ pub(crate) enum Detail {
     LoginAutomaten,
     Appearance,
     Notifications,
+    Updates,
 }
 
 /// App screen → the model-owned settings-detail kind. The model is
@@ -70,6 +71,8 @@ fn model_settings_detail(detail: Detail) -> Option<ModelSettingsDetail> {
         Detail::LoginAutomaten => Some(ModelSettingsDetail::Security),
         Detail::Appearance => Some(ModelSettingsDetail::Data),
         Detail::Notifications => Some(ModelSettingsDetail::Notifications),
+        // D7: the Updates detail is the settings' Advanced section.
+        Detail::Updates => Some(ModelSettingsDetail::Advanced),
     }
 }
 
@@ -80,7 +83,8 @@ fn detail_from_model(detail: Option<ModelSettingsDetail>) -> Detail {
         Some(ModelSettingsDetail::Security) => Detail::LoginAutomaten,
         Some(ModelSettingsDetail::Data) => Detail::Appearance,
         Some(ModelSettingsDetail::Notifications) => Detail::Notifications,
-        Some(ModelSettingsDetail::Advanced) | None => Detail::Settings,
+        Some(ModelSettingsDetail::Advanced) => Detail::Updates,
+        None => Detail::Settings,
     }
 }
 
@@ -492,6 +496,10 @@ const LAUNCH_MIN: Duration = Duration::from_millis(500);
 /// no request, which is what keeps the phone from reloading on every glance.
 pub const AUTO_REFRESH: Duration = Duration::from_secs(15 * 60);
 
+/// The host's update tick (REQ-UPD-11): one ask per hour. The model's own
+/// cadence rule decides whether the switch and the 24 hours allow a check.
+pub const UPDATE_TICK: Duration = Duration::from_secs(60 * 60);
+
 /// Whether an automatic refresh is due: nothing has been refreshed yet, or the
 /// last one is at least [`AUTO_REFRESH`] old. The single rule behind both the
 /// tick and the foreground return.
@@ -667,6 +675,9 @@ pub struct AppShell {
     /// neighbouring segment without wrapping (REQ-UI-11).
     pub(crate) segment_group: FocusHandle,
     pub(crate) appearance_design: FocusHandle,
+    /// The update state the shell last saw (REQ-UPD-07/08): the Windows
+    /// handoff quits on the transition into `HandedOff`, not on every paint.
+    pub(crate) last_update_state: snackpilot_model::UpdateState,
 }
 
 impl AppShell {
@@ -801,6 +812,20 @@ impl AppShell {
                 },
             )
             .detach();
+            // The hourly update tick (REQ-UPD-11): the model's cadence rule
+            // decides whether the switch and the 24 hours allow a check, so
+            // this timer only asks. A failed check stays in the detail.
+            let tick_model = Arc::clone(model);
+            cx.spawn(
+                async move |_: WeakEntity<AppShell>, cx: &mut AsyncApp| loop {
+                    cx.background_executor().timer(UPDATE_TICK).await;
+                    crate::screens::updates::tick_update(
+                        Some(&tick_model),
+                        crate::screens::updates::now_ms(),
+                    );
+                },
+            )
+            .detach();
             // Cutoff cadence (task 1.4): the desktop workspace re-evaluates
             // order eligibility every 30 s, so a disabled `Stornieren` flips
             // without waiting for pointer movement. Phone never repaints.
@@ -881,6 +906,7 @@ impl AppShell {
             settings_master: cx.focus_handle(),
             segment_group: cx.focus_handle(),
             appearance_design: cx.focus_handle(),
+            last_update_state: snackpilot_model::UpdateState::Idle,
             menu_list: RecordListFocus::new(cx.focus_handle(), cx.focus_handle()),
             order_list: RecordListFocus::new(cx.focus_handle(), cx.focus_handle()),
             receipt_list: RecordListFocus::new(cx.focus_handle(), cx.focus_handle()),
@@ -957,9 +983,23 @@ impl AppShell {
                     "automaten" => Detail::LoginAutomaten,
                     "appearance" => Detail::Appearance,
                     "notifications" => Detail::Notifications,
+                    "updates" => Detail::Updates,
                     _ => return None,
                 })
             });
+            // `--update-state=<row>` selects one offline Updates detail state
+            // (design D7) for a capture: the model is evidence-mode, so no
+            // entry point reaches the network.
+            if let Some(name) =
+                std::env::args().find_map(|a| a.strip_prefix("--update-state=").map(str::to_owned))
+            {
+                if let Some(state) = crate::screens::updates::gallery_state(&name) {
+                    if let Some(model) = &shell.model {
+                        model.set_update_state(state);
+                    }
+                    shell.pending_detail = Some(Detail::Updates);
+                }
+            }
             if std::env::args().any(|a| a == "--dialog") {
                 shell.set_dialog(
                     Dialog::Confirm {
@@ -987,6 +1027,16 @@ impl AppShell {
                 crate::evidence::apply_scenario(model, &scenario);
             }
         }
+        // The launch update check (REQ-UPD-11), once: the host bootstrap has
+        // run, and the model refuses on an unsupported host, in evidence mode,
+        // with the switch off or while an operation runs.
+        let now = crate::screens::updates::now_ms();
+        crate::screens::updates::launch_update(shell.model.as_ref(), now);
+        shell.last_update_state = shell
+            .model
+            .as_ref()
+            .map(|model| model.update_state())
+            .unwrap_or(snackpilot_model::UpdateState::Idle);
         shell
     }
 
@@ -1483,7 +1533,7 @@ impl AppShell {
                     ("Abrechnung", "Keine Abrechnungsdaten".to_string())
                 }
             }
-            Screen::Settings => return settings_tab(state, theme, cx),
+            Screen::Settings => return settings_tab(state, self.model.as_ref(), theme, cx),
             Screen::SettingsDetail => unreachable!("handled before placeholders"),
         };
         div()
@@ -1583,6 +1633,11 @@ impl AppShell {
                 ),
                 (Detail::Notifications, _, _) => {
                     notifications_screen(state, self.model.as_ref(), theme, None, cx)
+                }
+                // D7: the Updates detail is desktop only (REQ-UPD-14).
+                #[cfg(not(any(target_os = "ios", target_os = "android")))]
+                (Detail::Updates, _, _) => {
+                    crate::screens::updates::updates_screen(self.model.as_ref(), theme, None, cx)
                 }
                 (detail, _, _) => placeholder_detail(detail, theme, cx),
             };
@@ -1774,6 +1829,13 @@ impl Render for AppShell {
         // Touch hosts draw no keyboard focus ring: after a tap it stayed on the
         // row and read as a selection border.
         crate::theme::set_focus_ring(state.host_kind != HostKind::Phone);
+        // The Windows update handoff ends the app (REQ-UPD-07/08): on the
+        // change into `HandedOff(QuitRequested)` only, decided by the model
+        // state the shell stores rather than on every frame.
+        if crate::screens::updates::quit_after_handoff(&self.last_update_state, &state.update) {
+            cx.quit();
+        }
+        self.last_update_state = state.update.clone();
         // Startup presentation: the launch mark owns the first frames, so the
         // shell never paints its empty credential gate and empty list on the
         // way to the cached data.
@@ -2233,7 +2295,7 @@ mod tests {
         nearest_restore_cursor, obstruction_reservation, order_cancel_state, order_row_effect,
         refresh_due, refresh_intent, safe_area, should_create_inputs, Detail, FocusRestore,
         MenuRowAction, MutationGate, OrderCancelState, OrderRowEffect, RefreshIntent, AUTO_REFRESH,
-        CONTENT_TOP, LAUNCH_MIN, SCROLL_END_GAP,
+        CONTENT_TOP, LAUNCH_MIN, SCROLL_END_GAP, UPDATE_TICK,
     };
     use crate::components::fab::{dock_bottom, dock_height_for_lines, dock_state, DOCK_GAP};
     use snackpilot_model::desktop::HostKind;
@@ -2247,6 +2309,40 @@ mod tests {
         desktop_cancel_basis, desktop_cancel_dispatch, desktop_cancel_selected_dispatch,
         desktop_confirm_dispatch,
     };
+
+    /// A fixed instant for the update cadence: the de-AT date of `UpToDate`.
+    const NOW: i64 = 1_770_000_000_000;
+
+    /// Whether Einstellungen shows the Updates entry for `model` (REQ-UPD-14).
+    fn updates_row_visible(model: Option<&Arc<AppModel>>) -> bool {
+        model.is_some_and(|model| model.update_supported())
+    }
+
+    /// The published release list URL, for the discovery assertions.
+    const RELEASES_URL: &str =
+        "https://api.github.com/repos/radaiko/SnackPilot/releases?per_page=100";
+
+    /// A signed-in demo model over the fake platform with scripted update
+    /// services, so a cadence test is offline, deterministic and finishes
+    /// whatever else the suite loads the shared model runtime with.
+    #[allow(clippy::type_complexity)]
+    fn cadence_model(
+        tag: &str,
+    ) -> (
+        Arc<AppModel>,
+        Arc<FakePlatform>,
+        crate::screens::updates::ScriptedUpdateServices,
+    ) {
+        let dir = std::env::temp_dir().join(format!("snackpilot-app-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let platform = Arc::new(FakePlatform::new());
+        platform.set_update_host(Some(crate::screens::updates::test_host()));
+        let services = crate::screens::updates::ScriptedUpdateServices::new();
+        let model =
+            AppModel::with_updates(dir, platform.clone(), Arc::new(services.clone())).unwrap();
+        model.login("demo", "demo1234!").unwrap();
+        (Arc::new(model), platform, services)
+    }
 
     /// A signed-in demo model over a fake platform: no network, no live host.
     fn claim_demo_model(tag: &str) -> (Arc<AppModel>, Arc<FakePlatform>) {
@@ -3089,6 +3185,7 @@ mod tests {
             Detail::LoginAutomaten,
             Detail::Appearance,
             Detail::Notifications,
+            Detail::Updates,
         ] {
             assert_eq!(
                 detail_from_model(model_settings_detail(detail)),
@@ -3099,8 +3196,308 @@ mod tests {
         assert_eq!(detail_from_model(None), Detail::Settings);
         assert_eq!(
             detail_from_model(Some(SettingsDetail::Advanced)),
-            Detail::Settings
+            Detail::Updates,
+            "Advanced is the Updates detail (design D7)"
         );
+    }
+
+    /// D7: the Updates detail and the settings' Advanced section are one
+    /// identity in both directions (REQ-UPD-14).
+    /// @req REQ-UPD-14
+    #[test]
+    fn updates_detail_round_trips_through_the_model() {
+        assert_eq!(
+            model_settings_detail(Detail::Updates),
+            Some(SettingsDetail::Advanced)
+        );
+        assert_eq!(
+            detail_from_model(Some(SettingsDetail::Advanced)),
+            Detail::Updates
+        );
+        assert_ne!(detail_from_model(None), Detail::Updates);
+    }
+
+    /// Over the offline fake platform, the app-crate checks of this task are
+    /// the model's: an unsupported host has no live updater.
+    /// @req REQ-UPD-14
+    #[test]
+    fn updates_row_hidden_when_unsupported() {
+        let (model, platform) = claim_demo_model("updates-row");
+        assert!(!model.update_supported(), "the fake reports no update host");
+        assert!(!updates_row_visible(Some(&model)));
+
+        platform.set_update_host(Some(crate::screens::updates::test_host()));
+        assert!(model.update_supported());
+        assert!(updates_row_visible(Some(&model)));
+        assert!(!updates_row_visible(None), "no model, no updater");
+    }
+
+    /// The launch check is the host's one call after the bootstrap (REQ-UPD-11).
+    /// @req REQ-UPD-11
+    #[test]
+    fn launch_check_runs_once_after_bootstrap() {
+        let (model, platform, services) = cadence_model("updates-launch");
+        model.bootstrap();
+        model.bootstrap();
+        crate::screens::updates::launch_update(Some(&model), NOW);
+
+        // The launch call and every later bootstrap together make one
+        // discovery: the release list, then the manifest that does not exist.
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while services.requests().len() < 1 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        while model.update_state() == snackpilot_model::UpdateState::Checking
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            services.requests().len(),
+            1,
+            "one discovery for the launch, whatever the later bootstraps"
+        );
+        assert_eq!(services.requests()[0].url, RELEASES_URL);
+        assert_eq!(model.update_last_check(), Some(NOW));
+        // `update_supported()` and the check each look at the host target.
+        assert_eq!(
+            platform
+                .calls()
+                .iter()
+                .filter(|call| *call == "update_target")
+                .count(),
+            2,
+            "one host look per gate, and no second discovery"
+        );
+        // A failure of the check stays inside the state machine.
+        assert!(
+            matches!(
+                model.update_state(),
+                snackpilot_model::UpdateState::Failed { .. }
+            ),
+            "one check, contained: {:?}",
+            model.update_state()
+        );
+        assert!(!model.state().busy);
+        assert!(model.state().error_text.is_none());
+        assert!(model.state().location_alert.is_none());
+    }
+
+    /// The hourly tick asks the model for one periodic check; its cadence rule
+    /// then keeps the neighbours within 24 h silent (REQ-UPD-11).
+    /// @req REQ-UPD-11
+    #[test]
+    fn hourly_tick_requests_periodic_check() {
+        let hour = 60 * 60 * 1000;
+        let (model, _platform, services) = cadence_model("updates-tick");
+
+        // The first tick has no last attempt and runs exactly one check.
+        crate::screens::updates::tick_update(Some(&model), NOW);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while services.requests().len() < 1 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        while model.update_state() == snackpilot_model::UpdateState::Checking
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(services.requests().len(), 1, "the first tick checks");
+        assert_eq!(model.update_last_check(), Some(NOW));
+
+        // The hourly neighbours stay silent: 23:59 after the attempt is not due.
+        crate::screens::updates::tick_update(Some(&model), NOW + 24 * hour - 60 * 1000);
+        assert_eq!(
+            model.update_last_check(),
+            Some(NOW),
+            "23 h 59 min after a check the tick makes no request"
+        );
+        assert_eq!(services.requests().len(), 1);
+
+        // A tick after 24 h is due again and runs one more check.
+        crate::screens::updates::tick_update(Some(&model), NOW + 24 * hour + 1);
+        while services.requests().len() < 2 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            services.requests().len(),
+            2,
+            "the tick after 24 h runs one more check"
+        );
+        assert_eq!(model.update_last_check(), Some(NOW + 24 * hour + 1));
+        assert!(!model.state().busy);
+        assert!(model.state().error_text.is_none());
+    }
+
+    /// Every detail button is one model call, and every button is inert while
+    /// an operation runs (REQ-UPD-16).
+    /// @req REQ-UPD-16
+    #[test]
+    fn buttons_dispatch_once_and_disable_while_running() {
+        use crate::screens::updates::{
+            action_dispatch, dispatch_update, gallery_state, UpdateDispatch,
+        };
+        use snackpilot_model::{UpdateAction, UpdateState};
+
+        // One "pressure" on a rendered button: what the click closure does —
+        // the view and state it reads, the action it was built for, and the
+        // dispatch it then hands the model exactly once.
+        fn press(
+            model: &AppModel,
+            action: UpdateAction,
+        ) -> Option<crate::screens::updates::UpdateDispatch> {
+            let dispatch = action_dispatch(action, &model.update_view(), &model.update_state());
+            if let Some(dispatch) = dispatch {
+                dispatch_update(model, dispatch, NOW);
+            }
+            dispatch
+        }
+
+        // Every row of the D7 table, with what each of its buttons must do.
+        let rows: [(
+            &str,
+            Vec<(UpdateAction, crate::screens::updates::UpdateDispatch)>,
+        ); 8] = [
+            (
+                "idle",
+                vec![(UpdateAction::Check, UpdateDispatch::ManualCheck)],
+            ),
+            (
+                "available",
+                vec![
+                    (UpdateAction::Download, UpdateDispatch::Download),
+                    (UpdateAction::Skip, UpdateDispatch::Skip),
+                    (UpdateAction::Check, UpdateDispatch::ManualCheck),
+                ],
+            ),
+            (
+                "skipped",
+                vec![(UpdateAction::Check, UpdateDispatch::ManualCheck)],
+            ),
+            (
+                "ready-windows",
+                vec![(
+                    UpdateAction::InstallAndQuit,
+                    UpdateDispatch::Handoff(snackpilot_model::HandoffOutcome::QuitRequested),
+                )],
+            ),
+            (
+                "ready-macos",
+                vec![(
+                    UpdateAction::RevealInFinder,
+                    UpdateDispatch::Handoff(snackpilot_model::HandoffOutcome::Revealed),
+                )],
+            ),
+            // The row whose second button used to be inert: "Im Finder zeigen"
+            // starts the reveal, "Jetzt prüfen" next to it must still check.
+            (
+                "handed-off-macos",
+                vec![
+                    (
+                        UpdateAction::RevealInFinder,
+                        UpdateDispatch::Handoff(snackpilot_model::HandoffOutcome::Revealed),
+                    ),
+                    (UpdateAction::Check, UpdateDispatch::ManualCheck),
+                ],
+            ),
+            (
+                "failed-download",
+                vec![(UpdateAction::Download, UpdateDispatch::Download)],
+            ),
+            (
+                "failed-check",
+                vec![(UpdateAction::Check, UpdateDispatch::ManualCheck)],
+            ),
+        ];
+        for (row, buttons) in rows {
+            for (index, (action, expected)) in buttons.iter().enumerate() {
+                let (model, _platform) = claim_demo_model(&format!("updates-{row}-{index}"));
+                model.set_update_state(gallery_state(row).expect("a D7 row"));
+                let view = model.update_view();
+                assert_eq!(
+                    view.actions.first(),
+                    Some(&buttons[0].0),
+                    "{row}: the table's primary comes first"
+                );
+                assert!(
+                    view.actions.contains(action),
+                    "{row}: {action:?} is offered"
+                );
+                // The first press dispatches exactly the clicked button's
+                // action — whichever button of the row it is.
+                assert_eq!(press(&model, *action), Some(*expected), "{row}: {action:?}");
+            }
+        }
+
+        // A second press while the operation runs dispatches nothing, whichever
+        // button of the row it is.
+        let (model, _platform) = claim_demo_model("updates-run");
+        for state in [
+            UpdateState::Downloading {
+                candidate: crate::screens::updates::gallery_candidate(),
+                done: 60,
+                total: Some(100),
+            },
+            UpdateState::Verifying {
+                candidate: crate::screens::updates::gallery_candidate(),
+            },
+        ] {
+            model.set_update_state(state.clone());
+            let view = model.update_view();
+            assert!(view.actions.is_empty(), "the running row drops its actions");
+            for action in [
+                UpdateAction::Download,
+                UpdateAction::Skip,
+                UpdateAction::Check,
+                UpdateAction::InstallAndQuit,
+            ] {
+                assert_eq!(
+                    press(&model, action),
+                    None,
+                    "{action:?} dispatch while {state:?}"
+                );
+            }
+            assert_eq!(model.update_state(), state, "no model call was made");
+        }
+
+        // A stale button of a row the state has left dispatches nothing.
+        let (model, _platform) = claim_demo_model("updates-stale");
+        model.set_update_state(UpdateState::Skipped {
+            version: "2.3.0".into(),
+        });
+        assert_eq!(press(&model, UpdateAction::Skip), None);
+    }
+
+    /// Only the Windows installer handoff ends the app, and only on the change
+    /// that enters it (REQ-UPD-07/08, D7).
+    /// @req REQ-UPD-07
+    #[test]
+    fn quit_requested_quits() {
+        let update = snackpilot_model::VerifiedUpdate {
+            version: "2.3.0".into(),
+            artifact: crate::screens::updates::GALLERY_ARTIFACT.into(),
+            prepared: None,
+        };
+        let quitting = snackpilot_model::UpdateState::HandedOff {
+            version: "2.3.0".into(),
+            outcome: snackpilot_model::HandoffOutcome::QuitRequested,
+            update: update.clone(),
+        };
+        assert!(crate::screens::updates::quit_after_handoff(
+            &snackpilot_model::UpdateState::Idle,
+            &quitting
+        ));
+        assert!(!crate::screens::updates::quit_after_handoff(
+            &quitting, &quitting
+        ));
+        assert!(!crate::screens::updates::quit_after_handoff(
+            &snackpilot_model::UpdateState::Idle,
+            &snackpilot_model::UpdateState::HandedOff {
+                version: "2.3.0".into(),
+                outcome: snackpilot_model::HandoffOutcome::Revealed,
+                update,
+            }
+        ));
     }
 
     /// The containment crossing 719 → 720 → 719 never re-enters the form:
@@ -3327,6 +3724,9 @@ mod tests {
         let boundary = Instant::now().checked_sub(AUTO_REFRESH).unwrap();
         assert!(refresh_due(Some(boundary)), "15:00 is due");
         assert_eq!(AUTO_REFRESH, Duration::from_secs(15 * 60));
+        // The update tick is hourly; the model's 24 h rule does the rest
+        // (REQ-UPD-11).
+        assert_eq!(UPDATE_TICK, Duration::from_secs(60 * 60));
     }
 
     /// The launch mark covers the empty states on the way to data, and still

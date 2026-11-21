@@ -1,0 +1,19 @@
+diff --git a/docs/privacy.html b/docs/privacy.html
+index 1ac5c0d..0413692 100644
+--- a/docs/privacy.html
++++ b/docs/privacy.html
+@@ -88,7 +88,13 @@
+ <p>
+   Die App verbindet sich ausschlie&szlig;lich mit den Kantinen- und Automatendiensten, bei denen du
+   angemeldet bist (f&uuml;r Men&uuml;-, Bestell- und Abrechnungsverwaltung), sowie mit dem selbst
+-  gehosteten Analysedienst des Betreibers. Es bestehen keine Verbindungen zu sonstigen Dritten.
++  gehosteten Analysedienst des Betreibers. Dar&uuml;ber hinaus bestehen keine Verbindungen zu
++  sonstigen Dritten, mit einer Ausnahme: GitHub Releases (siehe unten).
++</p>
++<p>
++  Die Desktop-Version (macOS, Windows) fragt beim Start und danach alle 24 Stunden ohne
++  Anmeldung bei GitHub an, ob eine neue Version vorliegt. Das l&auml;sst sich in der App
++  unter Updates abschalten.
+ </p>
+ <p>
+   Im Demo-Modus (Zugangsdaten: <code>demo</code> / <code>demo1234!</code>) werden
