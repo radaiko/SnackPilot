@@ -9,8 +9,12 @@
 
 use std::collections::HashMap;
 
+use crate::desktop::update;
 use snackpilot_core::notify::NotificationCommand;
-use snackpilot_model::{Capabilities, LocationFix, Platform, PlatformError, SupportEmail};
+use snackpilot_model::{
+    Capabilities, LocationFix, Platform, PlatformError, SupportEmail, UpdateHostInfo,
+    VerifiedUpdate,
+};
 
 /// Keyring service for the four credential slots (REQ-PLT-01).
 pub const SERVICE: &str = "app:no-auth";
@@ -27,6 +31,14 @@ impl DesktopPlatform {
 
     fn entry(&self, key: &str) -> Result<keyring::Entry, PlatformError> {
         keyring::Entry::new(SERVICE, key).map_err(|e| PlatformError::Storage(e.to_string()))
+    }
+
+    /// The launch-time update cleanup, called once by the desktop host before
+    /// the model exists: removes the staging directories an earlier run left
+    /// under the Windows temp directory and never touches `~/Downloads`
+    /// (REQ-UPD-04).
+    pub fn update_launch_cleanup(&self) {
+        update::cleanup_stale_staging_at_launch();
     }
 }
 
@@ -123,6 +135,30 @@ impl Platform for DesktopPlatform {
             notifications: false,
             geofence: false,
         }
+    }
+
+    // ---- desktop update hooks (design D6) ----
+    fn update_target(&self) -> Option<UpdateHostInfo> {
+        update::desktop_update_target()
+    }
+
+    fn update_staging_dir(&self, version: &str) -> Result<std::path::PathBuf, PlatformError> {
+        update::desktop_staging_dir(version)
+    }
+
+    fn verify_update_artifact(
+        &self,
+        artifact: &std::path::Path,
+        manifest: &snackpilot_model::VerifiedManifest,
+    ) -> Result<VerifiedUpdate, PlatformError> {
+        update::desktop_verify_artifact(artifact, manifest)
+    }
+
+    fn hand_off_update(
+        &self,
+        update: &VerifiedUpdate,
+    ) -> Result<snackpilot_model::HandoffOutcome, PlatformError> {
+        update::desktop_hand_off(update)
     }
 }
 
@@ -383,6 +419,33 @@ mod tests {
                 geofence: false,
             }
         );
+    }
+
+    /// @req REQ-UPD-04 The launch call clears a stale `snackpilot-update-*`
+    /// directory under the OS temp directory on Windows and leaves every other
+    /// name and the `~/Downloads` staging root alone.
+    #[test]
+    fn launch_cleanup_runs_through_the_platform_hook() {
+        let temp = std::env::temp_dir();
+        let stale = temp.join(format!(
+            "{}launch-{}",
+            super::update::TEMP_STAGING_PREFIX,
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&stale).unwrap();
+        let other = temp.join(format!("snackpilot-launch-other-{}", std::process::id()));
+        std::fs::create_dir_all(&other).unwrap();
+
+        DesktopPlatform::new().update_launch_cleanup();
+
+        let windows = cfg!(target_os = "windows") && cfg!(target_arch = "x86_64");
+        assert_eq!(
+            stale.exists(),
+            !windows,
+            "the stale staging is gone on Windows and untouched elsewhere"
+        );
+        assert!(other.exists(), "an unrelated directory is never removed");
+        let _ = std::fs::remove_dir_all(&other);
     }
 
     /// Round trip against the real OS keychain, run manually on a desktop
