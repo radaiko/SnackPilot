@@ -378,8 +378,9 @@ mod discovery {
     // @req REQ-UPD-01
     #[tokio::test]
     async fn discover_ignores_draft_prerelease_and_foreign_tags() {
-        // releases-list.json holds desktop v1.4.2 (prerelease), a draft and a prerelease
-        // of the newer desktop version, ios/android/`v` tags and foreign namespaces.
+        // releases-list.json holds the draft v2.2.0, the prereleases v2.1.1 and v1.4.2,
+        // ios/android/`v`/badge tags and the foreign `macos/` and `desktop/0.0.9` shapes.
+        // Only desktop/v2.3.0 is a published `desktop/vX.Y.Z` release.
         let t = CapturingTransport::new();
         let manifest = manifest_json(|_| {});
         queue_manifest(&t, &manifest, &sign_hex(manifest.as_bytes()));
@@ -393,33 +394,22 @@ mod discovery {
         };
         assert_eq!(candidate.manifest.tag, "desktop/v2.3.0");
 
-        // Without the later tags the highest remaining published desktop tag is
-        // desktop/v2.1.0 (v1.4.2 is a prerelease); v2.1.0 lists no manifest for this host.
-        let lower: Vec<serde_json::Value> =
+        // Without v2.3.0 the highest published tag is desktop/v2.1.0, not the
+        // draft v2.2.0 or the prereleases v2.1.1 / v1.4.2.
+        let without: Vec<serde_json::Value> =
             serde_json::from_str::<Vec<serde_json::Value>>(RELEASES_LIST)
                 .unwrap()
                 .into_iter()
-                .filter(|r| {
-                    !matches!(
-                        r["tag_name"].as_str().unwrap_or_default(),
-                        "desktop/v2.2.0" | "desktop/v2.1.1"
-                    )
-                })
+                .filter(|r| r["tag_name"] != "desktop/v2.3.0")
                 .collect();
-        let lower = serde_json::to_string(&lower).unwrap();
         let t = CapturingTransport::new();
-        t.queue_response(ok(&lower));
+        t.queue_response(ok(&serde_json::to_string(&without).unwrap()));
         assert_eq!(
-            discover(&t, &windows_host(), "2.1.0", &test_public_key()).await,
-            Err(UpdateError::NoManifest)
+            discover(&t, &windows_host(), "2.0.0", &test_public_key()).await,
+            Err(UpdateError::NoManifest),
+            "desktop/v2.1.0 carries no manifest"
         );
-        assert!(
-            t.requests()[1].url.starts_with(
-                "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.1.0/"
-            ),
-            "selected {}",
-            t.requests()[1].url
-        );
+        assert_eq!(t.requests().len(), 1);
 
         // Numeric ordering, not lexical: v2.10.0 beats v2.9.0, prerelease v2.11.0 is skipped.
         let mut eleven: serde_json::Value =
@@ -437,12 +427,10 @@ mod discovery {
             discover(&t, &windows_host(), "2.0.0", &test_public_key()).await,
             Err(UpdateError::NoManifest)
         );
-        assert!(
-            t.requests()[1].url.starts_with(
-                "https://github.com/radaiko/SnackPilot/releases/download/desktop/v2.10.0/"
-            ),
-            "v2.10.0 must outrank v2.9.0, request was {}",
-            t.requests()[1].url
+        assert_eq!(
+            t.requests().len(),
+            1,
+            "a missing manifest asset is decided from the list alone"
         );
     }
 
@@ -568,6 +556,8 @@ mod discovery {
     // @req REQ-UPD-02
     #[tokio::test]
     async fn discover_without_manifest_asset_is_no_manifest() {
+        // releases-no-manifest.json: the newest published desktop release (v2.4.1)
+        // ships only platform artifacts, so the check stops after the list.
         let t = CapturingTransport::new();
         t.queue_response(ok(RELEASES_NO_MANIFEST));
         assert_eq!(
@@ -580,13 +570,16 @@ mod discovery {
             "nothing is fetched for a missing manifest"
         );
 
+        // A release that carries its manifest assets: exactly three requests.
         let t = CapturingTransport::new();
         t.queue_response(ok(RELEASES_LIST));
+        t.queue_response(ok("manifest bytes"));
+        t.queue_response(ok("signature bytes"));
         assert_eq!(
             discover(&t, &windows_host(), "2.0.0", &test_public_key()).await,
-            Err(UpdateError::NoManifest),
-            "desktop/v2.3.0 has no assets in the list fixture"
+            Err(UpdateError::SignatureInvalid)
         );
+        assert_eq!(t.requests().len(), 3);
     }
 
     // @req REQ-UPD-03
@@ -823,34 +816,113 @@ mod discovery {
         assert!(staging.path().join("leftover").exists());
     }
 
-    /// A TLS-terminating loopback server, spawned on demand from tiny_http (dev
-    /// only). The certificate is made per test run with the host's `openssl` and
-    /// the production client trusts it through its own builder, so one
-    /// `download` call still runs unmodified.
-    fn tls_server(body: Vec<u8>, with_length: bool) -> CliTlsServer {
-        let dir = tempfile::tempdir().unwrap();
-        let status = std::process::Command::new("openssl")
-            .args([
-                "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "key.pem", "-out",
-                "cert.pem", "-days", "1", "-subj", "/CN=localhost", "-addext",
-                "subjectAltName=DNS:localhost,IP:127.0.0.1",
-            ])
-            .current_dir(dir.path())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .expect("openssl is needed to make the test certificate");
-        assert!(status.success(), "openssl could not create a test certificate");
-        let cert = std::fs::read(dir.path().join("cert.pem")).unwrap();
-        let server = tiny_http::Server::builder(
-            tiny_http::Identity {
-                pkcs12: std::fs::read(dir.path().join("key.pem")).ok(),
-                ..
-            },
-            tiny_http::SslConfig { certificate: cert.clone(), private_key: std::fs::read(dir.path().join("key.pem")).unwrap() },
+    /// One-shot plain loopback server, the style of `reqwest_transport.rs`'s
+    /// tests. Replies with `body`, with or without `Content-Length`.
+    fn loopback_server(body: &'static [u8], with_length: bool) -> String {
+        loopback_response(body, with_length, 200)
+    }
+
+    fn loopback_response(body: &'static [u8], with_length: bool, status: u16) -> String {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let _ = s.read(&mut [0u8; 2048]);
+                let head = if with_length {
+                    format!(
+                        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\n\r\n",
+                        body.len()
+                    )
+                } else {
+                    format!("HTTP/1.1 {status} X\r\nConnection: close\r\n\r\n")
+                };
+                let _ = s.write_all(head.as_bytes());
+                let _ = s.write_all(body);
+            }
+        });
+        format!("http://{addr}/artifact")
+    }
+
+    // @req REQ-UPD-04
+    #[tokio::test]
+    async fn reqwest_downloader_streams_from_a_local_server() {
+        // The test seam: `new()` is https only, so the loopback server is reached
+        // through an explicitly configured client. `new()` itself is checked below.
+        let client = reqwest::Client::builder()
+            .https_only(false)
+            .build()
+            .unwrap();
+        let body: &'static [u8] = b"0123456789abcdef";
+
+        // Content-Length present: progress carries the total and ends at the size.
+        let url = loopback_server(body, true);
+        let staging = tempfile::tempdir().unwrap();
+        let dest = staging.path().join("artifact.zip");
+        let (log, record) = progress();
+        ReqwestDownloader::with_client(client.clone())
+            .download(&url, &dest, 1024, &record)
+            .await
+            .expect("streaming download must succeed");
+        assert_eq!(std::fs::read(&dest).unwrap(), body);
+        let seen = log.lock().unwrap().clone();
+        assert!(!seen.is_empty(), "progress must be reported");
+        assert_eq!(seen.last().map(|p| p.0), Some(16));
+        assert!(
+            seen.iter().all(|p| p.1 == Some(16)),
+            "Content-Length must be reported: {seen:?}"
         );
-        let _ = (server, body, with_length);
-        todo!()
+        assert!(
+            seen.windows(2).all(|w| w[0].0 <= w[1].0),
+            "progress never goes backwards: {seen:?}"
+        );
+
+        // Absent: the download completes and the total is unknown.
+        let url = loopback_server(body, false);
+        let dest = staging.path().join("nolength.zip");
+        let (log, record) = progress();
+        ReqwestDownloader::with_client(client.clone())
+            .download(&url, &dest, 1024, &record)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), body);
+        assert!(log.lock().unwrap().iter().all(|p| p.1.is_none()));
+
+        // Over the cap: stops at max_bytes with SizeMismatch.
+        let url = loopback_server(body, true);
+        let dest = staging.path().join("capped.zip");
+        let (_, record) = progress();
+        assert_eq!(
+            ReqwestDownloader::with_client(client.clone())
+                .download(&url, &dest, 8, &record)
+                .await,
+            Err(UpdateError::SizeMismatch)
+        );
+
+        // A non-200 answer is a network failure.
+        let url = loopback_response(b"denied", true, 500);
+        assert_eq!(
+            ReqwestDownloader::with_client(client)
+                .download(&url, &staging.path().join("denied.zip"), 1024, &record)
+                .await,
+            Err(UpdateError::Network)
+        );
+
+        // Production's `new()` keeps the https-only rule: a plain http address is
+        // refused before any connection.
+        assert_eq!(
+            ReqwestDownloader::new()
+                .download(
+                    "http://127.0.0.1:9/a.zip",
+                    &staging.path().join("plain.zip"),
+                    1024,
+                    &record
+                )
+                .await,
+            Err(UpdateError::Unsupported)
+        );
     }
 
     // @req REQ-UPD-01

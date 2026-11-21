@@ -99,6 +99,9 @@ fn file_size_and_hash(path: &Path) -> Result<(u64, String), UpdateError> {
 
 /// Production [`Downloader`]: its own client (https only, redirect limit 5,
 /// 15 s connect timeout, no total timeout, 30 s per chunk), streaming to disk.
+///
+/// `with_client` exists for tests only (a loopback server is plain http);
+/// production must use `new()`, which enforces the https-only rule.
 pub struct ReqwestDownloader {
     client: reqwest::Client,
 }
@@ -115,6 +118,12 @@ impl ReqwestDownloader {
             .user_agent("SnackPilot-desktop-update")
             .build()
             .expect("static TLS and redirect configuration cannot fail");
+        Self { client }
+    }
+
+    /// Test seam: an already configured client, bypassing `new`'s https-only
+    /// rule so a loopback `TcpListener` can be measured. Never use in production.
+    pub fn with_client(client: reqwest::Client) -> Self {
         Self { client }
     }
 }
@@ -134,19 +143,14 @@ impl Downloader for ReqwestDownloader {
         progress: &'a (dyn Fn(u64, Option<u64>) + Send + Sync),
     ) -> Pin<Box<dyn Future<Output = Result<(), UpdateError>> + Send + 'a>> {
         Box::pin(async move {
-            let mut resp = self
-                .client
-                .get(url)
-                .send()
-                .await
-                .map_err(|e| {
-                    // `https_only` refuses a non-https address inside the client.
-                    if e.is_builder() {
-                        UpdateError::Unsupported
-                    } else {
-                        UpdateError::Network
-                    }
-                })?;
+            let mut resp = self.client.get(url).send().await.map_err(|e| {
+                // `https_only` refuses a non-https address inside the client.
+                if e.is_builder() {
+                    UpdateError::Unsupported
+                } else {
+                    UpdateError::Network
+                }
+            })?;
             if !resp.status().is_success() {
                 return Err(UpdateError::Network);
             }

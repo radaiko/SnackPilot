@@ -25,7 +25,9 @@ pub struct HostTarget {
     pub os_version: Option<String>,
 }
 
-/// Outcome of a check.
+/// Outcome of a check. The shape is design D2's; boxing `Candidate` would
+/// change the public API the model is written against.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Discovery {
     UpToDate { latest: String },
@@ -93,8 +95,13 @@ pub async fn discover(
     let manifest = verify_manifest(manifest_bytes.as_bytes(), &signature, key)?;
 
     // Field checks, only on verified input.
-    if !offers_update(&manifest, host, tag, &installed) {
+    if !applies_to_host(&manifest, host, tag) {
         return Err(UpdateError::ManifestMismatch);
+    }
+    if !is_newer(&manifest.version, &installed) {
+        return Ok(Discovery::UpToDate {
+            latest: manifest.version,
+        });
     }
     if let Some(host_os) = &host.os_version {
         if !os_reaches(&manifest.minimum_os, host_os) {
@@ -130,22 +137,17 @@ fn find_download_asset<'a>(assets: &'a [ReleaseAsset], name: &str) -> Result<&'a
         })
 }
 
-/// Manifest fields agree with one another and with the host (REQ-UPD-02).
-fn offers_update(
-    manifest: &Manifest,
-    host: &HostTarget,
-    tag: Version,
-    installed: &Version,
-) -> bool {
-    let Some(version) = Version::parse(&manifest.version) else {
-        return false;
-    };
+/// Manifest fields agree with one another and with the host and release (REQ-UPD-02).
+fn applies_to_host(manifest: &Manifest, host: &HostTarget, tag: Version) -> bool {
     manifest.platform == host.platform
         && manifest.architecture == host.architecture
-        && manifest.tag == format!("desktop/v{version}")
         && parse_desktop_tag(&manifest.tag) == Some(tag)
-        && version == tag
-        && version > *installed
+        && Version::parse(&manifest.version) == Some(tag)
+}
+
+/// Strictly newer than what is installed, by numeric comparison.
+fn is_newer(version: &str, installed: &Version) -> bool {
+    Version::parse(version).is_some_and(|v| v > *installed)
 }
 
 /// True when `host` (a dotted numeric OS version) is at least `minimum`.
