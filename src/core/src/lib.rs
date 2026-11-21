@@ -13,6 +13,7 @@ pub mod gourmet;
 pub mod http;
 pub mod notify;
 pub mod storage;
+pub mod update;
 
 uniffi::setup_scaffolding!();
 pub mod ventopay;
