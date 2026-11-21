@@ -604,8 +604,9 @@ pub(crate) fn gallery_state(name: &str) -> Option<UpdateState> {
 
 /// The gallery's offline model for one scenario name: an evidence-mode model
 /// over the fake platform, reporting a Windows host so every row including
-/// the installer handoff has its projection. Debug builds only.
-#[cfg(debug_assertions)]
+/// the installer handoff has its projection. Not gated to debug builds: the
+/// gallery module itself is compiled into release builds, so gating only this
+/// helper broke the release desktop build (E0432 in gallery.rs).
 pub(crate) fn gallery_model(name: &str) -> Option<Arc<AppModel>> {
     use snackpilot_model::{Platform, UpdateHostInfo};
 
