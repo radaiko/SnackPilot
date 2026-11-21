@@ -61,7 +61,7 @@ domain: architectural
   - check: `make check`
   - proof: ui workflow runs `src/ui/model/tests/update.rs`; the handoff quotes the `update_view` table test output.
 
-- [ ] 1.4 Desktop host: macOS bundle trust, installer handoff, staging and platform wiring
+- [x] 1.4 Desktop host: macOS bundle trust, installer handoff, staging and platform wiring
   - tier: hard
   - host: Linux for pure and stubbed tests; Mac for the native macOS run; Windows for the installer handoff
   - files: `src/ui/app/src/desktop/update.rs` (new), `src/ui/app/src/desktop/mod.rs` (`pub mod update;` and a launch-time stale-staging cleanup call only), `src/ui/app/src/platform/desktop.rs` (update hooks only), `docs/evidence/desktop-auto-update/1.4/**`
