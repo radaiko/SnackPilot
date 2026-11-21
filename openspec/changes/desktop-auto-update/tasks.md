@@ -39,7 +39,7 @@ domain: architectural
   - check: `make check`
   - proof: core workflow runs `src/core/tests/update.rs`; `git diff --name-only` shows no forbidden path; the handoff lists the exact new transitive crates and the lockfile diff summary.
 
-- [ ] 1.2 Core: release discovery, verified streaming download and fakes
+- [x] 1.2 Core: release discovery, verified streaming download and fakes
   - tier: hard
   - host: Linux
   - files: `src/core/src/update/mod.rs`, `src/core/src/update/discover.rs` (new), `src/core/src/update/download.rs` (new), `src/core/src/update/fake.rs` (new), `docs/fixtures/update/releases-list.json` (new), `docs/fixtures/update/releases-no-manifest.json` (new), `src/core/tests/fixtures/update/releases-list.json` (new, byte-identical), `src/core/tests/fixtures/update/releases-no-manifest.json` (new, byte-identical), `src/core/tests/update.rs`
