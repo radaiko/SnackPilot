@@ -28,7 +28,7 @@ domain: architectural
 
 ## 1. Update capability
 
-- [ ] 1.1 Core: semver ordering, manifest parsing, Ed25519 verification, SHA-256 and fixture mirror
+- [x] 1.1 Core: semver ordering, manifest parsing, Ed25519 verification, SHA-256 and fixture mirror
   - tier: hard
   - host: Linux
   - files: `src/core/Cargo.toml`, `src/core/Cargo.lock`, `src/ui/Cargo.lock`, `src/core/src/lib.rs` (`pub mod update;` only), `src/core/src/update/mod.rs` (new), `src/core/src/update/version.rs` (new), `src/core/src/update/manifest.rs` (new), `src/core/src/update/key.rs` (new), `src/core/build.rs` (add `update` to the mirrored sub-directories only), `docs/fixtures/update/manifest-windows-x64.json` (new), `docs/fixtures/update/manifest-macos-arm64.json` (new), `src/core/tests/fixtures/update/manifest-windows-x64.json` (new, byte-identical), `src/core/tests/fixtures/update/manifest-macos-arm64.json` (new, byte-identical), `src/core/tests/update.rs` (new)
