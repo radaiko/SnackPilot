@@ -193,3 +193,51 @@ UI.
 
 A manual run (`workflow_dispatch`) needs the version as input; it publishes a
 real release, so run it when you mean to ship.
+
+
+### Update manifests (`make-update-manifest.sh`)
+
+`tools/devops/make-update-manifest.sh <version> <macos-dir> <windows-dir> <notes-file> <out-dir>`
+writes one signed manifest per platform for the in-app updater (design D4): compact,
+sorted-key ASCII JSON plus a 64-byte Ed25519 signature as lowercase hex, next to it.
+
+- `size` and `sha256` are computed from the artifact the receipt names
+  (`native-build-receipt.json`, read as `utf-8-sig` because Windows PowerShell 5
+  writes a BOM); `build` comes from the same receipt.
+- Files: `SnackPilot-manifest-macos-arm64.json` and
+  `SnackPilot-manifest-windows-x64.json` (plus `.json.sig` each).
+- A macOS receipt whose `trust_state` is not `developer-id-notarized-stapled` gets
+  no macOS manifest and a warning: the app re-verifies the bundle and must not offer
+  an unsigned one. A missing key, a missing receipt/artifact or a receipt for another
+  version fails the run, and nothing is written for that platform.
+- The key is read from `SNACKPILOT_UPDATE_SIGNING_KEY` (PKCS#8 PEM, Ed25519), written
+  to a mode-600 `mktemp` file and removed on every exit path; OpenSSL 3.x signs with
+  `pkeyutl -sign -rawin`, and each signature is verified against the derived public
+  key before anything is published. Never echo the variable or run this script under
+  `set -x`.
+
+Tests: `bash tools/devops/test-update-manifest.sh` (part of `make test-lib`). The
+committed `docs/fixtures/update/openssl-*` trio is one real run of this script with a
+throwaway key whose private half was deleted; `src/core/tests/update.rs` verifies it
+with the app's own verifier.
+
+### Signing key
+
+The workflow's "Sign the update manifests" step needs the repository secret
+`SNACKPILOT_UPDATE_SIGNING_KEY`. Generate an Ed25519 key once, offline:
+
+```sh
+openssl genpkey -algorithm Ed25519 -out update-signing-key.pem
+chmod 600 update-signing-key.pem
+openssl pkey -in update-signing-key.pem -pubout -outform DER | tail -c 32 | od -An -tx1 | tr -d ' \n'
+```
+
+Store the PEM as the secret and the 64 hex chars as the public key
+(`UPDATE_PUBLIC_KEY` in `src/core/src/update/key.rs`, pinned in the change's
+`design.md`). Keep a backup: the secret is the only copy.
+
+**Rotation is out of scope.** The public key is compiled into the app, so a new key
+means the app rejects every manifest signed with it until a release carrying the new
+key is out — and that release has to be installed through the old key or by hand. A
+rotated key therefore needs an app release first, and the manifests must keep being
+signed with the old key until that release has shipped.

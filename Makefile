@@ -22,6 +22,7 @@ test: ## Core tests
 test-lib: ## Unit tests for the devops shell helpers
 	@bash $(DEVOPS)/test-lib.sh
 	@bash $(DEVOPS)/test-package-macos.sh
+	@bash $(DEVOPS)/test-update-manifest.sh
 
 spec-lint: ## OpenSpec validation
 	OPENSPEC_TELEMETRY=0 openspec validate --all --strict --no-interactive
