@@ -23,15 +23,16 @@ caching, notifications and demo mode.
 
 | Platform | Artifact | Minimum | Architecture | Trust |
 | --- | --- | --- | --- | --- |
-| macOS | `SnackPilot.app` | macOS 26.0 | Apple Silicon (`arm64`) | Developer ID Application, hardened runtime, notarized and stapled |
-| Windows | `SnackPilot-{version}-windows-x64-setup.exe` (task 1.7) | Windows 11 | x64 | **UNSIGNED**, labelled as such |
+| macOS | `SnackPilot-{version}-macos-arm64.zip`, containing the signed, notarized and stapled `SnackPilot.app` | macOS 26.0 | Apple Silicon (`arm64`) | Developer ID Application, hardened runtime, notarized and stapled |
+| Windows | `SnackPilot-{version}-windows-x64-setup.exe`, a per-user NSIS installer | Windows 11 | x64 | **UNSIGNED**, labelled as such |
 | iOS / Android | existing App Store / Play artifacts | unchanged | unchanged | unchanged |
 
-Desktop identity is `dev.radaiko.gourmetclient`. Linux, Intel Macs, Windows ARM,
-App Store distribution and automatic updates are not supported by this change
-and are not advertised. The macOS deliverable is the signed and stapled `.app`
-itself; no DMG and no public ZIP is produced. A temporary ZIP exists only as the
-notary submission transport and is deleted again.
+Desktop identity is `dev.radaiko.gourmetclient`. Linux, Intel Macs, Windows ARM
+and App Store distribution are not supported and are not advertised. The macOS
+deliverable is the signed and stapled `SnackPilot.app` inside
+`SnackPilot-<version>-macos-arm64.zip` as `desktop.yml` publishes it; no DMG is
+produced. `package-macos.sh` makes a separate temporary ZIP only as the notary
+submission transport and deletes it again.
 
 ## Desktop
 
@@ -85,7 +86,7 @@ request those OS permissions and Einstellungen does not present them as working
 features at any width. A stale/debug route shows the honest unavailable copy.
 Analytics is a no-op: no `app.launched` or other event leaves the desktop host.
 Mail export, system-settings actions and dynamic Dock icons are not implemented
-and are not promised; there is no updater. The accepted GPUI limitation that the
+and are not promised. The accepted GPUI limitation that the
 rendered surface has no accessibility tree still applies, and native system
 alerts remain replaced by the themed modal.
 
@@ -97,8 +98,23 @@ alerts remain replaced by the themed modal.
   the v1 native shells is a regression accepted for v2 and tracked as a
   follow-up. The desktop host inherits the limitation.
 - No native platform alerts: dialogs are the themed §4.1 modal.
-- Desktop has no notification, geofence, analytics, updater or dynamic icon
+- Desktop has no notification, geofence, analytics or dynamic icon
   implementation; see the capability gaps above.
+
+## Updates (desktop)
+
+The desktop app reads the signed manifest (`SnackPilot-manifest-<platform>.json`
+and its `.sig`) from the newest `desktop/vX.Y.Z` GitHub release. It checks on
+launch and every 24 hours while "Automatisch nach Updates suchen" is on (persisted,
+default on), and on "Jetzt prüfen". A candidate is accepted only after the Ed25519
+signature over the manifest verifies and, for the downloaded artifact, the SHA-256
+matches; on macOS the bundle is then also checked with
+`codesign --verify --deep --strict` (team `555V4MNLK3`), a validated stapled
+ticket and `spctl --assess`.
+
+Windows starts the verified installer and quits; macOS reveals the verified bundle
+in Finder. The app contacts GitHub Releases unauthenticated. The macOS bundle is
+never self-replaced, and the app never claims an update is installed.
 
 ## Release trust and packaging (macOS)
 
