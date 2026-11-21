@@ -70,7 +70,8 @@ if published:
     if not os.path.isfile(artifact):
         sys.exit(f"missing {platform} artifact {artifact}")
 else:
-    named = os.path.basename(str(receipt.get("artifact_path") or ""))
+    # The Windows receipt carries a Windows path; this script runs on Linux.
+    named = os.path.basename(str(receipt.get("artifact_path") or "").replace("\\", "/"))
     if not named:
         sys.exit(f"{platform} receipt names no artifact")
     artifact = os.path.join(directory, named)

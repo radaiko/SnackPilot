@@ -192,6 +192,25 @@ else
     fail "missing_published_macos_zip_fails_closed"
 fi
 
+# The Windows receipt names its installer by a Windows path, and the publish job
+# runs on Linux: taking the name from that path must not need Windows.
+# @req REQ-UPD-18
+root_winpath="$tmp/dist-winpath"; out_winpath="$tmp/update-winpath"
+make_tree "$root_winpath"
+win_exe="SnackPilot-$version-windows-x64-setup.exe"
+win_sha="$(sha256 "$root_winpath/desktop-windows/$win_exe")"
+cat > "$root_winpath/desktop-windows/native-build-receipt.json" <<EOF
+{"platform":"windows","architecture":"x86_64","version":"$version","build":"43",
+ "artifact_path":"C:\\\\Users\\\\ci\\\\dist\\\\windows\\\\$win_exe","trust_state":"unsigned","checksum":"$win_sha"}
+EOF
+if run_script "$root_winpath" "$out_winpath" SNACKPILOT_UPDATE_SIGNING_KEY="$THROWAWAY_KEY" > "$tmp/winpath.log" 2>&1 \
+    && [ "$(field "$out_winpath/SnackPilot-manifest-windows-x64.json" artifact)" = "$win_exe" ]; then
+    pass "windows_receipt_with_a_windows_path_is_read"
+else
+    fail "windows_receipt_with_a_windows_path_is_read"
+    cat "$tmp/winpath.log"
+fi
+
 # @req REQ-UPD-18
 root4="$tmp/dist-bom"; out4="$tmp/update-bom"
 make_tree "$root4"
