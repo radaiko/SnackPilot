@@ -31,24 +31,38 @@ Run `make check` before claiming done. Do not invent alternatives.
 
 ## The loop
 
-Every feature starts as an OpenSpec change written by `spec` with the human. The change
-declares its domain (`core`, `ui`, `architectural`) and every task its `tier`, `files`,
-`deps`, `reqs` and done bar. A goal session then runs the `dispatch` skill: one `coder`
-subagent per task, `make check`, one `review`, merge, tick.
+Every feature is an OpenSpec change in `openspec/changes/<id>`. The change declares its
+domain (`core`, `ui`, `architectural`) and every task its `tier`, `files`, `deps`, `reqs`
+and a done bar ending with `make check`. The Dispatch bot in Orca coordinates one change
+at a time: it starts the spec worker, gets the human's approval of the spec, then runs
+one coder worker per task, `make check`, one review, tick. It never writes code, specs
+or tests and never merges.
 
-| Step | Agent | Model |
+| Step | Worker | Model |
 | --- | --- | --- |
-| Spec | `spec` | DeepSeek V4.1 Flash; UI: GLM-5.3; architectural: Sonnet 5.5 · medium |
-| Dispatch | goal session + `dispatch` skill | DeepSeek Relace |
-| Code | `coder` | DeepSeek Relace |
-| Review | `review` | Sonnet 5.5 · low |
+| Design brief (`ui`, new surface or redesign) | codex | GPT-6.2 Sol, writes `docs/design/<slug>.md` first |
+| Spec, `core` | opencode | DeepSeek V4.1 Flash |
+| Spec, `ui` | codex | GPT-6.2 Sol |
+| Spec, `architectural` | claude | Claude Sonnet 5.5 · medium |
+| Code | opencode | DeepSeek V4.1 Flash |
+| Review | claude | Claude Sonnet 5.5 · low (GPT-6.2 Sol if Sol wrote the code) |
 
-- Integration branch is `main`; one task branch per change, merged when `make check` is
-  green and the review is `PASS`.
-- Two fix rounds per task, counting a red check and review findings together. Then the
-  task stops and goes to the human.
-- One task at a time; no worktrees.
-- The dispatcher runs `make check`; the reviewer gets that output and does not re-run it.
+- Integration branch is `main`. One Orca workspace and one branch `change/<id>` per
+  change, cut from `main`.
+- A spec worker touches only `openspec/` and `docs/`, runs
+  `openspec validate <id> --strict --no-interactive` and commits
+  `docs(openspec): add <id>`. No task starts before the human approves the spec.
+- One task at a time, in `deps` order. Each task is one commit on `change/<id>`
+  (`feat(<id>): <n.m> <title>`), touching only its `files:`. After review `PASS` the
+  task is ticked in `tasks.md` and the tick committed.
+- The coder runs `make check` and reports its output; the reviewer gets the task diff
+  and that output and does not re-run it. It answers `PASS` or `FAIL` with findings.
+- Escalation per task: two DeepSeek rounds (a red check and review findings count
+  together), then one attempt by a new GPT-6.2 Sol worker with all findings so far, then
+  the task stops and goes to the human. A stopped task stops the change. No other models.
+- When every task is ticked: `openspec archive <id>`, `make check` once more, push
+  `change/<id>` and open one pull request per change to `main`. The human merges it.
+- Workers never merge, never push to `main` and never force-push.
 
 ## Conventions
 
@@ -71,7 +85,7 @@ subagent per task, `make check`, one `review`, merge, tick.
 - [ ] every defect a review found is fixed with a test that fails without the fix
 - [ ] any new dependency is named in the task's `deps:` line
 - [ ] the diff stays within the task's stated files
-- [ ] the PR states the task id, the REQs covered and the `make check` output
+- [ ] the PR states the change id, its tasks, the REQs covered and the `make check` output
 
 ## Boundaries
 
