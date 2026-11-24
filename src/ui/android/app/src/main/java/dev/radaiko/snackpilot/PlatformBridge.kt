@@ -99,6 +99,11 @@ object PlatformBridge {
         }
     }
 
+    /** The live system appearance as `Configuration.uiMode`; Rust tests the
+     *  night bit (REQ-UI-05). */
+    @JvmStatic
+    fun uiMode(): Int = AppHolder.context.resources.configuration.uiMode
+
     // ---- credentials (REQ-PLT-01) ----
 
     @JvmStatic

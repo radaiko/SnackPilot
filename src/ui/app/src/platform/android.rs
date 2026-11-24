@@ -40,6 +40,13 @@ pub struct WireCommand {
     pub screen: String,
 }
 
+/// Whether Android's raw `Configuration.uiMode` selects the night theme
+/// (`UI_MODE_NIGHT_MASK` 0x30, `UI_MODE_NIGHT_YES` 0x20). Kept in Rust so the
+/// host tests pin it; Kotlin only hands the live value across (REQ-UI-05).
+pub fn is_dark_from_ui_mode(ui_mode: i32) -> bool {
+    ui_mode & 0x30 == 0x20
+}
+
 /// Marshal a core [`NotificationCommand`] into the plain-data wire form
 /// (REQ-PLT-02): the `screen` route crosses as an empty string when the
 /// command has none.
@@ -592,6 +599,16 @@ mod tests {
 
     // ---- wire marshalling -------------------------------------------------
 
+    /// @req REQ-UI-05 The system preference follows Android's night bit, so a
+    /// cold launch reads the configured system theme rather than light.
+    #[test]
+    fn dark_mode_follows_android_ui_mode() {
+        assert!(!is_dark_from_ui_mode(0x10)); // UI_MODE_NIGHT_NO
+        assert!(is_dark_from_ui_mode(0x20)); // UI_MODE_NIGHT_YES
+        assert!(is_dark_from_ui_mode(0x21)); // NIGHT_YES with an unrelated bit
+        assert!(!is_dark_from_ui_mode(0x00)); // UI_MODE_NIGHT_UNDEFINED
+    }
+
     /// @req REQ-PLT-02 FireNow marshals to kind 0 with channel; no channel
     /// becomes the empty string (Kotlin default-channel fallback).
     #[test]
@@ -1056,6 +1073,21 @@ mod jni_bridge {
         CLASSES.get().expect(
             "PlatformBridge.nativeCacheClass() must run on the Java main thread before JNI use",
         )
+    }
+
+    /// The live system appearance (REQ-UI-05). The pinned gpui-mobile layer
+    /// only reports a changed appearance after a configuration update, so a
+    /// cold launch in dark mode painted light until the first rotation; read
+    /// Android's own `uiMode` instead.
+    pub fn is_dark() -> bool {
+        let ui_mode = attach(|env| {
+            let value = call_static(env, "uiMode", jni::jni_sig!("()I"), &[])?;
+            match value {
+                JValueOwned::Int(ui_mode) => Ok(ui_mode),
+                _ => Ok(0),
+            }
+        });
+        super::is_dark_from_ui_mode(ui_mode.unwrap_or(0))
     }
 
     /// Read and clear a pending Java exception, returning its message. The
@@ -1765,7 +1797,7 @@ mod jni_bridge {
 }
 
 #[cfg(target_os = "android")]
-pub use jni_bridge::{install_debug_platform, install_debug_session, JniBridge};
+pub use jni_bridge::{install_debug_platform, install_debug_session, is_dark, JniBridge};
 
 /// Process-wide request registry the JNI resolvers resolve into; shared by
 /// every [`AndroidPlatform`] on the device.
