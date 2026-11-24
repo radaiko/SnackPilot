@@ -127,11 +127,14 @@ impl OrderStore {
     fn order_reminder_commands(&self, orders: &[OrderedMenu]) -> Vec<NotificationCommand> {
         let settings = cache::load_daily_reminder_settings(self.kv.as_ref());
         let at_company = cache::load_is_at_company(self.kv.as_ref());
+        let has_location = cache::load_company_location(self.kv.as_ref()).is_some();
         let mut commands = Vec::new();
         if let Some(c) = check_daily_reminder(self.clock.as_ref(), &settings, orders) {
             commands.push(c);
         }
-        if let Some(c) = check_cancel_reminder(self.clock.as_ref(), at_company, orders) {
+        if let Some(c) =
+            check_cancel_reminder(self.clock.as_ref(), at_company, has_location, orders)
+        {
             commands.push(c);
         }
         commands
@@ -329,6 +332,14 @@ mod tests {
         });
         cache::set_daily_reminder_enabled(kv.as_ref(), true);
         cache::set_daily_reminder_time(kv.as_ref(), 11, 0);
+        cache::save_company_location(
+            kv.as_ref(),
+            &crate::domain::CompanyLocation {
+                latitude: 48.2,
+                longitude: 16.37,
+            },
+        )
+        .unwrap();
         let store = OrderStore::new(g, kv.clone(), clock);
         t.queue_response(ok(ORDERS_PAGE));
         let cmds = store.fetch_orders().await.unwrap();
@@ -350,6 +361,28 @@ mod tests {
             NotificationCommand::ScheduleAt { id, .. } if id == DAILY_REMINDER_ID
         )));
         assert!(store.error().is_none());
+    }
+
+    // @req REQ-NTF-02
+    #[tokio::test]
+    async fn fetch_without_company_location_does_not_schedule_the_cancel_reminder() {
+        let t = Arc::new(CapturingTransport::new());
+        let g = logged_in_gourmet(&t).await;
+        let kv = Arc::new(MemoryKv::new());
+        let clock = Arc::new(FixedClock {
+            epoch_ms: vienna_ms(2026, 2, 10, 8, 0),
+        });
+        let store = OrderStore::new(g, kv, clock);
+        t.queue_response(ok(ORDERS_PAGE));
+        let cmds = store.fetch_orders().await.unwrap();
+        assert!(
+            !cmds.iter().any(|c| matches!(
+                c,
+                NotificationCommand::ScheduleAt { id, .. } | NotificationCommand::FireNow { id, .. }
+                    if id == CANCEL_REMINDER_ID
+            )),
+            "got {cmds:?}"
+        );
     }
 
     // @req REQ-NTF-02
@@ -396,6 +429,14 @@ mod tests {
         });
         cache::set_daily_reminder_enabled(kv.as_ref(), true);
         cache::set_daily_reminder_time(kv.as_ref(), 11, 0);
+        cache::save_company_location(
+            kv.as_ref(),
+            &crate::domain::CompanyLocation {
+                latitude: 48.2,
+                longitude: 16.37,
+            },
+        )
+        .unwrap();
         let store = OrderStore::new(g, kv.clone(), clock);
         // ORDERS_PAGE holds an order for 10.02.2026 → today at this clock.
         t.queue_response(ok(ORDERS_PAGE));

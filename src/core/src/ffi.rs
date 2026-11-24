@@ -276,14 +276,22 @@ impl SnackPilotCore {
         self.orders.run_order_sync_check()
     }
     pub fn cancel_reminder_command(&self, is_at_company: bool) -> Option<NotificationCommand> {
-        check_cancel_reminder(self.clock.as_ref(), is_at_company, &self.orders.orders())
+        let has_location = cache::load_company_location(self.kv.as_ref()).is_some();
+        check_cancel_reminder(
+            self.clock.as_ref(),
+            is_at_company,
+            has_location,
+            &self.orders.orders(),
+        )
     }
     pub fn geofence_commands(&self, event: GeofenceEvent) -> Vec<NotificationCommand> {
+        let location = cache::load_company_location(self.kv.as_ref());
         handle_geofence_event(
             event,
             self.clock.as_ref(),
             &self.orders.orders(),
             cache::load_location_reminder_time(self.kv.as_ref()),
+            location.is_some(),
         )
     }
 
