@@ -405,6 +405,18 @@ pub extern "C" fn snackpilot_animating() -> i32 {
     ANIMATING.load(std::sync::atomic::Ordering::Relaxed) as i32
 }
 
+/// The Android system back button, as a binding. gpui-mobile maps
+/// `KEYCODE_BACK` to the `escape` keystroke, so the mobile host registers the
+/// shell's existing Back action (dialog, batch, preview, settings detail) the
+/// desktop Esc key already uses (REQ-UI-11).
+pub(crate) fn mobile_key_bindings() -> Vec<gpui::KeyBinding> {
+    vec![gpui::KeyBinding::new(
+        "escape",
+        desktop::macos::MenuBack,
+        None,
+    )]
+}
+
 /// Mount the single spike Root: bundled Inter fonts, kit init, one window.
 ///
 /// Called exactly once per app start by each platform host (REQ-UI-03);
@@ -415,6 +427,7 @@ pub fn mount(cx: &mut App) {
         gallery::mount_gallery(cx, section);
         return;
     }
+    cx.bind_keys(mobile_key_bindings());
     cx.open_window(
         WindowOptions {
             window_bounds: None,
@@ -480,7 +493,25 @@ pub(crate) fn compact_column(
 
 #[cfg(all(test, not(any(target_os = "ios", target_os = "android"))))]
 mod tests {
-    use super::{compact_column, compact_width, desktop_content_width};
+    use super::{compact_column, compact_width, desktop_content_width, mobile_key_bindings};
+
+    /// The Android system back button arrives as the `escape` keystroke
+    /// (gpui-mobile maps `KEYCODE_BACK`), and the mobile shell registers it as
+    /// the same Back action the desktop Esc key uses (REQ-UI-11).
+    /// @req REQ-UI-11
+    #[test]
+    fn system_back_is_the_escape_back_action() {
+        let bindings = mobile_key_bindings();
+        let binding = bindings
+            .iter()
+            .find(|binding| binding.keystrokes()[0].unparse() == "escape")
+            .expect("the mobile keymap binds the Back keystroke");
+        assert_eq!(
+            binding.action().name(),
+            "snackpilot_desktop::MenuBack",
+            "back dispatches the shell's Back action"
+        );
+    }
 
     /// The desktop frame reports the live window width at every width, so the
     /// shell can centre the Day Tray column itself; the old 480 px cap below

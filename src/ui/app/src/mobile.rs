@@ -1,6 +1,15 @@
 //! Mobile host entry points for the spike (task 2.1 Android, task 2.2 iOS),
 //! following the gpui-mobile example at rev 0b882efdac7f524e0bb0b1d4c886b2aa752f9f20.
 
+/// Back at a root screen leaves the app. With predictive back opted out the
+/// system never finishes the activity itself: it forwards every Back press to
+/// the native key queue, so the shell has to hand the root-level one back to
+/// Android (SPI-3).
+#[cfg(target_os = "android")]
+pub(crate) fn leave_app() {
+    crate::platform::android::finish_activity();
+}
+
 #[cfg(target_os = "android")]
 mod android_host {
     use android_activity::AndroidApp;

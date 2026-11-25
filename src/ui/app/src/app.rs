@@ -1411,14 +1411,24 @@ impl AppShell {
 
     /// Back/Esc: close the dialog first, otherwise let the model unwind one
     /// layer (batch, preview, settings detail), never pending menu changes
-    /// (REQ-UI-11).
+    /// (REQ-UI-11). On Android a root-level Back leaves the app instead of the
+    /// desktop Esc no-op (SPI-3).
     pub(crate) fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog.is_some() {
             self.resolve_dialog(0, window, cx);
             return;
         }
         if let Some(model) = &self.model {
-            model.escape();
+            let action = model.escape();
+            // A root screen has nothing left to unwind: on Android the system
+            // Back then leaves the app, which the opt-out of predictive back
+            // makes the shell's job (SPI-3).
+            #[cfg(target_os = "android")]
+            if action == snackpilot_model::desktop::EscapeAction::Nothing {
+                crate::mobile::leave_app();
+            }
+            #[cfg(not(target_os = "android"))]
+            let _ = action;
         }
         cx.notify();
     }
