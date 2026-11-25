@@ -25,8 +25,12 @@ The core SHALL persist the daily-reminder enabled flag and time in its key-value
 After a successful orders fetch the core SHALL run the geofence-notice cancel, the daily-reminder check and the cancel-reminder check and return their commands to the caller; a failed fetch SHALL return none. Source: `orders.md` §8, `notifications-daily-reminder.md` §2, `notifications-cancel-reminder.md` §3.
 
 #### Scenario: Reminders scheduled after a fetch
-- **WHEN** the clock is 08:00 Vienna, the reminder is enabled for 11:00 and the fetched orders include one for today
+- **WHEN** the clock is 08:00 Vienna, a company location is saved, the reminder is enabled for 11:00 and the fetched orders include one for today
 - **THEN** the commands contain a `ScheduleAt` for `daily-order-reminder` and a `ScheduleAt` for `cancel-order-reminder`
+
+#### Scenario: No company location
+- **WHEN** no company location is saved and the fetched orders include one for today
+- **THEN** the commands contain no `ScheduleAt` or `FireNow` for `cancel-order-reminder`, and any pending one is cancelled
 
 #### Scenario: Geofence notice cancelled
 - **WHEN** the fetched orders include an order for today
@@ -45,11 +49,15 @@ After a successful orders fetch the core SHALL run the geofence-notice cancel, t
 - **THEN** the orders and the orders error are unchanged
 
 ### Requirement: REQ-NTF-03 One headless order-sync check
-The core SHALL expose one headless order-sync check that reads the cached orders without any network request and returns the daily-reminder and cancel-reminder commands. The FFI entry SHALL delegate to the orders store's implementation. Source: `notifications-daily-reminder.md` §2, `notifications-cancel-reminder.md` §3, `05-platform-services.md` §4.2.
+The core SHALL expose one headless order-sync check that reads the cached orders without any network request and returns the daily-reminder and cancel-reminder commands. The cancel-reminder decision SHALL require a saved company location. The FFI entry SHALL delegate to the orders store's implementation. Source: `notifications-daily-reminder.md` §2, `notifications-cancel-reminder.md` §2, §3, `05-platform-services.md` §4.2.
 
 #### Scenario: Empty cache retracts the cancel reminder
-- **WHEN** the cache holds no orders, the user is not at the company and the check runs
+- **WHEN** the cache holds no orders, a company location is saved, the user is not at the company and the check runs
 - **THEN** the only command is `CancelPending` for `cancel-order-reminder`
+
+#### Scenario: No company location retracts the cancel reminder
+- **WHEN** no company location is saved and the cache holds an order for today
+- **THEN** the check returns `CancelPending` for `cancel-order-reminder` and schedules nothing
 
 #### Scenario: Geofence cancel excluded
 - **WHEN** the cache holds an order for today and the check runs
