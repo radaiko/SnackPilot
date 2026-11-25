@@ -6,7 +6,9 @@ A local (on-device) notification that warns the user: *you have an order for tod
 at the office — do you want to cancel it?* It targets 08:45 Europe/Vienna and is hard-gated by
 Gourmet's 09:00 cancellation deadline. Purely client-side: no HTTP requests of its own — it reads
 order data already held by the orders feature and the geofence-derived "at company" flag from the
-location feature. Mobile-only in v1 (iOS + Android).
+location feature. It is active only while a company location is saved; without one the app cannot
+know whether the user is in the office, so it schedules nothing and retracts any pending reminder.
+Mobile-only in v1 (iOS + Android).
 
 There is **no design doc in `docs/plans/` for this feature**; the code is the only specification.
 
@@ -41,22 +43,23 @@ cancel reminder fires that day.** Nothing is ever scheduled for future days.
 
 Exact algorithm (v1: src/app/src-rn/utils/cancelReminderCheck.ts:22-36):
 
-1. Read `isAtCompany` from the location store and the in-memory `orders` array from the order
-   store (state as-is; this function performs no loading itself — callers are responsible for
-   populating the order store first, see §3).
+1. Read the saved company location, `isAtCompany` and the in-memory `orders` array from the
+   location/order stores (orders state as-is; this function performs no loading itself — callers
+   are responsible for populating the order store first, see §3).
 2. `hasOrderToday` = any order whose `date` is the same calendar day as `viennaToday()`
    (component-wise year/month/day comparison via `isSameDay`,
    v1: src/app/src-rn/utils/dateUtils.ts:55-61, 80-86). There is **no filter on approval status** —
    unapproved orders count.
-3. If `isAtCompany === true` **or** `hasOrderToday === false` → cancel any pending cancel-reminder
-   notification (cancellation errors are swallowed — "may not exist") and return.
-4. Otherwise (not at company **and** has an order today) → call
+3. If **no company location is saved**, `isAtCompany === true` **or** `hasOrderToday === false` →
+   cancel any pending cancel-reminder notification (cancellation errors are swallowed — "may not
+   exist") and return.
+4. Otherwise (location saved, not at company **and** has an order today) → call
    `scheduleCancelReminderNotification()` (§4). Errors from scheduling propagate to the caller
    (each caller catches them, §3).
 
-The check reads **no settings and no permissions**: no enabled flag, no configured time, no check
-that a company location exists, no notification-permission check. Gating is entirely structural
-(§7) plus the time guards in the scheduler (§4).
+The check reads **no settings and no notification permission**: no enabled flag, no configured
+time, no notification-permission check. Gating is structural — a saved company location (§7) and
+the time guards in the scheduler (§4).
 
 `isAtCompany` semantics (owned by `03-features/notifications-location.md`, summarized here because
 it is this feature's core input): initial value `false`; set `true`/`false` only by geofence
@@ -200,18 +203,20 @@ below. Activation is entirely indirect, via which trigger paths (§3) are live:
    (v1: src/app/app/_layout.tsx:75-78).
 2. **Daily reminder enabled**: toggling the daily reminder ON registers the background-sync task
    even without a company location (v1: src/app/app/notifications.tsx:116-133,
-   src/app/app/_layout.tsx:80-93), which activates trigger path 2 of §3 — and hence the cancel
-   reminder, since `checkCancelReminder()` itself has no enabled guard.
-3. **Foreground order fetch**: trigger path 1 of §3 is **always live on native** — it needs no
-   setting at all (v1: src/app/src-rn/store/orderStore.ts:70-86).
+   src/app/app/_layout.tsx:80-93), which activates trigger path 2 of §3. The cancel reminder itself
+   still does nothing without a saved company location (§2).
+3. **Foreground order fetch**: trigger path 1 of §3 runs after every successful fetch, but the
+   cancel reminder only schedules once a company location is saved (§2).
 
 Deactivation: removing the company location (`Standort entfernen`) clears the location, resets
 `isAtCompany` to `false`, and calls `disableNotifications()` → stops geofencing, unregisters the
 background-sync task, and calls `cancelAllScheduledNotificationsAsync()` — cancelling **all**
 pending notifications, including a pending cancel reminder
 (v1: src/app/app/notifications.tsx:179-182,
-src/app/src-rn/utils/notificationService.ts:298-302, 258-260). Trigger path 1 (foreground fetch)
-remains live even after this — see §10.1.
+src/app/src-rn/utils/notificationService.ts:298-302, 258-260). v2 retracts the pending geofence
+and cancel-reminder notifications instead of cancelling every app notification. Trigger path 1
+(foreground fetch) still runs after removal, but §2's location gate keeps it from scheduling
+anything — see §10.1.
 
 Permissions: the check/schedule path never requests or verifies notification permission;
 permission is only requested by the location-setup and daily-reminder-toggle flows (and by the
@@ -248,12 +253,13 @@ cancel, not schedule; not at company + order today → schedule, not cancel.
 
 Behavior an implementer must reproduce (or consciously change with a note):
 
-1. **Fires without location setup.** Because trigger path 1 (§3) is unconditional on native and
-   `isAtCompany` defaults to `false` when geofencing never ran, a user who has an order for today
-   and opens the app (fetching orders) before 09:00 gets the cancel reminder scheduled/fired even
-   if they never configured a company location (v1: src/app/src-rn/store/orderStore.ts:70-86,
-   src/app/src-rn/utils/cancelReminderCheck.ts:22-35). Same applies via the background-sync task
-   when only the daily reminder is enabled.
+1. **Does not fire without location setup.** v2 deliberately diverges from v1 here: v1 scheduled
+   the cancel reminder even when no company location was configured, because `isAtCompany`
+   defaults to `false` (v1: src/app/src-rn/store/orderStore.ts:70-86,
+   src/app/src-rn/utils/cancelReminderCheck.ts:22-35). v2 gates `checkCancelReminder()` on a saved
+   company location, so an order fetched without one never produces a "not in the office" reminder;
+   any pending reminder is retracted instead. This applies to foreground fetches and the
+   background-sync task alike (`docs/requirements/03-features/notifications-location.md` §1, §5).
 2. **Stale `isAtCompany`.** The flag only changes on geofence events (and location removal) and is
    persisted across restarts. If the OS misses an Exit event, the reminder is suppressed; if it
    misses an Enter event, the reminder fires despite the user being at the office. The 500 m

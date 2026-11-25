@@ -1,6 +1,7 @@
 //! Cancel-order reminder decision logic (03-features/notifications-cancel-reminder §2, §4).
-//! Pure: given the clock, `is_at_company`, and current orders → a NotificationCommand or None.
-//! Reads NO settings/permissions; gating is structural + the 08:45/09:00 Vienna windows.
+//! Pure: given the clock, `is_at_company`, whether a company location is saved, and current
+//! orders → a NotificationCommand or None. Reads NO settings/permissions; gating is structural
+//! (no saved location) + the 08:45/09:00 Vienna windows.
 use crate::datetime::{vienna_date_key, Clock};
 use crate::domain::OrderedMenu;
 use crate::notify::{NotificationCommand, CANCEL_REMINDER_ID, ORDER_REMINDERS_CHANNEL};
@@ -13,12 +14,13 @@ const SCREEN: &str = "/(tabs)/orders";
 const TARGET_MIN: i64 = 8 * 60 + 45;
 const DEADLINE_MIN: i64 = 9 * 60;
 
-/// §2 — decision. `is_at_company` or no-order-today → cancel any pending reminder; otherwise
-/// schedule/fire per the §4 windows (before 08:45 = schedule at target; 08:45–08:59 = fire now;
-/// at/after 09:00 = nothing).
+/// §2 — decision. No saved company location, `is_at_company` or no-order-today → cancel any
+/// pending reminder; otherwise schedule/fire per the §4 windows (before 08:45 = schedule at
+/// target; 08:45–08:59 = fire now; at/after 09:00 = nothing).
 pub fn check_cancel_reminder(
     clock: &dyn Clock,
     is_at_company: bool,
+    has_company_location: bool,
     orders: &[OrderedMenu],
 ) -> Option<NotificationCommand> {
     let now = clock.now_epoch_ms();
@@ -27,8 +29,8 @@ pub fn check_cancel_reminder(
         .iter()
         .any(|o| vienna_date_key(o.date_epoch_ms) == today);
 
-    // §2 step 3.
-    if is_at_company || !has_order_today {
+    // §2 step 3. Without a saved location the reminder cannot know what "im Büro" means.
+    if !has_company_location || is_at_company || !has_order_today {
         return Some(NotificationCommand::CancelPending {
             id: CANCEL_REMINDER_ID.to_string(),
         });
@@ -98,7 +100,7 @@ mod tests {
 
     #[test]
     fn at_company_cancels() {
-        let cmd = check_cancel_reminder(&clock_at(8, 0), true, &[order_today()]).unwrap();
+        let cmd = check_cancel_reminder(&clock_at(8, 0), true, true, &[order_today()]).unwrap();
         assert_eq!(
             cmd,
             NotificationCommand::CancelPending {
@@ -109,7 +111,7 @@ mod tests {
 
     #[test]
     fn no_order_today_cancels() {
-        let cmd = check_cancel_reminder(&clock_at(8, 0), false, &[]).unwrap();
+        let cmd = check_cancel_reminder(&clock_at(8, 0), false, true, &[]).unwrap();
         assert_eq!(
             cmd,
             NotificationCommand::CancelPending {
@@ -118,11 +120,24 @@ mod tests {
         );
     }
 
+    // @req REQ-NTF-02
+    #[test]
+    fn no_company_location_cancels_instead_of_scheduling() {
+        let cmd = check_cancel_reminder(&clock_at(8, 0), false, false, &[order_today()]);
+        assert_eq!(
+            cmd,
+            Some(NotificationCommand::CancelPending {
+                id: CANCEL_REMINDER_ID.into()
+            })
+        );
+    }
+
     #[test]
     fn before_target_schedules_with_channel() {
         let now = vienna_ms(2026, 2, 10, 8, 0);
         let cmd =
-            check_cancel_reminder(&FixedClock { epoch_ms: now }, false, &[order_today()]).unwrap();
+            check_cancel_reminder(&FixedClock { epoch_ms: now }, false, true, &[order_today()])
+                .unwrap();
         match cmd {
             NotificationCommand::ScheduleAt {
                 id,
@@ -145,7 +160,7 @@ mod tests {
 
     #[test]
     fn in_window_fires_now_without_channel() {
-        let cmd = check_cancel_reminder(&clock_at(8, 50), false, &[order_today()]).unwrap();
+        let cmd = check_cancel_reminder(&clock_at(8, 50), false, true, &[order_today()]).unwrap();
         match cmd {
             NotificationCommand::FireNow { id, channel_id, .. } => {
                 assert_eq!(id, CANCEL_REMINDER_ID);
@@ -157,7 +172,7 @@ mod tests {
 
     #[test]
     fn at_or_after_deadline_does_nothing() {
-        assert!(check_cancel_reminder(&clock_at(9, 0), false, &[order_today()]).is_none());
-        assert!(check_cancel_reminder(&clock_at(9, 30), false, &[order_today()]).is_none());
+        assert!(check_cancel_reminder(&clock_at(9, 0), false, true, &[order_today()]).is_none());
+        assert!(check_cancel_reminder(&clock_at(9, 30), false, true, &[order_today()]).is_none());
     }
 }

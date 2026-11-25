@@ -123,6 +123,11 @@ Handler for `COMPANY_GEOFENCE_TASK` events (v1: src/app/src-rn/utils/notificatio
 If the OS delivers an error, log it (`geofence`/`error`/`task_error` with the error message) and
 return (v1: src/app/src-rn/utils/notificationTasks.ts:30-33).
 
+v2 additionally treats the saved location as a hard gate at this boundary: if a stale or queued
+Enter/Exit event arrives after the location was removed, the handler delivers no location notice
+and retracts any pending geofence and cancel-reminder notification instead. This makes the "no
+location, no location notification" rule hold even when OS region monitoring outlives the removal.
+
 **ENTER** (v1: src/app/src-rn/utils/notificationTasks.ts:35-61), in this exact order:
 
 1. `setIsAtCompany(true)`; log `region_enter` (detail `isAtCompany=true`).
@@ -197,7 +202,10 @@ Boundary values locked by tests: 10:00 → immediate; 14:01 → skip; 8:00 → s
      the pending geofence notification whenever `hasOrderToday` becomes true — so ordering via the
      app before 08:45 retracts the reminder (v1: src/app/src-rn/store/orderStore.ts:69-78; errors
      swallowed with comment "notification service may not be available").
-  3. Removing the company location → `disableNotifications()` cancels **all** notifications (§3).
+  3. Removing the company location → v1's `disableNotifications()` cancelled **all** notifications
+     (§3); v2 retracts the pending geofence "no order" notice and the cancel reminder by id, so
+     neither location notice survives the removal. This also covers the case where the user removes
+     the location after a notice was already scheduled.
 - **Not retracted** when the user orders outside the app (other device / website) and never
   refreshes: the Enter-time snapshot of the cached orders decides, and only paths 1-3 can cancel
   afterwards. Also, cancelling by identifier only removes a *pending* notification — once fired
@@ -281,7 +289,8 @@ required:
   (v1: src/app/app/notifications.tsx:291-300, 72).
 - **Location saved**: status text `Firmenstandort gesetzt` and a danger-styled button
   `Standort entfernen`. Tapping it (no confirmation dialog) calls `clearCompanyLocation()` then
-  `await disableNotifications()` (v1: src/app/app/notifications.tsx:179-182, 282-290).
+  `await disableNotifications()` (v1: src/app/app/notifications.tsx:179-182, 282-290). In v2 the
+  removal also retracts both pending location notices (geofence "no order" and cancel reminder).
 - The saved coordinates are never displayed; there is no map, no radius setting, no time setting
   (v1: docs/plans/2026-02-24-location-notifications-design.md:64-69).
 
