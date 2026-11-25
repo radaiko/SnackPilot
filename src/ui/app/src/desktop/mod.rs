@@ -19,6 +19,7 @@ pub mod update;
 /// earlier run left under the Windows temp directory, before the model or any
 /// update traffic exists. Off Windows this is a no-op, so nothing under
 /// `~/Downloads` is touched (REQ-UPD-04).
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn launch_update_cleanup() {
     crate::platform::desktop::DesktopPlatform::new().update_launch_cleanup();
 }

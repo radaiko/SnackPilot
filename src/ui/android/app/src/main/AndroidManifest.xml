@@ -7,7 +7,8 @@
     - NativeActivity-based host so the lifecycle is driven from Rust.
     - android.app.lib_name selects the Rust cdylib (from build.gradle.kts).
     - configChanges keeps the Activity (and the single gpui-kit Root) alive
-      across rotation/keyboard/uiMode changes instead of recreating it (D11).
+      across keyboard/uiMode changes instead of recreating it (D11); rotation
+      is locked to portrait because no screen is responsive (SPI-1).
     - Permissions per 05-platform-services: INTERNET, POST_NOTIFICATIONS, the
       location trio for the company geofence (§10), RECEIVE_BOOT_COMPLETED
       (re-arm of background sync lands with the core wiring, task 3.5).
@@ -62,7 +63,7 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode|density"
             android:exported="true"
             android:launchMode="singleTask"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="portrait"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:windowSoftInputMode="adjustResize"
         >
