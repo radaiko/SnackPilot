@@ -32,7 +32,7 @@ The bridge SHALL execute the core's `FireNow`, `ScheduleAt` and `CancelPending` 
 - **THEN** a banner is still shown
 
 ### Requirement: REQ-PLT-03 Company geofence
-The bridge SHALL monitor one 500 m region with identifier `company` once a company location is saved, start it idempotently, and deliver Enter and Exit events to the model even when the OS relaunches the app in the background. The "Always" location permission flow and its German alerts SHALL match `04-ui-ux.md` §3.8.
+The bridge SHALL monitor one 500 m region with identifier `company` once a company location is saved, start it idempotently, and deliver Enter and Exit events to the model even when the OS relaunches the app in the background. Location notifications SHALL never be scheduled while no company location is saved; a stale Enter/Exit event SHALL retract pending location notices instead. The "Always" location permission flow and its German alerts SHALL match `04-ui-ux.md` §3.8.
 
 #### Scenario: Idempotent start
 - **WHEN** the app starts twice with a saved company location
@@ -41,6 +41,10 @@ The bridge SHALL monitor one 500 m region with identifier `company` once a compa
 #### Scenario: Background relaunch
 - **WHEN** the OS relaunches the app for a region Exit
 - **THEN** the model records is-at-company false and runs the core's decision functions
+
+#### Scenario: No saved location
+- **WHEN** a geofence Enter or Exit event arrives with no company location saved
+- **THEN** no location notification is scheduled or fired and pending location notices are retracted
 
 #### Scenario: Permission refused
 - **WHEN** only When-In-Use location is granted

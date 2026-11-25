@@ -76,6 +76,13 @@ object PlatformBridge {
 
     fun getActivity(): SnackPilotActivity? = activity
 
+    /** System Back at a root screen leaves the app (SPI-3). */
+    @JvmStatic
+    fun finishActivity(): String? = guard("finishActivity") {
+        val a = activity ?: return@guard
+        a.runOnUiThread { a.finish() }
+    }
+
     // Rust caches its JNI class lookups; must run on the Java main thread at
     // startup before any bridge call (SnackPilotActivity.onCreate).
     @JvmStatic external fun nativeCacheClass()

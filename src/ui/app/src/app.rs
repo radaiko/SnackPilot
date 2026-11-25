@@ -692,6 +692,11 @@ pub struct AppShell {
     pub(crate) rail_rows: [FocusHandle; 4],
     /// Screen heading focus target for a changed destination (REQ-UI-11).
     heading_focus: FocusHandle,
+    /// The shell root's focus target. Key bindings dispatch from the focused
+    /// node; with no focus only the tree root is on that path, below the shell.
+    /// The mobile host focuses this at mount so Back/Esc reach the shell
+    /// (SPI-3).
+    shell_focus: FocusHandle,
     pub(crate) settings_master: FocusHandle,
     /// One tab stop for the Bestellungen segment group: Left/Right select the
     /// neighbouring segment without wrapping (REQ-UI-11).
@@ -703,6 +708,12 @@ pub struct AppShell {
 }
 
 impl AppShell {
+    /// The focus target the mobile host sets at mount so key bindings reach
+    /// the shell before any dialog has taken focus (SPI-3).
+    pub(crate) fn shell_focus(&self) -> FocusHandle {
+        self.shell_focus.clone()
+    }
+
     /// The carousel a gesture belongs to.
     pub(crate) fn carousel(&mut self, page: CarouselPage) -> &mut Carousel {
         match page {
@@ -925,6 +936,7 @@ impl AppShell {
                 cx.focus_handle(),
             ],
             heading_focus: cx.focus_handle(),
+            shell_focus: cx.focus_handle(),
             settings_master: cx.focus_handle(),
             segment_group: cx.focus_handle(),
             appearance_design: cx.focus_handle(),
@@ -1433,14 +1445,24 @@ impl AppShell {
 
     /// Back/Esc: close the dialog first, otherwise let the model unwind one
     /// layer (batch, preview, settings detail), never pending menu changes
-    /// (REQ-UI-11).
+    /// (REQ-UI-11). On Android a root-level Back leaves the app instead of the
+    /// desktop Esc no-op (SPI-3).
     pub(crate) fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog.is_some() {
             self.resolve_dialog(0, window, cx);
             return;
         }
         if let Some(model) = &self.model {
-            model.escape();
+            let action = model.escape();
+            // A root screen has nothing left to unwind: on Android the system
+            // Back then leaves the app, which the opt-out of predictive back
+            // makes the shell's job (SPI-3).
+            #[cfg(target_os = "android")]
+            if action == snackpilot_model::desktop::EscapeAction::Nothing {
+                crate::mobile::leave_app();
+            }
+            #[cfg(not(target_os = "android"))]
+            let _ = action;
         }
         cx.notify();
     }
@@ -2035,7 +2057,12 @@ impl Render for AppShell {
             menu_dock_height,
         );
         let action_shell = cx.entity().clone();
-        let mut root = div().size_full().flex().flex_col().bg(theme.background);
+        let mut root = div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .track_focus(&self.shell_focus)
+            .bg(theme.background);
         // The compact Menüs dock, painted above the busy scrim once built; the
         // wide Ledger keeps its own pending strip and never sets this.
         let mut compact_dock: Option<AnyElement> = None;

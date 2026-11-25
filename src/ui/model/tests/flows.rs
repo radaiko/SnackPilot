@@ -179,6 +179,17 @@ fn clear_company_location_stops_geofence_and_clears_core() {
     );
     assert!(model.core().company_location().is_none());
     assert_eq!(model.state().company_location, None);
+    // Pending location notices are retracted, as v1's cancel-all did (§8).
+    let notifs = fake.notifications();
+    for id in ["geofence-no-order-reminder", "cancel-order-reminder"] {
+        assert!(
+            notifs.iter().any(|c| matches!(
+                c,
+                NotificationCommand::CancelPending { id: pending } if pending == id
+            )),
+            "missing cancel for {id}: {notifs:?}"
+        );
+    }
 }
 
 // ---- geofence handling (AppModel.swift:771-784) ----
@@ -187,6 +198,7 @@ fn clear_company_location_stops_geofence_and_clears_core() {
 #[test]
 fn geofence_exit_runs_core_decisions_and_updates_the_flag() {
     let (model, fake, _dir) = signed_in("geofence_exit");
+    model.core().set_company_location(48.2, 16.37);
     model.handle_geofence(GeofenceEvent::Exit);
     // handle_exit always cancels the pending no-order reminder first
     // (src/core/src/notify/geofence.rs:86-94).
@@ -205,6 +217,33 @@ fn geofence_exit_runs_core_decisions_and_updates_the_flag() {
 
     model.handle_geofence(GeofenceEvent::Enter);
     assert!(model.core().is_at_company());
+}
+
+// @req REQ-PLT-03
+#[test]
+fn geofence_events_without_a_saved_location_deliver_no_location_notice() {
+    let (model, fake, _dir) = signed_in("geofence_no_location");
+    for event in [GeofenceEvent::Enter, GeofenceEvent::Exit] {
+        model.handle_geofence(event);
+    }
+    let notifs = fake.notifications();
+    assert!(
+        !notifs.iter().any(|c| matches!(
+            c,
+            NotificationCommand::ScheduleAt { id, .. } | NotificationCommand::FireNow { id, .. }
+                if id == "geofence-no-order-reminder" || id == "cancel-order-reminder"
+        )),
+        "{notifs:?}"
+    );
+    for id in ["geofence-no-order-reminder", "cancel-order-reminder"] {
+        assert!(
+            notifs.iter().any(|c| matches!(
+                c,
+                NotificationCommand::CancelPending { id: pending } if pending == id
+            )),
+            "missing retraction for {id}: {notifs:?}"
+        );
+    }
 }
 
 // ---- daily reminder (AppModel.swift:668-709, notifications §7-§9) ----
