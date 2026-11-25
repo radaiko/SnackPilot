@@ -358,26 +358,48 @@ pub(crate) fn dispatch_refresh(model: &Arc<AppModel>, intent: RefreshIntent, cx:
 }
 
 /// Safe-area insets (top, bottom, left, right) in logical px, read from the
-/// host platform. Android asks the live window. iOS reads the inset of the GPUI
-/// view itself, which is the inset that is *left* for the content: the host
-/// anchors that view inside a UIKit view (`Host/App.swift`:
-/// `safeAreaLayoutGuide.topAnchor` and the keyboard layout guide), so the view's
-/// own `safeAreaInsets` is 0 once the status band and home indicator are already
-/// outside it, and the real notch value when it spans the screen. Desktop has
-/// none. Never add a device fallback on top of that measurement: assuming the
-/// 59/34 iPhone insets for an embedded view applies the status band a second
-/// time (task 1.3 review — the captured dead band under the status bar).
+/// host platform. Android asks the live window, and takes the larger of its
+/// content-rect and system-bar bottom insets: gesture navigation's transparent
+/// bar can leave the content rect at 0 while the gesture indicator still
+/// overlays the window (SPI-2). iOS reads the inset of the GPUI view itself,
+/// which is the inset that is *left* for the content: the host anchors that
+/// view inside a UIKit view (`Host/App.swift`: `safeAreaLayoutGuide.topAnchor`
+/// and the keyboard layout guide), so the view's own `safeAreaInsets` is 0 once
+/// the status band and home indicator are already outside it, and the real
+/// notch value when it spans the screen. Desktop has none. Never add a device
+/// fallback on top of that measurement: assuming the 59/34 iPhone insets for an
+/// embedded view applies the status band a second time (task 1.3 review — the
+/// captured dead band under the status bar).
 fn safe_area() -> (f32, f32, f32, f32) {
     #[cfg(target_os = "android")]
     {
-        if let Some(platform) = gpui_mobile::android::jni::platform() {
-            if let Some(window) = platform.primary_window() {
-                let insets = window.safe_area_insets_logical();
-                return (insets.top, insets.bottom, insets.left, insets.right);
+        let measured = {
+            if let Some(platform) = gpui_mobile::android::jni::platform() {
+                if let Some(window) = platform.primary_window() {
+                    let insets = window.safe_area_insets_logical();
+                    (insets.top, insets.bottom, insets.left, insets.right)
+                } else {
+                    gpui_mobile::safe_area_insets()
+                }
+            } else {
+                gpui_mobile::safe_area_insets()
             }
-        }
+        };
+        let (top, bottom, left, right) = measured;
+        return (
+            top,
+            crate::platform::android::bottom_inset(
+                bottom,
+                crate::platform::android::window_bottom_inset(),
+            ),
+            left,
+            right,
+        );
     }
-    gpui_mobile::safe_area_insets()
+    #[cfg(not(target_os = "android"))]
+    {
+        gpui_mobile::safe_area_insets()
+    }
 }
 
 /// Breathing room between the measured safe-area top and the compact screen's

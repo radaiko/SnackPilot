@@ -47,6 +47,15 @@ pub fn is_dark_from_ui_mode(ui_mode: i32) -> bool {
     ui_mode & 0x30 == 0x20
 }
 
+/// The bottom inset the shell must clear (REQ-UI-15). `content_bottom` is
+/// gpui-mobile's content-rect measurement; `window_bottom` is the Activity's
+/// live system-bar inset. Under gesture navigation the transparent system bar
+/// can leave the content rect reporting no bottom inset, so the larger value is
+/// the one that keeps the tab bar off the gesture indicator.
+pub fn bottom_inset(content_bottom: f32, window_bottom: Option<f32>) -> f32 {
+    content_bottom.max(window_bottom.unwrap_or(0.))
+}
+
 /// Marshal a core [`NotificationCommand`] into the plain-data wire form
 /// (REQ-PLT-02): the `screen` route crosses as an empty string when the
 /// command has none.
@@ -609,6 +618,18 @@ mod tests {
         assert!(!is_dark_from_ui_mode(0x00)); // UI_MODE_NIGHT_UNDEFINED
     }
 
+    /// @req REQ-UI-15 Gesture navigation's transparent system bar can leave the
+    /// content rect reporting no bottom inset; the live window inset is what
+    /// keeps the tab bar clear of the gesture indicator.
+    #[test]
+    fn bottom_inset_clears_the_gesture_indicator() {
+        assert_eq!(bottom_inset(0., Some(44.)), 44.);
+        assert_eq!(bottom_inset(44., Some(44.)), 44.);
+        assert_eq!(bottom_inset(44., Some(0.)), 44.);
+        assert_eq!(bottom_inset(44., None), 44.);
+        assert_eq!(bottom_inset(0., None), 0.);
+    }
+
     /// @req REQ-PLT-02 FireNow marshals to kind 0 with channel; no channel
     /// becomes the empty string (Kotlin default-channel fallback).
     #[test]
@@ -1088,6 +1109,28 @@ mod jni_bridge {
             }
         });
         super::is_dark_from_ui_mode(ui_mode.unwrap_or(0))
+    }
+
+    /// The Activity's live bottom system-bar inset in logical px (REQ-UI-15).
+    /// Reads the value cached from `WindowInsets` by
+    /// `SnackPilotActivity.installBottomInsetListener`.
+    pub fn window_bottom_inset() -> Option<f32> {
+        let px = attach(|env| {
+            let value = call_static(env, "bottomInsetPx", jni::jni_sig!("()I"), &[])?;
+            match value {
+                JValueOwned::Int(px) => Ok(px),
+                _ => Ok(0),
+            }
+        })
+        .ok()?;
+        if px <= 0 {
+            return None;
+        }
+        let scale = gpui_mobile::android::jni::platform()
+            .and_then(|platform| platform.primary_window())
+            .map(|window| window.scale_factor())
+            .unwrap_or(1.);
+        Some(px as f32 / scale.max(f32::EPSILON))
     }
 
     /// Read and clear a pending Java exception, returning its message. The
@@ -1813,7 +1856,9 @@ mod jni_bridge {
 }
 
 #[cfg(target_os = "android")]
-pub use jni_bridge::{install_debug_platform, install_debug_session, is_dark, JniBridge};
+pub use jni_bridge::{
+    install_debug_platform, install_debug_session, is_dark, window_bottom_inset, JniBridge,
+};
 
 /// Process-wide request registry the JNI resolvers resolve into; shared by
 /// every [`AndroidPlatform`] on the device.

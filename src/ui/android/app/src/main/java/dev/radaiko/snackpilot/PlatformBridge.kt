@@ -111,6 +111,20 @@ object PlatformBridge {
     @JvmStatic
     fun uiMode(): Int = AppHolder.context.resources.configuration.uiMode
 
+    /** Bottom system-bar inset in physical px, cached from the Activity's live
+     *  WindowInsets. The content rect can report no bottom inset under gesture
+     *  navigation, so the shell reserves this instead (REQ-UI-15). */
+    @Volatile
+    private var bottomInsetPxValue = 0
+
+    @JvmStatic
+    fun setBottomInsetPx(px: Int) {
+        bottomInsetPxValue = px
+    }
+
+    @JvmStatic
+    fun bottomInsetPx(): Int = bottomInsetPxValue
+
     // ---- credentials (REQ-PLT-01) ----
 
     @JvmStatic
