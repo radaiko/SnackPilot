@@ -108,15 +108,15 @@ object PlatformBridge {
      *  WindowInsets. The content rect can report no bottom inset under gesture
      *  navigation, so the shell reserves this instead (REQ-UI-15). */
     @Volatile
-    private var bottomInsetPx = 0
+    private var bottomInsetPxValue = 0
 
     @JvmStatic
     fun setBottomInsetPx(px: Int) {
-        bottomInsetPx = px
+        bottomInsetPxValue = px
     }
 
     @JvmStatic
-    fun bottomInsetPx(): Int = bottomInsetPx
+    fun bottomInsetPx(): Int = bottomInsetPxValue
 
     // ---- credentials (REQ-PLT-01) ----
 
