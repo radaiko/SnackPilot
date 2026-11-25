@@ -435,6 +435,7 @@ pub fn mount(cx: &mut App) {
         },
         |window, cx| {
             let content = cx.new(|cx| app::AppShell::new(shell_model(), cx));
+            window.focus(&content.read(cx).shell_focus(), cx);
             #[cfg(debug_assertions)]
             evidence::install_detail(&content, window, cx);
             cx.new(|cx| Root::new(content, window, cx))
