@@ -54,12 +54,25 @@ pub fn no_order_notification(
 
 /// §4 — dispatch a geofence event to the command sequence the shell must execute.
 /// (The shell has already loaded cached orders and updates `is_at_company`.)
+/// Without a saved company location no location notice may be delivered; retract any
+/// pending one instead, so a stale event cannot re-arm the reminder.
 pub fn handle_geofence_event(
     event: GeofenceEvent,
     clock: &dyn Clock,
     orders: &[OrderedMenu],
     target: LocationReminderTime,
+    has_company_location: bool,
 ) -> Vec<NotificationCommand> {
+    if !has_company_location {
+        return vec![
+            NotificationCommand::CancelPending {
+                id: GEOFENCE_REMINDER_ID.to_string(),
+            },
+            NotificationCommand::CancelPending {
+                id: crate::notify::CANCEL_REMINDER_ID.to_string(),
+            },
+        ];
+    }
     match event {
         GeofenceEvent::Enter => handle_enter(clock, orders, target),
         GeofenceEvent::Exit => handle_exit(clock, orders),
@@ -75,7 +88,7 @@ fn handle_enter(
 ) -> Vec<NotificationCommand> {
     let mut cmds = Vec::new();
     // step 4: checkCancelReminder with is_at_company=true always cancels.
-    if let Some(c) = check_cancel_reminder(clock, true, orders) {
+    if let Some(c) = check_cancel_reminder(clock, true, true, orders) {
         cmds.push(c);
     }
     // steps 5-6: only when there is no order for today.
@@ -97,7 +110,7 @@ fn handle_exit(clock: &dyn Clock, orders: &[OrderedMenu]) -> Vec<NotificationCom
     let mut cmds = vec![NotificationCommand::CancelPending {
         id: GEOFENCE_REMINDER_ID.to_string(),
     }];
-    if let Some(c) = check_cancel_reminder(clock, false, orders) {
+    if let Some(c) = check_cancel_reminder(clock, false, true, orders) {
         cmds.push(c);
     }
     cmds
@@ -192,8 +205,13 @@ mod tests {
 
     #[test]
     fn enter_no_order_cancels_cancel_reminder_and_schedules_no_order() {
-        let cmds =
-            handle_geofence_event(GeofenceEvent::Enter, &clock_at(8, 0), &[], default_target());
+        let cmds = handle_geofence_event(
+            GeofenceEvent::Enter,
+            &clock_at(8, 0),
+            &[],
+            default_target(),
+            true,
+        );
         // cancel cancel-reminder + schedule geofence no-order.
         assert!(cmds.iter().any(|c| matches!(
             c,
@@ -205,6 +223,20 @@ mod tests {
         )));
     }
 
+    // @req REQ-NTF-02
+    #[test]
+    fn no_company_location_retracts_instead_of_scheduling() {
+        for event in [GeofenceEvent::Enter, GeofenceEvent::Exit] {
+            let cmds = handle_geofence_event(event, &clock_at(8, 0), &[], default_target(), false);
+            assert_eq!(cmds.len(), 2, "{event:?}: got {cmds:?}");
+            assert!(cmds.iter().all(|c| matches!(
+                c,
+                NotificationCommand::CancelPending { id }
+                    if id == GEOFENCE_REMINDER_ID || id == CANCEL_REMINDER_ID
+            )));
+        }
+    }
+
     #[test]
     fn enter_with_order_only_cancels_cancel_reminder() {
         let cmds = handle_geofence_event(
@@ -212,6 +244,7 @@ mod tests {
             &clock_at(8, 0),
             &[order_today()],
             default_target(),
+            true,
         );
         assert_eq!(cmds.len(), 1);
         assert!(matches!(
@@ -227,6 +260,7 @@ mod tests {
             &clock_at(8, 0),
             &[order_today()],
             default_target(),
+            true,
         );
         assert!(matches!(
             &cmds[0],

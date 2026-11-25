@@ -2,6 +2,7 @@
 //! (src/ios/SnackPilot/AppModel.swift:713-784, notifications-location §7-§9).
 
 use snackpilot_core::domain::{CompanyLocation, GeofenceEvent};
+use snackpilot_core::notify::{NotificationCommand, CANCEL_REMINDER_ID, GEOFENCE_REMINDER_ID};
 
 use crate::state::Alert;
 use crate::AppModel;
@@ -84,6 +85,12 @@ impl AppModel {
     pub fn clear_company_location(&self) {
         let _ = self.platform.stop_geofence();
         self.core.clear_company_location();
+        // Retract pending location notices, matching v1's cancel-all on removal (§8).
+        for id in [GEOFENCE_REMINDER_ID, CANCEL_REMINDER_ID] {
+            let _ = self
+                .platform
+                .notify(NotificationCommand::CancelPending { id: id.to_string() });
+        }
         let _ = self
             .platform
             .track("notification.locationCleared", Default::default());
