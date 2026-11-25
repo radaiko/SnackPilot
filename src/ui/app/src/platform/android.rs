@@ -952,7 +952,7 @@ mod tests {
 /// A tapped notification can start the process before the shell model exists;
 /// `android_main` applies its screen once the model is installed.
 #[cfg(target_os = "android")]
-pub use jni_bridge::apply_pending_screen;
+pub use jni_bridge::{apply_pending_screen, finish_activity};
 
 #[cfg(target_os = "android")]
 mod jni_bridge {
@@ -1561,6 +1561,22 @@ mod jni_bridge {
         let screen = PENDING_SCREEN.lock().unwrap().take();
         if let (Some(screen), Some(model)) = (screen, crate::shell_model()) {
             model.open_screen(&screen);
+        }
+    }
+
+    /// Leave the app on a root-level system Back (SPI-3). The Kotlin bridge
+    /// finishes the Activity, so the task goes to the background exactly as
+    /// system back would.
+    pub fn finish_activity() {
+        if let Err(e) = attach(|env| {
+            call_check(
+                env,
+                "finishActivity",
+                jni::jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )
+        }) {
+            log::warn!("finishActivity failed: {e}");
         }
     }
 

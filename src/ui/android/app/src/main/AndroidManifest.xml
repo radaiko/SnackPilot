@@ -48,9 +48,14 @@
     <!-- Background sync re-arm after a reboot (notifications-location §3, §9.3). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- targetSdk 36 would route Back through predictive back and stop
+         dispatching KEYCODE_BACK, which the native input queue needs. The
+         shell owns back navigation (dialog, batch, preview, settings detail),
+         so opt out and keep the key event (SPI-3). -->
     <application
         android:name="dev.radaiko.snackpilot.SnackPilotApp"
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="false"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
         android:label="SnackPilot"
