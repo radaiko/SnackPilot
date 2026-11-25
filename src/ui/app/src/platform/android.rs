@@ -625,6 +625,7 @@ mod tests {
     fn bottom_inset_clears_the_gesture_indicator() {
         assert_eq!(bottom_inset(0., Some(44.)), 44.);
         assert_eq!(bottom_inset(44., Some(44.)), 44.);
+        assert_eq!(bottom_inset(44., Some(0.)), 44.);
         assert_eq!(bottom_inset(44., None), 44.);
         assert_eq!(bottom_inset(0., None), 0.);
     }
@@ -1123,7 +1124,7 @@ mod jni_bridge {
         })
         .ok()?;
         if px <= 0 {
-            return Some(0.);
+            return None;
         }
         let scale = gpui_mobile::android::jni::platform()
             .and_then(|platform| platform.primary_window())

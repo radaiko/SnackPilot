@@ -58,6 +58,9 @@ public class SnackPilotActivity extends NativeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         PlatformBridge.INSTANCE.setActivity(this);
+        // Installed before NativeActivity's super.onCreate starts the native
+        // app, so the first WindowInsets dispatch is cached before any frame.
+        installBottomInsetListener();
         if (!sNativeLibLoaded) {
             try {
                 // Query the real activity, not getComponentName(): launched from
@@ -84,7 +87,6 @@ public class SnackPilotActivity extends NativeActivity {
             sGeofencePump = inside -> nativeOnGeofenceEvent(inside);
         }
         super.onCreate(savedInstanceState);
-        installBottomInsetListener();
         forwardScreen(getIntent());
         String debug = getIntent() == null ? null : getIntent().getStringExtra("snackpilot.debug");
         // The activity is exported, so gate the exercise on FLAG_DEBUGGABLE:
