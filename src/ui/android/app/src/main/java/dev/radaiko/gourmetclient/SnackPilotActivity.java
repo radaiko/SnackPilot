@@ -6,8 +6,10 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.ActivityInfo;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.WindowInsets;
 
 import dev.radaiko.snackpilot.PlatformBridge;
 
@@ -82,6 +84,7 @@ public class SnackPilotActivity extends NativeActivity {
             sGeofencePump = inside -> nativeOnGeofenceEvent(inside);
         }
         super.onCreate(savedInstanceState);
+        installBottomInsetListener();
         forwardScreen(getIntent());
         String debug = getIntent() == null ? null : getIntent().getStringExtra("snackpilot.debug");
         // The activity is exported, so gate the exercise on FLAG_DEBUGGABLE:
@@ -93,6 +96,26 @@ public class SnackPilotActivity extends NativeActivity {
             Log.i("SnackPilotBridge", "debug exercise requested");
             nativeDebugExercise();
         }
+    }
+
+    /**
+     * The window's content rect can report no bottom inset when the system uses
+     * gesture navigation (the bar is transparent), which left the tab bar over
+     * the gesture indicator. Cache the live system-bar bottom inset for the
+     * shell instead (SPI-2); a three-button bar reports the same value here.
+     */
+    private void installBottomInsetListener() {
+        getWindow().getDecorView().setOnApplyWindowInsetsListener((view, insets) -> {
+            int bottom;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                bottom = insets.getInsets(WindowInsets.Type.systemBars()).bottom;
+            } else {
+                bottom = insets.getStableInsetBottom();
+            }
+            PlatformBridge.setBottomInsetPx(bottom);
+            return insets;
+        });
+        getWindow().getDecorView().requestApplyInsets();
     }
 
     @Override
