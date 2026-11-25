@@ -226,19 +226,15 @@ mod tests {
     // @req REQ-NTF-02
     #[test]
     fn no_company_location_retracts_instead_of_scheduling() {
-        let cmds = handle_geofence_event(
-            GeofenceEvent::Enter,
-            &clock_at(8, 0),
-            &[],
-            default_target(),
-            false,
-        );
-        assert_eq!(cmds.len(), 2, "got {cmds:?}");
-        assert!(cmds.iter().all(|c| matches!(
-            c,
-            NotificationCommand::CancelPending { id }
-                if id == GEOFENCE_REMINDER_ID || id == CANCEL_REMINDER_ID
-        )));
+        for event in [GeofenceEvent::Enter, GeofenceEvent::Exit] {
+            let cmds = handle_geofence_event(event, &clock_at(8, 0), &[], default_target(), false);
+            assert_eq!(cmds.len(), 2, "{event:?}: got {cmds:?}");
+            assert!(cmds.iter().all(|c| matches!(
+                c,
+                NotificationCommand::CancelPending { id }
+                    if id == GEOFENCE_REMINDER_ID || id == CANCEL_REMINDER_ID
+            )));
+        }
     }
 
     #[test]

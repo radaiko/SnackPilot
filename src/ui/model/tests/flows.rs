@@ -223,7 +223,9 @@ fn geofence_exit_runs_core_decisions_and_updates_the_flag() {
 #[test]
 fn geofence_events_without_a_saved_location_deliver_no_location_notice() {
     let (model, fake, _dir) = signed_in("geofence_no_location");
-    model.handle_geofence(GeofenceEvent::Enter);
+    for event in [GeofenceEvent::Enter, GeofenceEvent::Exit] {
+        model.handle_geofence(event);
+    }
     let notifs = fake.notifications();
     assert!(
         !notifs.iter().any(|c| matches!(
@@ -233,6 +235,15 @@ fn geofence_events_without_a_saved_location_deliver_no_location_notice() {
         )),
         "{notifs:?}"
     );
+    for id in ["geofence-no-order-reminder", "cancel-order-reminder"] {
+        assert!(
+            notifs.iter().any(|c| matches!(
+                c,
+                NotificationCommand::CancelPending { id: pending } if pending == id
+            )),
+            "missing retraction for {id}: {notifs:?}"
+        );
+    }
 }
 
 // ---- daily reminder (AppModel.swift:668-709, notifications §7-§9) ----

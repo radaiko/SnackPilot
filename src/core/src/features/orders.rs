@@ -383,6 +383,13 @@ mod tests {
             )),
             "got {cmds:?}"
         );
+        assert!(
+            cmds.iter().any(|c| matches!(
+                c,
+                NotificationCommand::CancelPending { id } if id == CANCEL_REMINDER_ID
+            )),
+            "the pending cancel reminder must be retracted, got {cmds:?}"
+        );
     }
 
     // @req REQ-NTF-02
