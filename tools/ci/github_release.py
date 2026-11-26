@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Publish a built desktop release as a GitHub Release.
 
-Forgejo does the building; GitHub is where the release is published. The script
-creates the release for the tag (GitHub creates the tag at the given commit if
-it does not exist yet), generates the notes from GitHub's own compare, then
-uploads the artifacts. Running it twice replaces the assets instead of failing,
-so a re-run after a failed upload is safe.
+GitHub Actions does the building; this script creates the release for the tag
+(GitHub creates the tag at the given commit if it does not exist yet), generates
+the notes from GitHub's own compare, then uploads the artifacts. Running it twice
+replaces the assets instead of failing, so a re-run after a failed upload is safe.
 
 Usage:
   GITHUB_TOKEN=... GITHUB_REPO=radaiko/SnackPilot TAG=desktop/v2.2.0 \
   TITLE="SnackPilot Desktop v2.2.0" BODY_FILE=notes.md \
-  python3 .forgejo/scripts/github_release.py dist/macos/*.zip dist/windows/*.exe
+  python3 tools/ci/github_release.py dist/macos/*.zip dist/windows/*.exe
 
 Never prints the token. GitHub's API answers with 4xx and a JSON message on
 failure, which is raised as an error with the message intact.

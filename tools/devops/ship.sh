@@ -105,7 +105,7 @@ fi
 
 # 5c. Desktop artifacts: CI builds them, so this only reports the trigger.
 if [[ $do_desktop -eq 1 ]]; then
-  info "Desktop: Forgejo builds macOS + Windows from the desktop/v$VERSION tag"
+  info "Desktop: GitHub Actions builds macOS + Windows from the desktop/v$VERSION tag"
   info "         and publishes the GitHub release; nothing is built here"
 fi
 

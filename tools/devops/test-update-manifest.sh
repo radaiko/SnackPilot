@@ -10,7 +10,7 @@ unset SNACKPILOT_UPDATE_SIGNING_KEY
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT="$ROOT/tools/devops/make-update-manifest.sh"
-WORKFLOW="$ROOT/.forgejo/workflows/desktop.yml"
+WORKFLOW="$ROOT/.github/workflows/desktop.yml"
 DOCS_FIXTURES="$ROOT/docs/fixtures/update"
 
 fails=0
@@ -280,12 +280,12 @@ step_env() { # step key
 run_step() { # step-file work calls published [VAR=value ...]
     local step="$1" work="$2" calls="$3" published="$4"
     shift 4
-    mkdir -p "$work/.forgejo/scripts" "$work/bin"
-    cat > "$work/.forgejo/scripts/github_release.py" <<PY
+    mkdir -p "$work/tools/ci" "$work/bin"
+    cat > "$work/tools/ci/github_release.py" <<PY
 import pathlib, sys
 pathlib.Path("$published").write_text("\n".join(sys.argv[1:]) + "\n")
 PY
-    chmod +x "$work/.forgejo/scripts/github_release.py"
+    chmod +x "$work/tools/ci/github_release.py"
     # `bash` in the step must be the real one, not the function of this test.
     local real_bash; real_bash="$(type -P bash)"
     cat > "$work/bin/bash" <<PY
@@ -312,10 +312,10 @@ workflow_signs() {
     chmod +x "$work/tools/devops/make-update-manifest.sh"
 
     # The step names the secret only through `secrets.` in its env, never in an
-    # `if:` (Forgejo hides secrets from expressions) and never with `set -x`.
+    # `if:` (runner secret handling is deliberately shell-only) and never with `set -x`.
     local sign; sign="$(job_block publish 'jobs:' | awk '/^      - name: Sign the update manifests/ { f = 1 } f && /^      - name:/ && !/Sign the update manifests/ { exit } f { print }')"
     [ "$(step_env "Sign the update manifests" SNACKPILOT_UPDATE_SIGNING_KEY)" \
-        = '${{ secrets.SNACKPILOT_UPDATE_SIGNING_KEY }}' ] || { echo "secret env"; return 1; }
+        = '${{ secrets.DESKTOP_UPDATE_SIGNING_KEY }}' ] || { echo "secret env"; return 1; }
     # grep -c, not grep -q: a silent SIGPIPE on the writer would fail `!` under
     # pipefail.
     [ "$(echo "$sign" | grep -c 'set -x')" = 0 ] || { echo "set -x"; return 1; }
