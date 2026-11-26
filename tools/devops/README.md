@@ -115,6 +115,25 @@ and any dry-run flag all fail without a receipt. Actual signature/notary,
 install/relaunch and artifact-size/startup evidence are recorded under
 `docs/evidence/desktop-ui-redesign/1.6/`.
 
+## iOS release pipeline (GitHub Actions)
+
+`.github/workflows/ios-publish.yml` archives a signed build on `ios/vX.Y.Z` and
+uploads the `.ipa` to App Store Connect, where it appears in TestFlight. The
+simulator-only `ios.yml` job stays as the per-PR check.
+
+- Signing: `IOS_DISTRIBUTION_P12_B64` + `IOS_DISTRIBUTION_P12_PASSWORD`, an
+  **Apple Distribution** identity exported from Xcode → Settings → Accounts →
+  Manage Certificates → Export. The profile is fetched automatically with
+  `-allowProvisioningUpdates`; authorisation uses the same App Store Connect API
+  key as notarization.
+- Build number: `CURRENT_PROJECT_VERSION` from `project.yml`. App Store Connect
+  rejects a number it has already seen for that version, so `make ship` must
+  bump it before the tag.
+- Internal TestFlight: the build is uploaded to the app but not assigned to a
+  beta group. Automatic internal distribution needs the App Store Connect API
+  (`betaGroups/<id>/relationships/builds`); that key must have the **App
+  Manager** role, while the notarization key was created with **Developer**.
+
 ## Desktop release pipeline (GitHub Actions)
 
 `.github/workflows/desktop.yml` builds the desktop app on GitHub Actions and
