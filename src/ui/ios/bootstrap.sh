@@ -29,9 +29,22 @@ for target in "${RUST_IOS_TARGETS:-aarch64-apple-ios-sim}"; do
   echo "==> cargo staticlib: snackpilot-app for $target ($profile)"
   # macOS ships bash 3.2, where an empty array under `set -u` is an error, so
   # the debug profile has to expand through the `+` form.
-  ( cd "$UI" && cargo rustc -p snackpilot-app --lib --target "$target" ${cargo_profile[@]+"${cargo_profile[@]}"} -- --crate-type=staticlib )
+  #
+  # Cargo 1.100 takes --crate-type as a cargo flag and uplifts the staticlib to
+  # $out; older releases only forward it to rustc after `--` and leave it in
+  # deps/. Try the new form first so the same script works on the runner and on
+  # the older Mac toolchain.
+  ( cd "$UI" && cargo rustc -p snackpilot-app --lib --target "$target" ${cargo_profile[@]+"${cargo_profile[@]}"} --crate-type=staticlib ) \
+    || ( cd "$UI" && cargo rustc -p snackpilot-app --lib --target "$target" ${cargo_profile[@]+"${cargo_profile[@]}"} -- --crate-type=staticlib )
   out="$UI/target/$target/$profile"
-  cp "$out/deps/libsnackpilot_app.a" "$out/libsnackpilot_app.a"
+  if [ ! -f "$out/libsnackpilot_app.a" ] && [ -f "$out/deps/libsnackpilot_app.a" ]; then
+    cp "$out/deps/libsnackpilot_app.a" "$out/libsnackpilot_app.a"
+  fi
+  [ -f "$out/libsnackpilot_app.a" ] || {
+    echo "error: no staticlib for $target under $out" >&2
+    ls -la "$out" "$out/deps" >&2 || true
+    exit 1
+  }
   ls -la "$out/libsnackpilot_app.a"
 done
 
