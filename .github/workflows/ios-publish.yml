@@ -1,0 +1,215 @@
+name: ios-publish
+
+# Archives a signed release build on an ios/v* tag and uploads the .ipa to App
+# Store Connect, where it shows up in TestFlight.
+#
+# Signing: an Apple Distribution identity (IOS_DISTRIBUTION_P12_B64 and its
+# password) plus the App Store Connect API key already used for notarization.
+# Automatic signing fetches the provisioning profile; the API key authorises it.
+#
+# Build numbers must increase: App Store Connect rejects a build number it has
+# already seen for the version, so bump CURRENT_PROJECT_VERSION (make ship does)
+# before tagging.
+
+on:
+  push:
+    tags: ["ios/v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version X.Y.Z (must match src/ui/ios/project.yml)"
+        required: true
+
+permissions:
+  contents: read
+
+# One upload at a time: two archives racing would fight over the same build
+# number.
+concurrency:
+  group: ios-publish
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-}"
+          if [ -z "$version" ]; then
+            case "$REF_NAME" in
+              ios/v*) version="${REF_NAME#ios/v}" ;;
+              *) echo "run from an ios/vX.Y.Z tag or pass the version input" >&2; exit 1 ;;
+            esac
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid version '$version'" >&2; exit 1; }
+          expected="$(awk '$1 == "MARKETING_VERSION:" { gsub(/"/, "", $2); print $2; exit }' src/ui/ios/project.yml)"
+          [ "$version" = "$expected" ] || {
+            echo "tag/input version $version does not match project.yml MARKETING_VERSION $expected" >&2
+            exit 1
+          }
+          build="$(awk '$1 == "CURRENT_PROJECT_VERSION:" { gsub(/"/, "", $2); print $2; exit }' src/ui/ios/project.yml)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "archiving $version ($build)"
+
+      - name: Require the distribution identity
+        env:
+          P12_B64: ${{ secrets.IOS_DISTRIBUTION_P12_B64 }}
+          P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          ASC_KEY_B64: ${{ secrets.APP_STORE_CONNECT_API_KEY_B64 }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "$P12_B64" ] || missing+=(IOS_DISTRIBUTION_P12_B64)
+          [ -n "$P12_PASSWORD" ] || missing+=(IOS_DISTRIBUTION_P12_PASSWORD)
+          [ -n "$ASC_KEY_B64" ] || missing+=(APP_STORE_CONNECT_API_KEY_B64)
+          [ -n "$ASC_KEY_ID" ] || missing+=(APP_STORE_CONNECT_API_KEY_ID)
+          [ -n "$ASC_ISSUER_ID" ] || missing+=(APP_STORE_CONNECT_ISSUER_ID)
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error::missing secrets: ${missing[*]}"
+            echo "Export an 'Apple Distribution' identity from Xcode (Settings > Accounts > Manage Certificates) as .p12 and store it base64-encoded." >&2
+            exit 1
+          fi
+
+      - name: Install the Rust device target
+        run: rustup target add aarch64-apple-ios
+
+      - name: Install xcodegen
+        run: command -v xcodegen >/dev/null || brew install xcodegen
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/ui/target
+          key: ${{ runner.os }}-cargo-ios-publish-${{ hashFiles('src/ui/Cargo.lock') }}
+
+      # A throwaway keychain, like ci-signing.sh does for the macOS release: the
+      # identity never stays on the runner past the job.
+      - name: Import the distribution identity
+        env:
+          P12_B64: ${{ secrets.IOS_DISTRIBUTION_P12_B64 }}
+          P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/snackpilot-ios-$(openssl rand -hex 4).keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          printf '%s' "$P12_B64" | base64 --decode > "$RUNNER_TEMP/ios-distribution.p12"
+          security import "$RUNNER_TEMP/ios-distribution.p12" -k "$KEYCHAIN" \
+            -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning
+
+      - name: Write the App Store Connect key
+        env:
+          ASC_KEY_B64: ${{ secrets.APP_STORE_CONNECT_API_KEY_B64 }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s' "$ASC_KEY_B64" | base64 --decode \
+            > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: Build the Rust core for the device
+        working-directory: src/ui/ios
+        env:
+          RUST_IOS_TARGETS: aarch64-apple-ios
+          RUST_IOS_PROFILE: release
+        run: ./bootstrap.sh
+
+      - name: Archive
+        working-directory: src/ui/ios
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/ci
+          xcodebuild -project SnackPilot.xcodeproj -scheme SnackPilot \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/ci/SnackPilot.xcarchive \
+            CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=555V4MNLK3 \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            archive
+
+      - name: Export the ipa
+        working-directory: src/ui/ios
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cat > build/ci/ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>555V4MNLK3</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/ci/SnackPilot.xcarchive \
+            -exportOptionsPlist build/ci/ExportOptions.plist \
+            -exportPath build/ci/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          ls -l build/ci/export
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp build/ci/export/*.ipa "$GITHUB_WORKSPACE/dist/SnackPilot-${VERSION}.ipa"
+
+      - name: Upload to App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app --type ios \
+            --file "dist/SnackPilot-${VERSION}.ipa" \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Keep the ipa
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release
+          path: dist/*.ipa
+          retention-days: 7
