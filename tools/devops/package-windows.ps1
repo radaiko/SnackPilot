@@ -3,7 +3,7 @@
   Build the Windows x64 app and the per-user NSIS installer on Windows.
 
 .DESCRIPTION
-  Runs on the `windows` Forgejo runner (native MSVC). Nothing here cross-builds:
+  Runs on the `windows-latest` GitHub runner (native MSVC). Nothing here cross-builds:
   a Linux cross-build of gpui-pre is not possible, because its build script
   hands llvm-rc a manifest path relative to the crate root while running the
   compiler from the build output directory.

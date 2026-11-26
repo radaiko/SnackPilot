@@ -44,7 +44,7 @@ Both rerun the platform `bootstrap.sh` only when `src/core/src` changed since th
 - `make ios-archive` — build a signed release archive, export `dist/SnackPilot-<version>.ipa` with App Store signing, and (with `ORGANIZER_OPEN=1`) also open **Xcode Organizer**. Upload the `.ipa` with `xcrun altool --upload-app -f dist/SnackPilot-<version>.ipa -t ios --apiKey <id> --apiIssuer <issuer>`, or drop it on Transporter; the build then lands in **TestFlight**. Build numbers auto-increment and never go below `project.yml`'s `CURRENT_PROJECT_VERSION`; `IOS_TEAM=<id>` overrides the team.
 - `make android-keystore` — one-time: generate the signed-release keystore. Back up `src/ui/android/app/snackpilot-release.jks` + `src/ui/android/keystore.properties`.
 - `make android-upload` — push an `.aab` to Google Play with the Play Developer API: `TRACK=alpha` by default, `AAB=dist/store/SnackPilot-X.Y.Z.aab` overrides the file, and the service-account key is read from `SNACKPILOT_PLAY_SA` (default `~/ci/play-sa.json`). The service account is `snackpilot-play@play-publish-487619.iam.gserviceaccount.com` (GCP project `play-publish`); in Play Console it holds **Release apps to testing tracks** for Snack Pilot only — no production, no admin, no account-wide rights. Promotion from `alpha` to production stays a manual Play Console step.
-- `.forgejo/workflows/android-publish.yml` — the same build on an `android/v*` tag, uploading to `alpha`. Repository secrets: `SNACKPILOT_PLAY_SA_JSON`, `SNACKPILOT_ANDROID_KEYSTORE_B64`, `SNACKPILOT_ANDROID_STORE_PASSWORD`, `SNACKPILOT_ANDROID_KEY_ALIAS`, `SNACKPILOT_ANDROID_KEY_PASSWORD`. A Forgejo secret stores the `data` string verbatim — the runner sees exactly what was sent — so pass base64 **text** for the two binary payloads (the workflow base64-decodes them once) and plain text for the passwords. `workflow_dispatch` with `dry_run` builds without publishing.
+- `.github/workflows/android-publish.yml` — the same build on an `android/v*` tag, uploading to `alpha`. Repository secrets: `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64`, `ANDROID_SIGNING_KEYSTORE_B64`, `ANDROID_SIGNING_KEYSTORE_PASSWORD`, `ANDROID_SIGNING_KEY_ALIAS`, `ANDROID_SIGNING_KEY_PASSWORD`. A GitHub secret stores the text verbatim, so pass base64 **text** for the two binary payloads (the workflow base64-decodes them once) and plain text for the passwords. `workflow_dispatch` with `dry_run` builds without publishing.
 - `make ship` — one command for the next release of both platforms. Prompts for a new semver
   (must be > the last) + platforms, bumps `Cargo.toml` / `project.yml` / `build.gradle.kts` + the
   shared build number (iOS `CURRENT_PROJECT_VERSION` / Android `versionCode`, auto-incrementing),
@@ -115,19 +115,19 @@ and any dry-run flag all fail without a receipt. Actual signature/notary,
 install/relaunch and artifact-size/startup evidence are recorded under
 `docs/evidence/desktop-ui-redesign/1.6/`.
 
-## Desktop release pipeline (Forgejo → GitHub)
+## Desktop release pipeline (GitHub Actions)
 
-`.forgejo/workflows/desktop.yml` builds the desktop app on Forgejo and publishes
-it as a GitHub Release. Trigger: the tag `desktop/vX.Y.Z` (created by
+`.github/workflows/desktop.yml` builds the desktop app on GitHub Actions and
+publishes it as a GitHub Release. Trigger: the tag `desktop/vX.Y.Z` (created by
 `make ship` when Desktop is selected) or a manual run with the version. The
 version must equal `MARKETING_VERSION` in `src/ui/ios/project.yml`, so a tag can
 never ship a build that reports a different version.
 
 | Job | Runner | Produces |
 | --- | --- | --- |
-| `macos` | `macos` (MacBook) | `SnackPilot-{version}-macos-arm64.zip` via `tools/devops/package-macos-unsigned.sh` |
-| `windows` | `windows` (Windows 11) | `SnackPilot-{version}-windows-x64-setup.exe` + `.sha256` via `tools/devops/package-windows.ps1` |
-| `publish` | `android` | the GitHub Release, via `.forgejo/scripts/github_release.py` |
+| `macos` | `macos-26` | `SnackPilot-{version}-macos-arm64.zip` via `tools/devops/package-macos.sh` (or `package-macos-unsigned.sh` without signing secrets) |
+| `windows` | `windows-latest` | `SnackPilot-{version}-windows-x64-setup.exe` + `.sha256` via `tools/devops/package-windows.ps1` |
+| `publish` | `ubuntu-latest` | the GitHub Release, via `tools/ci/github_release.py` |
 
 The macOS artifact is signed, notarized and stapled **as soon as the five
 signing secrets exist** (below); until then the job falls back to
@@ -143,11 +143,11 @@ private key never sits on the runner:
 
 | Secret | Value |
 | --- | --- |
-| `SNACKPILOT_DEV_ID_P12` | base64 of the exported `Developer ID Application` identity |
-| `SNACKPILOT_DEV_ID_P12_PASSWORD` | its export password |
-| `SNACKPILOT_ASC_KEY` | base64 of an App Store Connect API key (`.p8`) |
-| `SNACKPILOT_ASC_KEY_ID` | that key's Key ID |
-| `SNACKPILOT_ASC_ISSUER_ID` | the issuer UUID from App Store Connect |
+| `MACOS_DEVELOPER_ID_P12_B64` | base64 of the exported `Developer ID Application` identity |
+| `MACOS_DEVELOPER_ID_P12_PASSWORD` | its export password |
+| `APP_STORE_CONNECT_API_KEY_B64` | base64 of an App Store Connect API key (`.p8`) |
+| `APP_STORE_CONNECT_API_KEY_ID` | that key's Key ID |
+| `APP_STORE_CONNECT_ISSUER_ID` | the issuer UUID from App Store Connect |
 
 `ci-signing.sh` passes the key straight to `notarytool submit` instead of
 storing a keychain profile: the runner is a LaunchDaemon user with no default
@@ -163,31 +163,22 @@ role; notarization needs nothing more.
 
 ### Secrets and runners
 
-- **`GH_RELEASE_TOKEN`** (repository secret): a GitHub fine-grained PAT for
-  `radaiko/SnackPilot` with `Contents: Read and write`. Only the `publish` job
-  uses it; nothing else talks to GitHub.
-- **`windows` runner**: Windows 11, the runner installed as a service under a
-  user that has `cargo` on its PATH, plus:
-  - Rust with the `x86_64-pc-windows-msvc` target and Visual Studio Build Tools
-    (the MSVC linker; `rustup default stable-msvc`).
-  - NSIS 3 (`makensis`) on PATH — `choco install nsis` or the 3.x installer
-    from sourceforge. The job fails with a clear message if it is missing.
+- **`GITHUB_TOKEN`**: the publish job requests `contents: write`; the workflow
+  uses the built-in token, so no release PAT is needed.
+- **`windows-latest`**: Rust with the `x86_64-pc-windows-msvc` target and Visual
+  Studio Build Tools are preinstalled. The workflow installs NSIS 3
+  (`choco install nsis`) and puts `makensis` on PATH when it is missing.
 - Windows is deliberately **not** cross-compiled from Linux: `gpui-pre`'s
   resource step hands `llvm-rc` `resources/windows/gpui.manifest.xml` relative
   to the crate root while running from the build output directory, which fails
   for any cross-build. Do not reintroduce `cargo xwin` for this app.
 
-### When a job sits at "no task"
+### Actions setup
 
-A job whose dependencies are green but that never gets a task is usually queue
-starvation, not a workflow fault. The recurring `issue-sync` workflow has been
-observed to run forever (`forgejo_all()` in `.forgejo/scripts/issue_sync.py`
-increments `page` and only stops on an empty page, while this Forgejo keeps
-answering), and each stuck instance holds a runner slot. Check for a long-running
-`issue-sync` task first; the runners only accept new work once it is freed.
-Forgejo's API has no cancel route for a run, and the `ci` runner is
-outbound-only behind nftables, so the stuck job can only be cancelled in the web
-UI.
+Repository settings → Actions must be enabled. All job inputs are repository
+secrets (Settings → Secrets and variables → Actions): the macOS signing trio,
+the Android keystore quartet, the Play service account, and
+`DESKTOP_UPDATE_SIGNING_KEY`.
 
 ### Running it without a tag
 
@@ -210,7 +201,7 @@ sorted-key ASCII JSON plus a 64-byte Ed25519 signature as lowercase hex, next to
   no macOS manifest and a warning: the app re-verifies the bundle and must not offer
   an unsigned one. A missing key, a missing receipt/artifact or a receipt for another
   version fails the run, and nothing is written for that platform.
-- The key is read from `SNACKPILOT_UPDATE_SIGNING_KEY` (PKCS#8 PEM, Ed25519), written
+- The key is read from the `SNACKPILOT_UPDATE_SIGNING_KEY` environment variable (PKCS#8 PEM, Ed25519), written
   to a mode-600 `mktemp` file and removed on every exit path; OpenSSL 3.x signs with
   `pkeyutl -sign -rawin`, and each signature is verified against the derived public
   key before anything is published. Never echo the variable or run this script under
@@ -224,7 +215,7 @@ with the app's own verifier.
 ### Signing key
 
 The workflow's "Sign the update manifests" step needs the repository secret
-`SNACKPILOT_UPDATE_SIGNING_KEY`. Generate an Ed25519 key once, offline:
+`DESKTOP_UPDATE_SIGNING_KEY`. Generate an Ed25519 key once, offline:
 
 ```sh
 openssl genpkey -algorithm Ed25519 -out update-signing-key.pem
