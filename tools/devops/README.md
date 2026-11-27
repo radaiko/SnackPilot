@@ -121,11 +121,15 @@ install/relaunch and artifact-size/startup evidence are recorded under
 uploads the `.ipa` to App Store Connect, where it appears in TestFlight. The
 simulator-only `ios.yml` job stays as the per-PR check.
 
-- Signing: `IOS_DISTRIBUTION_P12_B64` + `IOS_DISTRIBUTION_P12_PASSWORD`, an
-  **Apple Distribution** identity exported from Xcode → Settings → Accounts →
-  Manage Certificates → Export. The profile is fetched automatically with
-  `-allowProvisioningUpdates`; authorisation uses the same App Store Connect API
-  key as notarization.
+- Signing is manual: `IOS_DISTRIBUTION_P12_B64` + `IOS_DISTRIBUTION_P12_PASSWORD`
+  (an **Apple Distribution** identity exported from Xcode → Settings → Accounts →
+  Manage Certificates → Export) and `IOS_PROVISIONING_PROFILE_B64` (an active
+  **App Store** profile for `dev.radaiko.gourmetclient`). Cloud signing is
+  deliberately not used: it needs an Admin-role API key, while the notarization
+  key is Developer-scoped.
+- A `.p12` re-exported with OpenSSL 3 uses PBES2/AES-256, which `security import`
+  rejects as a MAC failure; the workflow falls back to re-encoding the container
+  with the legacy cipher set.
 - Build number: `CURRENT_PROJECT_VERSION` from `project.yml`. App Store Connect
   rejects a number it has already seen for that version, so `make ship` must
   bump it before the tag.
