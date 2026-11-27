@@ -209,14 +209,13 @@ jobs:
           </dict>
           </plist>
           PLIST
+          # Export from the profile the archive already carries. Asking for
+          # provisioning updates here needs cloud-signing rights the API key
+          # does not have, and the archive is signed for distribution already.
           xcodebuild -exportArchive \
             -archivePath build/ci/SnackPilot.xcarchive \
             -exportOptionsPlist build/ci/ExportOptions.plist \
-            -exportPath build/ci/export \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            -exportPath build/ci/export
           ls -l build/ci/export
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp build/ci/export/*.ipa "$GITHUB_WORKSPACE/dist/SnackPilot-${VERSION}.ipa"
